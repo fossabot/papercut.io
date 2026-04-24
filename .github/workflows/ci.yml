@@ -6,12 +6,22 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -46,6 +56,7 @@ jobs:
         run: npm ci
 
       - name: Lint
+        if: matrix.platform == 'linux'
         run: npm run lint
 
       - name: Build frontend + Pagefind index
@@ -54,9 +65,26 @@ jobs:
       - name: Build Tauri app
         run: npm run tauri:build
 
-      - name: Upload .deb artifact
+      - name: Upload .deb artifact (Linux)
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
           name: papercut-linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
+          retention-days: 7
+
+      - name: Upload .msi artifact (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: papercut-windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 7
+
+      - name: Upload NSIS .exe artifact (Windows)
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: papercut-windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*.exe
           retention-days: 7
