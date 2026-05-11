@@ -192,10 +192,12 @@ npm run tauri:android:build
 The APK is output to:
 
 ```
-src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
 
-To sideload on an Android device, enable **Install unknown apps** in Settings and transfer the `.apk` file directly (via USB, ADB, or file share). The APK is unsigned so it cannot be distributed through the Play Store.
+The `--debug` flag signs the APK automatically with a debug keystore, which is required for sideloading. Unsigned release APKs are silently rejected by Android at install time.
+
+To sideload on an Android device, enable **Install unknown apps** in Settings and transfer the `.apk` file directly (via USB, ADB, or file share).
 
 ### Frontend-only build
 

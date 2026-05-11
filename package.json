@@ -10,7 +10,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:android:build": "tauri android build --apk",
+    "tauri:android:build": "tauri android build --apk --debug",
     "lint": "eslint .",
     "preview": "vite preview"
   },
