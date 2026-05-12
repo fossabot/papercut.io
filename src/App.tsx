@@ -299,11 +299,26 @@ function App() {
   if (selectedDoc) {
     return (
       <div className="app">
-        <header className="header">
-          <button className="back-button" onClick={() => setSelectedDoc(null)}>
-            &larr; Back to results
-          </button>
-          <h1 className="app-title">Papercut</h1>
+        <header className="header doc-header">
+          <div className="header-left">
+            <button className="back-button" onClick={() => setSelectedDoc(null)}>
+              &larr; Back
+            </button>
+          </div>
+          <div className="header-center">
+            <h1 className="app-title">Papercut</h1>
+          </div>
+          <div className="header-right">
+            <button
+              className="find-btn"
+              onClick={() => {
+                setShowFind(true)
+                setTimeout(() => findInputRef.current?.focus(), 0)
+              }}
+            >
+              &#128269; Find
+            </button>
+          </div>
         </header>
 
         {showFind && (
