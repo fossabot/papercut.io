@@ -284,11 +284,29 @@
   font-size: 0.95rem;
 }
 
+.doc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  margin-bottom: 2rem;
+}
+
+.header-left,
+.header-right {
+  flex: 1;
+}
+
+.header-center {
+  flex: 0 0 auto;
+}
+
+.header-right {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .back-button {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
   background: none;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -297,6 +315,7 @@
   cursor: pointer;
   color: #4b5563;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .back-button:hover {
@@ -304,9 +323,26 @@
   color: #6366f1;
 }
 
+.find-btn {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #4b5563;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.find-btn:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
 .find-bar {
   position: fixed;
-  top: 0;
+  top: env(safe-area-inset-top);
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -385,7 +421,7 @@
 
 .scroll-top-btn {
   position: fixed;
-  bottom: 2rem;
+  bottom: calc(2rem + env(safe-area-inset-bottom));
   right: 2rem;
   background: #6366f1;
   color: #fff;

@@ -66,6 +66,47 @@ sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-
 sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
 ```
 
+### Android Prerequisites
+
+Required to build the Android APK:
+
+| Tool        | Minimum Version |
+|-------------|-----------------|
+| Java (JDK)  | 17              |
+| Android SDK | API 24+         |
+| Android NDK | 29.0.13846066   |
+
+**Install Java 17:**
+
+```bash
+# Ubuntu/Debian
+sudo apt install openjdk-17-jdk
+
+# Arch-based
+sudo pacman -S jdk17-openjdk
+```
+
+**Install Android SDK and NDK:**
+
+Install [Android Studio](https://developer.android.com/studio) (recommended) or the command-line tools only. Then install the NDK via SDK Manager:
+
+```bash
+sdkmanager "ndk;29.0.13846066"
+```
+
+**Install Rust Android targets** (one-time):
+
+```bash
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+```
+
+**Set required environment variables:**
+
+```bash
+export ANDROID_HOME=$HOME/Android/Sdk
+export NDK_HOME=$ANDROID_HOME/ndk/29.0.13846066
+```
+
 ### System Dependencies (Windows)
 
 Tauri on Windows needs two things beyond Node and Rust:
@@ -133,6 +174,30 @@ To avoid setting this every time, export it permanently in your shell:
 ```fish
 set -Ux WEBKIT_DISABLE_COMPOSITING_MODE 1
 ```
+
+### Android APK build
+
+Before building for Android the first time, initialize the Android project (run once, commit the generated files):
+
+```bash
+npm run tauri -- android init
+```
+
+Then build the APK:
+
+```bash
+npm run tauri:android:build
+```
+
+The APK is output to:
+
+```
+src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+The `--debug` flag signs the APK automatically with a debug keystore, which is required for sideloading. Unsigned release APKs are silently rejected by Android at install time.
+
+To sideload on an Android device, enable **Install unknown apps** in Settings and transfer the `.apk` file directly (via USB, ADB, or file share).
 
 ### Frontend-only build
 
