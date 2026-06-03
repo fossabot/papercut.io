@@ -15,6 +15,7 @@ import { DocumentsPanel } from './components/DocumentsPanel/DocumentsPanel'
 import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
 import type { DocumentInfo } from './types/search'
 import { clearPhraseFetchCache } from './utils/phraseSearch'
+import { formatStorageSize } from './utils/formatUtils'
 import {
   deleteUploadedDocument,
   getUploadedDocumentSource,
