@@ -3,7 +3,7 @@ import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
 import { useFindInPage } from '../../hooks/useFindInPage'
-import { useTtsHighlight } from '../../tts/useTtsHighlight'
+// import { useTtsHighlight } from '../../tts/useTtsHighlight' // TTS — restore in TTS branch
 
 interface TtsHighlightOptions {
   enabled: boolean
@@ -27,7 +27,7 @@ export function DocumentViewer({
   className = '',
   headerControls,
   beforeDocument,
-  ttsHighlight,
+  // ttsHighlight, // TTS — restore in TTS branch
   onClose,
 }: DocumentViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -46,11 +46,12 @@ export function DocumentViewer({
     setShowFind,
   } = useFindInPage(iframeRef)
 
-  useTtsHighlight(iframeRef, ttsHighlight ?? {
-    enabled: false,
-    currentText: '',
-    currentChunkIndex: null,
-  })
+  // TTS — restore in TTS branch
+  // useTtsHighlight(iframeRef, ttsHighlight ?? {
+  //   enabled: false,
+  //   currentText: '',
+  //   currentChunkIndex: null,
+  // })
 
   useEffect(() => {
     const iframe = iframeRef.current
