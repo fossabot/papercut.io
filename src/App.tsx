@@ -24,6 +24,8 @@ import {
 } from './uploads/DocumentUploads'
 
 function App() {
+  const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
+  const [docContent, setDocContent] = useState('')
   // const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
@@ -57,6 +59,17 @@ function App() {
     }
     void loadUploadedDocuments()
   }, [])
+
+  const clearSelectedDocument = useCallback(() => {
+    setSelectedDoc(null)
+    setDocContent('')
+  }, [])
+  const libraryDocuments = useMemo<DocumentInfo[]>(() => [
+    ...allDocuments.map((doc) => ({ ...doc, source: 'bundled' as const })),
+    ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, source: 'upload' as const })),
+    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, source: 'audiobook-upload' as const })),
+  ], [allDocuments, uploadedDocuments]) // , userUploads
+
   const {
     selectedFilters,
     showDocuments,
@@ -66,29 +79,30 @@ function App() {
     docFilterLower,
     toggleFilter,
     clearFilters,
+    removeFilter,
     toggleAuthor,
     toggleAllInGroup,
     setShowDocuments,
     setDocumentFilter,
-  } = useDocumentFilters(allDocuments)
+  } = useDocumentFilters(libraryDocuments, { includeDocument: includeDocumentInList })
 
-  const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
-  const [docContent, setDocContent] = useState('')
 
   const handleViewDocument = useCallback(async (url: string) => {
     try {
-      const html = await fetch(url).then((r) => r.text())
+      const html = await loadHtmlDocument(url)
+      prepareDocumentOpen()
       setDocContent(html)
       setSelectedDoc(url)
       window.scrollTo({ top: 0 })
     } catch (err) {
       console.error('Failed to load document:', err)
     }
-  }, [])
+  }, [loadHtmlDocument, prepareDocumentOpen])
+
   const handleCloseDocument = useCallback(() => {
-    closeDocumentAudio()
+    // closeDocumentAudio()
     clearSelectedDocument()
-  }, [clearSelectedDocument, closeDocumentAudio])
+  }, [clearSelectedDocument]) // , closeDocumentAudio
 
   const handleImportHtmlDocument = useCallback(async () => {
     setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
@@ -162,9 +176,9 @@ function App() {
       />
 
       <DocumentsPanel
-        allDocuments={allDocuments}
         documentsLoading={documentsLoading}
         showDocuments={showDocuments}
+        allDocuments={libraryDocuments}
         documentFilter={documentFilter}
         groupedDocs={groupedDocs}
         docFilterLower={docFilterLower}
