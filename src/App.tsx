@@ -12,6 +12,7 @@ import { SearchBar } from './components/SearchBar/SearchBar'
 import { SearchResults } from './components/SearchResults/SearchResults'
 import { DocumentsPanel } from './components/DocumentsPanel/DocumentsPanel'
 import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
+import type { DocumentInfo } from './types/search'
 import {
   deleteUploadedDocument,
   getUploadedDocumentSource,
@@ -83,6 +84,11 @@ function App() {
       console.error('Failed to load document:', err)
     }
   }, [])
+  const handleCloseDocument = useCallback(() => {
+    closeDocumentAudio()
+    clearSelectedDocument()
+  }, [clearSelectedDocument, closeDocumentAudio])
+
   const handleImportHtmlDocument = useCallback(async () => {
     setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
     try {
