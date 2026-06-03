@@ -2,6 +2,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo
 } from 'react'
 import './App.css'
 import type { SearchResult } from './types/search'
@@ -39,6 +40,7 @@ function App() {
     if (!response.ok) throw new Error('Failed to load document')
     return response.text()
   }, [])
+
   const {
     query,
     results,
@@ -49,6 +51,7 @@ function App() {
     submitSearch,
     removeResultsForUrl,
   } = useSearch(pagefindRef, { loadDocumentSource: loadHtmlDocument })
+
   useEffect(() => {
     async function loadUploadedDocuments() {
       try {
@@ -67,7 +70,7 @@ function App() {
   const libraryDocuments = useMemo<DocumentInfo[]>(() => [
     ...allDocuments.map((doc) => ({ ...doc, source: 'bundled' as const })),
     ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, source: 'upload' as const })),
-    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, source: 'audiobook-upload' as const })),
+    // ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, source: 'audiobook-upload' as const })),
   ], [allDocuments, uploadedDocuments]) // , userUploads
 
   const {
@@ -84,20 +87,20 @@ function App() {
     toggleAllInGroup,
     setShowDocuments,
     setDocumentFilter,
-  } = useDocumentFilters(libraryDocuments, { includeDocument: includeDocumentInList })
+  } = useDocumentFilters(libraryDocuments) // , { includeDocument: includeDocumentInList })
 
 
   const handleViewDocument = useCallback(async (url: string) => {
     try {
       const html = await loadHtmlDocument(url)
-      prepareDocumentOpen()
+      // prepareDocumentOpen()
       setDocContent(html)
       setSelectedDoc(url)
       window.scrollTo({ top: 0 })
     } catch (err) {
       console.error('Failed to load document:', err)
     }
-  }, [loadHtmlDocument, prepareDocumentOpen])
+  }, [loadHtmlDocument]) // , prepareDocumentOpen
 
   const handleCloseDocument = useCallback(() => {
     // closeDocumentAudio()
