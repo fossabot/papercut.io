@@ -13,6 +13,7 @@ import { SearchResults } from './components/SearchResults/SearchResults'
 import { DocumentsPanel } from './components/DocumentsPanel/DocumentsPanel'
 import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
 import type { DocumentInfo } from './types/search'
+import { clearPhraseFetchCache } from './utils/phraseSearch'
 import {
   deleteUploadedDocument,
   getUploadedDocumentSource,
