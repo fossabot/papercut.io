@@ -33,8 +33,15 @@ Frontend:
 
 Rust:
 
-- `src-tauri/src/document_uploads.rs` owns the runtime upload pipeline and SQLite database.
-- `src-tauri/src/lib.rs` registers the Tauri commands exposed by the upload module.
+- `src-tauri/src/document_uploads/` owns the runtime upload feature, split one concern per file (dependencies point downward, `commands → pipeline → { html, store, search, storage } → types`):
+  - `commands.rs` — the `#[tauri::command]` edge; each command just moves the blocking work onto the thread pool and delegates.
+  - `pipeline.rs` — import / get-source / delete orchestration (no SQL or parsing of its own).
+  - `html/` — format-specific parsing (`parser.rs`) and sanitization (`sanitize.rs`). New formats (PDF/EPUB) add sibling modules here that emit the same `ParsedSection` shape.
+  - `store.rs` — SQLite schema, the index write path, listing, and deletes.
+  - `search.rs` — FTS5 query building and execution (read-only).
+  - `storage.rs` — app-data paths, upload ids, size accounting, clock, and the URL-prefix/size-limit constants.
+  - `types.rs` — serde DTOs shared across the boundary.
+- `src-tauri/src/lib.rs` registers the Tauri commands, referenced through the `document_uploads::commands` path so the macro-generated command helpers resolve.
 - `src-tauri/Cargo.toml` includes `rusqlite` with the bundled SQLite feature so FTS5 support is available consistently across supported build targets.
 
 Storage:

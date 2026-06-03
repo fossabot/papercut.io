@@ -5,11 +5,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
-            document_uploads::document_uploads_import_html,
-            document_uploads::document_uploads_list,
-            document_uploads::document_uploads_search,
-            document_uploads::document_uploads_get_source,
-            document_uploads::document_uploads_delete,
+            document_uploads::commands::document_uploads_import_html,
+            document_uploads::commands::document_uploads_list,
+            document_uploads::commands::document_uploads_search,
+            document_uploads::commands::document_uploads_get_source,
+            document_uploads::commands::document_uploads_delete,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
