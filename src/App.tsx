@@ -194,6 +194,7 @@ function App() {
         onFilterChange={setDocumentFilter}
         onToggleFilter={toggleFilter}
         onClearFilters={clearFilters}
+        onDeleteDocument={handleDeleteUploadedDocument}
         onToggleAllInGroup={toggleAllInGroup}
         onViewDocument={handleViewDocument}
       />
