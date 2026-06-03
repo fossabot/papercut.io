@@ -101,6 +101,34 @@ function App() {
     }
   }, [handleViewDocument, setShowDocuments])
 
+  const handleDeleteUploadedDocument = useCallback(async (doc: DocumentInfo) => {
+    if (doc.source !== 'upload') return
+    const confirmed = window.confirm('Delete this uploaded document from this device? This also removes it from local search results.')
+    if (!confirmed) return
+
+    setDocumentImport({ status: 'deleting', message: 'Deleting ' + doc.title })
+    try {
+      const result = await deleteUploadedDocument(doc.url)
+      setUploadedDocuments(await listUploadedDocuments())
+      removeResultsForUrl(doc.url)
+      clearPhraseFetchCache(doc.url)
+      removeFilter(doc.title)
+      if (selectedDoc === doc.url) {
+        handleCloseDocument()
+      }
+
+      const storage = formatStorageSize(result.bytesFreed)
+      setDocumentImport({
+        status: 'deleted',
+        message: storage ? 'Deleted ' + doc.title + ' and freed ' + storage + '.' : 'Deleted ' + doc.title + '.',
+      })
+    } catch (err) {
+      setDocumentImport({
+        status: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }, [handleCloseDocument, removeFilter, removeResultsForUrl, selectedDoc])
 
   if (selectedDoc) {
     return (
