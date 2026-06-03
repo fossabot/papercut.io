@@ -1,0 +1,73 @@
+import { normalizeForDisplay, escapeHtml, escapeRegex } from './textUtils'
+
+interface DocText {
+  raw: string
+  lower: string
+}
+
+const phraseFetchCache = new Map<string, DocText>()
+const EMPTY_DOC_TEXT: DocText = { raw: '', lower: '' }
+
+async function fetchDocText(url: string): Promise<DocText> {
+  const cached = phraseFetchCache.get(url)
+  if (cached !== undefined) return cached
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      phraseFetchCache.set(url, EMPTY_DOC_TEXT)
+      return EMPTY_DOC_TEXT
+    }
+    const html = await res.text()
+    const raw = normalizeForDisplay(html.replace(/<[^>]+>/g, ' '))
+    const entry: DocText = { raw, lower: raw.toLowerCase() }
+    phraseFetchCache.set(url, entry)
+    return entry
+  } catch {
+    phraseFetchCache.set(url, EMPTY_DOC_TEXT)
+    return EMPTY_DOC_TEXT
+  }
+}
+
+export function extractQuotedPhrases(q: string): string[] {
+  const matches = q.match(/"([^"]+)"/g)
+  if (!matches) return []
+  return matches
+    .map((m) => m.slice(1, -1).trim().toLowerCase())
+    .filter((p) => p.length > 0)
+}
+
+export function stripQuotes(q: string): string {
+  return q.replace(/"/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+export async function docContainsAllPhrases(url: string, phrases: string[]): Promise<boolean> {
+  const { lower } = await fetchDocText(url)
+  if (lower.length === 0) return false
+  return phrases.every((p) => lower.includes(p))
+}
+
+export async function buildPhraseExcerpt(url: string, phrases: string[]): Promise<string | null> {
+  const { raw, lower } = await fetchDocText(url)
+  if (lower.length === 0) return null
+
+  let earliest = Infinity
+  for (const p of phrases) {
+    const idx = lower.indexOf(p)
+    if (idx !== -1 && idx < earliest) earliest = idx
+  }
+  if (earliest === Infinity) return null
+
+  const WINDOW = 120
+  const start = Math.max(0, earliest - WINDOW)
+  const end = Math.min(raw.length, earliest + phrases[0].length + WINDOW)
+  let snippet = raw.slice(start, end)
+  if (start > 0) snippet = '… ' + snippet
+  if (end < raw.length) snippet = snippet + ' …'
+
+  let html = escapeHtml(snippet)
+  for (const p of phrases) {
+    const re = new RegExp(escapeRegex(p), 'gi')
+    html = html.replace(re, (m) => `<mark>${m}</mark>`)
+  }
+  return html
+}
