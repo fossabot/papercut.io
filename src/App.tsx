@@ -215,6 +215,7 @@ function App() {
         onClearFilters={clearFilters}
         onDeleteDocument={handleDeleteUploadedDocument}
         onToggleAllInGroup={toggleAllInGroup}
+        onToggleAuthor={toggleAuthor}
         onViewDocument={handleViewDocument}
       />
 
