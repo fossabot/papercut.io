@@ -1,4 +1,8 @@
-import { useState, useCallback } from 'react'
+import {
+  useState,
+  useEffect,
+  useCallback,
+} from 'react'
 import './App.css'
 import type { SearchResult } from './types/search'
 import { usePagefind } from './hooks/usePagefind'
