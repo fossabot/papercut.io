@@ -1,8 +1,8 @@
 # Papercut
 
-A lightweight desktop application for full-text search across HTML document collections. Built with Tauri, React, Vite, and Pagefind.
+A lightweight desktop application for full-text search across document collections. Built with Tauri, React, Vite, Pagefind, and SQLite FTS.
 
-Documents are indexed at build time using Pagefind, which creates a compressed search index. At runtime, only the relevant portions of the index are loaded into memory, keeping the application fast and responsive even with large document collections. The entire application runs offline with no server or internet connection required.
+Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
 
 ## Prerequisites
 
@@ -215,6 +215,15 @@ npm run preview
 
 ## Adding Documents
 
+Papercut now has two document paths:
+
+- **Bundled documents** live in `public/documents/` and are indexed by Pagefind during the production build. This is still the best path for documents you ship to every user.
+- **User uploads** are imported from the app UI and indexed incrementally into a local SQLite FTS database. This is the scalable path for documents users add themselves, because it does not require a rebuild or a packaged Pagefind index update.
+
+The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md).
+
+### Bundled HTML Documents
+
 Place your HTML files in `public/documents/`. Each document should have a standard HTML structure:
 
 ```html
@@ -233,9 +242,30 @@ Place your HTML files in `public/documents/`. Each document should have a standa
 
 Pagefind will automatically extract and index the text content on the next build. The `<title>` tag is used as the document title in search results.
 
+### User-Uploaded HTML Documents
+
+From the document list, open **Import** and choose **HTML** to select a local `.html` or `.htm` file. The native import path sanitizes and stores a copy of the HTML under Tauri app data, extracts readable sections, and indexes those sections into SQLite FTS5. Uploaded documents appear under **User Uploads**, open in the same reader as bundled HTML, participate in the same search UI, and can use the same TTS playback/save flow when native TTS is available. Uploaded HTML documents can also be deleted from the document list; delete removes the SQLite rows and the stored sanitized source file directory to free local storage.
+
+This first upload branch is intentionally HTML-only. PDF and EPUB uploads should be added as separate parser modules that output the same normalized document sections before indexing.
+
+### Search Behavior
+
+Search is **explicit**: the app only searches when the user clicks the **Search** button next to the input or presses **Enter**. Typing does not trigger search. This keeps CPU and memory flat at scale (thousands of documents, large per-result fragment fetches). Bundled-document queries go through Pagefind, uploaded-document queries go through SQLite FTS5, and the React UI merges both result sets.
+
+- Queries are lowercased before being passed to the search providers, making search case-insensitive regardless of how the user types it (`Highest Stage of Capitalism` and `highest stage of capitalism` return the same results).
+- Wrapping a phrase in double quotes (`"highest stage of capitalism"`) runs an **exact phrase** match for bundled Pagefind results. Pagefind itself does not support phrase syntax, so the app:
+  1. Strips the quotes for the Pagefind call (term-matching to narrow the candidate set to ~50 docs).
+  2. Fetches each candidate document via its URL, strips HTML tags, normalizes whitespace and curly quotes, lowercases, and checks for the phrase as a substring.
+  3. Drops candidates that don't contain the phrase. Multiple quoted phrases in one query are ANDed together.
+- The Pagefind `content` field on `result.data()` is unreliable for substring matching (truncated/normalized differently than the source), so phrase verification reads the actual file. Results are cached per URL in memory for the session to avoid re-fetching across queries.
+- Clearing the input clears the results panel immediately, without triggering a search.
+- In-flight stale results are dropped: if the user fires a new search before the previous one resolves, the earlier result set is discarded and never rendered.
+- Uploaded-document snippets are produced by SQLite FTS and sanitized again before rendering in React. Uploaded matches are collapsed to one result card per uploaded document, using the first/best matching snippet; users can open the document and use in-document Find to move through additional matches.
+- The "No documents found" message only appears after a search has actually been submitted (via Search button or Enter), not while the user is still typing.
+
 ## Flatpak Environment
 
-If running VS Code or Codium from a Flatpak, source the environment helper before running Tauri commands:
+If running VS Code or Codium from a Flatpak, source the environment helper before running development Tauri commands:
 
 ```bash
 source ./tauri-env.sh

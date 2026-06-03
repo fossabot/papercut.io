@@ -7,6 +7,10 @@ export interface AuthorGroup {
   docs: DocumentInfo[]
 }
 
+interface UseDocumentFiltersOptions {
+  includeDocument?: (doc: DocumentInfo) => boolean
+}
+
 interface UseDocumentFiltersReturn {
   selectedFilters: Set<string>
   showDocuments: boolean
@@ -16,23 +20,30 @@ interface UseDocumentFiltersReturn {
   docFilterLower: string
   toggleFilter: (title: string) => void
   clearFilters: () => void
+  removeFilter: (title: string) => void
   toggleAuthor: (author: string) => void
   toggleAllInGroup: (docs: DocumentInfo[]) => void
   setShowDocuments: React.Dispatch<React.SetStateAction<boolean>>
   setDocumentFilter: React.Dispatch<React.SetStateAction<string>>
 }
 
-export function useDocumentFilters(allDocuments: DocumentInfo[]): UseDocumentFiltersReturn {
+export function useDocumentFilters(
+  allDocuments: DocumentInfo[],
+  options: UseDocumentFiltersOptions = {},
+): UseDocumentFiltersReturn {
   const [selectedFilters, setSelectedFilters] = useState<Set<string>>(new Set())
   const [showDocuments, setShowDocuments] = useState(false)
   const [documentFilter, setDocumentFilter] = useState('')
   const [collapsedAuthors, setCollapsedAuthors] = useState<Set<string>>(new Set())
 
+  const { includeDocument } = options
   const docFilterLower = documentFilter.trim().toLowerCase()
 
   const groupedDocs = useMemo<AuthorGroup[]>(() => {
     const groups = new Map<string, DocumentInfo[]>()
     for (const doc of allDocuments) {
+      if (includeDocument && !includeDocument(doc)) continue
+
       const author = deriveAuthor(doc.url)
       if (
         docFilterLower.length > 0 &&
@@ -55,7 +66,7 @@ export function useDocumentFilters(allDocuments: DocumentInfo[]): UseDocumentFil
         if (b.author === UNCATEGORIZED) return -1
         return a.author.localeCompare(b.author)
       })
-  }, [allDocuments, docFilterLower])
+  }, [allDocuments, docFilterLower, includeDocument])
 
   const toggleFilter = useCallback((title: string) => {
     setSelectedFilters((prev) => {
@@ -68,6 +79,15 @@ export function useDocumentFilters(allDocuments: DocumentInfo[]): UseDocumentFil
 
   const clearFilters = useCallback(() => {
     setSelectedFilters(new Set())
+  }, [])
+
+  const removeFilter = useCallback((title: string) => {
+    setSelectedFilters((prev) => {
+      if (!prev.has(title)) return prev
+      const next = new Set(prev)
+      next.delete(title)
+      return next
+    })
   }, [])
 
   const toggleAuthor = useCallback((author: string) => {
@@ -98,6 +118,7 @@ export function useDocumentFilters(allDocuments: DocumentInfo[]): UseDocumentFil
     docFilterLower,
     toggleFilter,
     clearFilters,
+    removeFilter,
     toggleAuthor,
     toggleAllInGroup,
     setShowDocuments,

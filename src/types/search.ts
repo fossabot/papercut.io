@@ -22,4 +22,5 @@ export interface PagefindInstance {
 export interface DocumentInfo {
   title: string
   url: string
+  source?: 'bundled' | 'upload'
 }

@@ -1,6 +1,32 @@
+:root {
+  color-scheme: light;
+  background: #f9fafb;
+  color: #1a1a2e;
+}
+
+html {
+  background: #f9fafb;
+  color: #1a1a2e;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  background: #fff;
+  color: #1f2937;
+}
+
 body {
   margin: 0;
   background: #f9fafb;
+  color: #1a1a2e;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
