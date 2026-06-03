@@ -1,6 +1,6 @@
-import type { ViewerProps, ViewerPlugin } from './types'
+import type { ViewerProps } from './types'
 
-function HtmlViewerComponent({ content, iframeRef, onLoad }: ViewerProps) {
+export function HtmlViewer({ content, iframeRef, onLoad }: ViewerProps) {
   return (
     <iframe
       ref={iframeRef}
@@ -11,10 +11,4 @@ function HtmlViewerComponent({ content, iframeRef, onLoad }: ViewerProps) {
       onLoad={onLoad}
     />
   )
-}
-
-export const HtmlViewer: ViewerPlugin = {
-  id: 'html',
-  canHandle: (url) => /\.html?$/i.test(url) || !url.includes('.'),
-  Component: HtmlViewerComponent,
 }

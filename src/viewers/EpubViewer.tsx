@@ -1,17 +1,11 @@
-import type { ViewerProps, ViewerPlugin } from './types'
+import type { ViewerProps } from './types'
 
 // Stub — implement with epub.js or similar when EPUB support is needed.
-function EpubViewerComponent({ url }: ViewerProps) {
+export function EpubViewer({ url }: ViewerProps) {
   return (
     <div className="viewer-stub">
       <p>EPUB viewer not yet implemented.</p>
       <p><code>{url}</code></p>
     </div>
   )
-}
-
-export const EpubViewer: ViewerPlugin = {
-  id: 'epub',
-  canHandle: (url) => /\.epub$/i.test(url),
-  Component: EpubViewerComponent,
 }

@@ -297,18 +297,22 @@ The frontend is organized in three layers so features can be added without touch
 
 ### Document viewer plugins
 
-`DocumentViewer` does not know how to render any specific file type. Instead it asks the registry which viewer handles a given URL:
+`DocumentViewer` does not know how to render any specific file type. Instead it asks the registry which viewer handles a given URL. Each viewer file (`HtmlViewer.tsx`, `PdfViewer.tsx`, `EpubViewer.tsx`) exports only a React component; the registry maps each component to a `canHandle` predicate:
 
 ```ts
 // src/viewers/registry.ts
-const viewerPlugins: ViewerPlugin[] = [PdfViewer, EpubViewer, HtmlViewer]
+const viewerPlugins: ViewerPlugin[] = [
+  { id: 'pdf',  canHandle: (url) => /\.pdf$/i.test(url),  Component: PdfViewer },
+  { id: 'epub', canHandle: (url) => /\.epub$/i.test(url), Component: EpubViewer },
+  htmlPlugin, // canHandle: () => true — catch-all fallback
+]
 
 export function resolveViewer(url: string): ViewerPlugin {
-  return viewerPlugins.find((p) => p.canHandle(url)) ?? HtmlViewer
+  return viewerPlugins.find((p) => p.canHandle(url)) ?? htmlPlugin
 }
 ```
 
-Each plugin implements a small contract:
+Keeping components and descriptors separate lets Vite's fast refresh work (component files export only components) and centralizes URL resolution in one place. The plugin contract:
 
 ```ts
 // src/viewers/types.ts
@@ -319,9 +323,9 @@ export interface ViewerPlugin {
 }
 ```
 
-Order matters — more specific formats are listed before the `HtmlViewer` fallback, which catches everything else. To **add support for a new document type** (e.g. PDF):
+Order matters — more specific formats are listed before the catch-all HTML fallback. To **add support for a new document type** (e.g. PDF):
 
-1. Implement the `Component` in `src/viewers/PdfViewer.tsx` (the stub and its `canHandle: (url) => /\.pdf$/i.test(url)` are already in place).
-2. That's it — the registry resolves it automatically. No changes to `App.tsx` or `DocumentViewer` are required.
+1. Implement the component in `src/viewers/PdfViewer.tsx` (the stub is already exported).
+2. Register it in `registry.ts` with a `canHandle` predicate (the `pdf` / `epub` entries are already wired). No changes to `App.tsx` or `DocumentViewer` are required.
 
 If a viewer needs extra capabilities (PDF zoom, page scroll callbacks, etc.), widen the `ViewerProps` interface with optional fields so existing viewers stay unaffected.

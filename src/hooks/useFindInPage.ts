@@ -15,7 +15,6 @@ interface UseFindInPageReturn {
 
 export function useFindInPage(
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
-  active: boolean,
 ): UseFindInPageReturn {
   const [showFind, setShowFind] = useState(false)
   const [findQuery, setFindQuery] = useState('')
@@ -148,10 +147,6 @@ export function useFindInPage(
 
   // Ctrl+F / Escape keyboard handler
   useEffect(() => {
-    if (!active) {
-      closeFind()
-      return
-    }
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault()
@@ -162,7 +157,7 @@ export function useFindInPage(
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [active, closeFind])
+  }, [closeFind])
 
   return {
     showFind,

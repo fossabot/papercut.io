@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react'
 import './App.css'
 import type { SearchResult } from './types/search'
-import { extractPageFromAnchor } from './utils/documentUtils'
 import { usePagefind } from './hooks/usePagefind'
 import { useSearch } from './hooks/useSearch'
 import { useDocumentFilters } from './hooks/useDocumentFilters'
@@ -32,7 +31,7 @@ function App() {
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [docContent, setDocContent] = useState('')
 
-  const handleViewDocument = useCallback(async (url: string, _page = 1) => {
+  const handleViewDocument = useCallback(async (url: string) => {
     try {
       const html = await fetch(url).then((r) => r.text())
       setDocContent(html)
@@ -44,9 +43,7 @@ function App() {
   }, [])
 
   const handleViewResult = useCallback((result: SearchResult) => {
-    const firstSub = result.sub_results?.[0]
-    const page = firstSub ? extractPageFromAnchor(firstSub.url) : 1
-    handleViewDocument(result.url, page)
+    handleViewDocument(result.url)
   }, [handleViewDocument])
 
   if (selectedDoc) {

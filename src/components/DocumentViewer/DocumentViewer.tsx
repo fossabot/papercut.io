@@ -25,7 +25,7 @@ export function DocumentViewer({ url, content, onClose }: DocumentViewerProps) {
     findPrev,
     closeFind,
     setShowFind,
-  } = useFindInPage(iframeRef, true)
+  } = useFindInPage(iframeRef)
 
   // Auto-resize iframe to match content height so the main window scrolls
   useEffect(() => {
