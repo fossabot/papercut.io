@@ -1,16 +1,35 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
 import { useFindInPage } from '../../hooks/useFindInPage'
+import { useTtsHighlight } from '../../tts/useTtsHighlight'
+
+interface TtsHighlightOptions {
+  enabled: boolean
+  currentText: string
+  currentChunkIndex: number | null
+}
 
 interface DocumentViewerProps {
   url: string
   content: string
+  className?: string
+  headerControls?: ReactNode
+  beforeDocument?: ReactNode
+  ttsHighlight?: TtsHighlightOptions
   onClose: () => void
 }
 
-export function DocumentViewer({ url, content, onClose }: DocumentViewerProps) {
+export function DocumentViewer({
+  url,
+  content,
+  className = '',
+  headerControls,
+  beforeDocument,
+  ttsHighlight,
+  onClose,
+}: DocumentViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
 
@@ -27,33 +46,49 @@ export function DocumentViewer({ url, content, onClose }: DocumentViewerProps) {
     setShowFind,
   } = useFindInPage(iframeRef)
 
-  // Auto-resize iframe to match content height so the main window scrolls
+  useTtsHighlight(iframeRef, ttsHighlight ?? {
+    enabled: false,
+    currentText: '',
+    currentChunkIndex: null,
+  })
+
   useEffect(() => {
     const iframe = iframeRef.current
     if (!iframe) return
+
     function resizeIframe() {
       try {
         const doc = iframe!.contentDocument
         if (doc?.body) iframe!.style.height = doc.body.scrollHeight + 'px'
       } catch {
-        // Cross-origin access may fail in production Tauri builds
+        // Cross-origin access may fail in production Tauri builds.
       }
     }
+
     iframe.addEventListener('load', resizeIframe)
-    return () => iframe.removeEventListener('load', resizeIframe)
-  }, [])
+    const frame = window.requestAnimationFrame(resizeIframe)
+    return () => {
+      iframe.removeEventListener('load', resizeIframe)
+      window.cancelAnimationFrame(frame)
+    }
+  }, [content, url])
 
   useEffect(() => {
-    function handleScroll() { setShowScrollTop(window.scrollY > 300) }
+    function handleScroll() {
+      setShowScrollTop(window.scrollY > 300)
+    }
+
+    handleScroll()
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [])
+  }, [url])
 
   const plugin = resolveViewer(url)
   const ViewerComponent = plugin.Component
+  const appClassName = ['app', className].filter(Boolean).join(' ')
 
   return (
-    <div className="app">
+    <div className={appClassName}>
       <header className="header doc-header">
         <div className="header-left">
           <button className="back-button" onClick={onClose}>&larr; Back</button>
@@ -62,6 +97,7 @@ export function DocumentViewer({ url, content, onClose }: DocumentViewerProps) {
           <h1 className="app-title">Papercut</h1>
         </div>
         <div className="header-right">
+          {headerControls}
           <button
             className="find-btn"
             onClick={() => {
@@ -86,6 +122,8 @@ export function DocumentViewer({ url, content, onClose }: DocumentViewerProps) {
           onClose={closeFind}
         />
       )}
+
+      {beforeDocument}
 
       <main className="document-view">
         <ViewerComponent url={url} content={content} iframeRef={iframeRef} />

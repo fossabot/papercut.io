@@ -1,6 +1,20 @@
 import type { DocumentInfo } from '../../types/search'
 import type { AuthorGroup } from '../../hooks/useDocumentFilters'
 
+interface DocumentsPanelStatus {
+  status: string
+  message: string
+}
+
+export interface DocumentImportOption {
+  id: string
+  label: string
+  detail?: string
+  statusLabel?: string
+  disabled?: boolean
+  future?: boolean
+  onSelect?: () => void
+}
 interface DocumentsPanelProps {
   allDocuments: DocumentInfo[]
   documentsLoading: boolean
@@ -8,6 +22,8 @@ interface DocumentsPanelProps {
   documentFilter: string
   groupedDocs: AuthorGroup[]
   docFilterLower: string
+  importOptions?: DocumentImportOption[]
+  importStatuses?: DocumentsPanelStatus[]
   selectedFilters: Set<string>
   collapsedAuthors: Set<string>
   onToggleShow: () => void
@@ -15,6 +31,7 @@ interface DocumentsPanelProps {
   onToggleFilter: (title: string) => void
   onClearFilters: () => void
   onToggleAuthor: (author: string) => void
+  onDeleteDocument?: (doc: DocumentInfo) => void | Promise<void>
   onToggleAllInGroup: (docs: DocumentInfo[]) => void
   onViewDocument: (url: string) => void
 }
@@ -26,6 +43,8 @@ export function DocumentsPanel({
   documentFilter,
   groupedDocs,
   docFilterLower,
+  importOptions = [],
+  importStatuses = [],
   selectedFilters,
   collapsedAuthors,
   onToggleShow,
@@ -33,9 +52,14 @@ export function DocumentsPanel({
   onToggleFilter,
   onClearFilters,
   onToggleAuthor,
+  onDeleteDocument,
   onToggleAllInGroup,
   onViewDocument,
 }: DocumentsPanelProps) {
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+  const activeImport = importOptions.find((option) => option.statusLabel)
+  const hasImportOptions = importOptions.length > 0
+
   if (documentsLoading) {
     return (
       <div className="documents-panel documents-panel-loading">
@@ -66,12 +90,54 @@ export function DocumentsPanel({
               value={documentFilter}
               onChange={(e) => onFilterChange(e.target.value)}
             />
+            {hasImportOptions && (
+              <div className="document-import-menu">
+                <button
+                  className="document-import-btn"
+                  aria-expanded={importMenuOpen}
+                  onClick={() => setImportMenuOpen((value) => !value)}
+                  type="button"
+                >
+                  {activeImport?.statusLabel ?? 'Import'}
+                  <span className={`toggle-arrow ${importMenuOpen ? 'open' : ''}`}>&#9662;</span>
+                </button>
+                {importMenuOpen && (
+                  <div className="document-import-options">
+                    {importOptions.map((option) => {
+                      const disabled = option.disabled || option.future || !option.onSelect
+                      return (
+                        <button
+                          key={option.id}
+                          className="document-import-option"
+                          disabled={disabled}
+                          onClick={() => {
+                            setImportMenuOpen(false)
+                            option.onSelect?.()
+                          }}
+                          type="button"
+                        >
+                          <span>{option.label}{option.future ? ' (Future)' : ''}</span>
+                          {option.detail && <small>{option.detail}</small>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             {selectedFilters.size > 0 && (
               <button className="clear-filters" onClick={onClearFilters}>
                 Clear Filters
               </button>
             )}
           </div>
+
+          {importStatuses.map((item, index) => item.message && item.status !== 'idle' ? (
+            <div key={item.status + index} className={'document-import-status document-import-' + item.status}>
+              {item.message}
+            </div>
+          ) : null)}
+
           <div className="documents-scroll">
             {groupedDocs.length === 0 && (
               <p className="no-results">No documents match the filter.</p>
@@ -111,6 +177,18 @@ export function DocumentsPanel({
                       >
                         View
                       </button>
+                      {doc.source === 'upload' && onDeleteDocument && (
+                        <button
+                          className="document-delete-btn"
+                          disabled={importStatuses.some((item) => item.status === 'deleting')}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            void onDeleteDocument(doc)
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </label>
                   ))}
                 </div>
