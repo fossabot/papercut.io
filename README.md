@@ -248,15 +248,80 @@ This sets `PKG_CONFIG_PATH` and `PKG_CONFIG_SYSROOT_DIR` to point at the host sy
 
 ```
 papercut.io/
-├── public/documents/     # HTML documents to index
-├── src/                  # React frontend
-│   ├── App.tsx           # Search UI
-│   ├── App.css           # Styles
-│   ├── index.css         # Base styles
-│   └── main.tsx          # Entry point
-├── src-tauri/            # Tauri / Rust backend
-├── index.html            # HTML shell
-├── vite.config.ts        # Vite configuration
-├── package.json          # Scripts and dependencies
-└── tauri-env.sh          # Flatpak environment helper
+├── public/documents/        # HTML documents to index
+├── src/                     # React frontend
+│   ├── App.tsx              # App shell — wires hooks to components, no business logic
+│   ├── App.css              # Global styles
+│   ├── index.css            # Base styles
+│   ├── main.tsx             # Entry point
+│   ├── types/               # Shared TypeScript interfaces
+│   │   └── search.ts        # SearchResult, DocumentInfo, PagefindInstance
+│   ├── utils/               # Pure, React-free helpers (unit-testable)
+│   │   ├── textUtils.ts     # Normalize / escape helpers
+│   │   ├── documentUtils.ts # deriveAuthor, extractPageFromAnchor
+│   │   └── phraseSearch.ts  # Exact-phrase fetch cache, excerpt building
+│   ├── hooks/               # Stateful logic, one concern per hook
+│   │   ├── usePagefind.ts   # Loads the index, exposes all documents
+│   │   ├── useSearch.ts     # Query, results, exact-phrase filtering
+│   │   ├── useDocumentFilters.ts # Author grouping + filter selection
+│   │   └── useFindInPage.ts # In-document find/highlight + Ctrl+F
+│   ├── components/          # Presentational UI components
+│   │   ├── SearchBar/
+│   │   ├── SearchResults/
+│   │   ├── DocumentsPanel/
+│   │   ├── DocumentViewer/  # Hosts the resolved viewer + find bar
+│   │   ├── FindBar/
+│   │   └── ScrollTopButton/
+│   └── viewers/             # Pluggable document viewers (see below)
+│       ├── types.ts         # ViewerPlugin / ViewerProps contracts
+│       ├── registry.ts      # resolveViewer(url) → picks a viewer
+│       ├── HtmlViewer.tsx   # Active — renders HTML in a sandboxed iframe
+│       ├── PdfViewer.tsx    # Stub — ready for pdf.js
+│       └── EpubViewer.tsx   # Stub — ready for epub.js
+├── src-tauri/               # Tauri / Rust backend
+├── index.html               # HTML shell
+├── vite.config.ts           # Vite configuration
+├── package.json             # Scripts and dependencies
+└── tauri-env.sh             # Flatpak environment helper
 ```
+
+## Architecture
+
+The frontend is organized in three layers so features can be added without touching unrelated logic. Dependencies only ever point downward: components use hooks, hooks use utils, utils depend on nothing.
+
+1. **Utils** (`src/utils/`) — Pure functions with no React imports. Text normalization, author derivation, and the exact-phrase search (which fetches document text, caches it at module level, and builds highlighted excerpts). Because they are side-effect-free, they are the easiest layer to unit-test.
+
+2. **Hooks** (`src/hooks/`) — Each hook owns one slice of state and its side effects. `usePagefind` loads the search index; `useSearch` runs queries and applies exact-phrase filtering with race-condition guards; `useDocumentFilters` groups documents by author and tracks filter selection; `useFindInPage` drives in-document highlighting and registers its own `Ctrl+F` / `Escape` listeners.
+
+3. **Components** (`src/components/`) — Presentational pieces that receive data and callbacks via props. `App.tsx` is the only place that composes hooks together; everything else just renders.
+
+### Document viewer plugins
+
+`DocumentViewer` does not know how to render any specific file type. Instead it asks the registry which viewer handles a given URL:
+
+```ts
+// src/viewers/registry.ts
+const viewerPlugins: ViewerPlugin[] = [PdfViewer, EpubViewer, HtmlViewer]
+
+export function resolveViewer(url: string): ViewerPlugin {
+  return viewerPlugins.find((p) => p.canHandle(url)) ?? HtmlViewer
+}
+```
+
+Each plugin implements a small contract:
+
+```ts
+// src/viewers/types.ts
+export interface ViewerPlugin {
+  id: string
+  canHandle: (url: string) => boolean
+  Component: React.FC<ViewerProps>
+}
+```
+
+Order matters — more specific formats are listed before the `HtmlViewer` fallback, which catches everything else. To **add support for a new document type** (e.g. PDF):
+
+1. Implement the `Component` in `src/viewers/PdfViewer.tsx` (the stub and its `canHandle: (url) => /\.pdf$/i.test(url)` are already in place).
+2. That's it — the registry resolves it automatically. No changes to `App.tsx` or `DocumentViewer` are required.
+
+If a viewer needs extra capabilities (PDF zoom, page scroll callbacks, etc.), widen the `ViewerProps` interface with optional fields so existing viewers stay unaffected.
