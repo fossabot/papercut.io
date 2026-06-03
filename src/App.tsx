@@ -24,14 +24,14 @@ import {
 } from './uploads/DocumentUploads'
 
 function App() {
-  const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
+  // const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
   const { pagefindRef, pagefindReady, allDocuments, documentsLoading } = usePagefind()
 
   const loadHtmlDocument = useCallback(async (url: string): Promise<string> => {
     if (isUploadedDocumentUrl(url)) return getUploadedDocumentSource(url)
-    if (isUserUploadUrl(url)) return getImportedAudiobookSource(url)
+    // if (isUserUploadUrl(url)) return getImportedAudiobookSource(url)
 
     const response = await fetch(url)
     if (!response.ok) throw new Error('Failed to load document')
@@ -142,7 +142,7 @@ function App() {
       <DocumentViewer
         url={selectedDoc}
         content={docContent}
-        onClose={() => { setSelectedDoc(null); setDocContent('') }}
+        onClose={handleCloseDocument}
       />
     )
   }
@@ -176,15 +176,15 @@ function App() {
             statusLabel: documentImport.status === 'importing' ? 'Importing HTML' : undefined,
             disabled: documentImport.status === 'importing',
             onSelect: handleImportHtmlDocument,
-          },
-          {
-            id: 'audiobook',
-            label: 'Audiobook',
-            detail: 'Import a .papercut-audiobook bundle',
-            statusLabel: audiobookImport.status === 'importing' ? 'Importing Audiobook' : undefined,
-            disabled: audiobookImport.status === 'importing',
-            onSelect: handleImportAudiobook,
           } // ,
+          // {
+          //   id: 'audiobook',
+          //   label: 'Audiobook',
+          //   detail: 'Import a .papercut-audiobook bundle',
+          //   statusLabel: audiobookImport.status === 'importing' ? 'Importing Audiobook' : undefined,
+          //   disabled: audiobookImport.status === 'importing',
+          //   onSelect: handleImportAudiobook,
+          // },
           // { id: 'epub', label: 'EPUB', detail: 'Import EPUB books when parser support lands', future: true },
           // { id: 'pdf', label: 'PDF', detail: 'Import PDFs when text extraction support lands', future: true },
         ]}
