@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { DocumentInfo } from '../../types/search'
 import type { AuthorGroup } from '../../hooks/useDocumentFilters'
 
