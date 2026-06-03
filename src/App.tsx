@@ -79,10 +79,24 @@ function App() {
       console.error('Failed to load document:', err)
     }
   }, [])
+  const handleImportHtmlDocument = useCallback(async () => {
+    setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
+    try {
+      const result = await importHtmlDocument()
+      setUploadedDocuments(await listUploadedDocuments())
+      setShowDocuments(true)
+      setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
+      await handleViewDocument(result.url)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const cancelled = message.toLowerCase().includes('cancelled')
+      setDocumentImport({
+        status: cancelled ? 'cancelled' : 'error',
+        message: cancelled ? 'Import cancelled.' : message,
+      })
+    }
+  }, [handleViewDocument, setShowDocuments])
 
-  const handleViewResult = useCallback((result: SearchResult) => {
-    handleViewDocument(result.url)
-  }, [handleViewDocument])
 
   if (selectedDoc) {
     return (
@@ -152,7 +166,7 @@ function App() {
         submittedQuery={submittedQuery}
         lastSearchInfo={lastSearchInfo}
         selectedFilters={selectedFilters}
-        onViewResult={handleViewResult}
+        onViewResult={(result) => handleViewDocument(result.url)}
       />
     </div>
   )
