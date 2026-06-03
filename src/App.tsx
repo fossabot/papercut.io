@@ -5,7 +5,6 @@ import {
   useMemo
 } from 'react'
 import './App.css'
-import type { SearchResult } from './types/search'
 import { usePagefind } from './hooks/usePagefind'
 import { useSearch } from './hooks/useSearch'
 import { useDocumentFilters } from './hooks/useDocumentFilters'
