@@ -56,7 +56,12 @@ function clearTtsHighlight(doc: Document): void {
   marks.forEach((mark) => {
     const parent = mark.parentNode
     if (!parent) return
-    parent.replaceChild(doc.createTextNode(mark.textContent ?? ''), mark)
+    const fragment = doc.createDocumentFragment()
+    while (mark.firstChild) {
+      fragment.appendChild(mark.firstChild)
+    }
+    parent.insertBefore(fragment, mark)
+    parent.removeChild(mark)
     parent.normalize()
   })
 }
