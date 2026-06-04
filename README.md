@@ -174,6 +174,34 @@ If you previously used `sudo dpkg -i ...` and the app did not launch, run `sudo 
 
 **AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`.
 
+### Version bump checklist
+
+For an app release, keep the frontend package version, Tauri bundle version, and Rust crate version in sync.
+
+Update these files:
+
+- `package.json` — React/frontend package version.
+- `package-lock.json` — npm lockfile version metadata.
+- `src-tauri/tauri.conf.json` — Tauri app/bundle version used by installers.
+- `src-tauri/Cargo.toml` — Rust crate version.
+- `src-tauri/Cargo.lock` — refreshed if Cargo records the local crate version change.
+
+Suggested flow:
+
+```bash
+VERSION=1.0.1
+npm version "$VERSION" --no-git-tag-version
+```
+
+Then set `version` to the same value in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and run:
+
+```bash
+cargo check --manifest-path src-tauri/Cargo.toml --features native-tts-shared
+npm run build
+```
+
+Commit the changed version files together with the release changes.
+
 ### Running the AppImage (Arch-based systems)
 
 On Arch-based systems, the AppImage may show a blank screen due to a WebKit GBM buffer allocation failure with modern Mesa drivers. Set `WEBKIT_DISABLE_COMPOSITING_MODE=1` to disable GPU compositing:
