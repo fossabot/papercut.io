@@ -12,7 +12,7 @@
 
 use std::fs;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bzip2::read::BzDecoder;
@@ -165,6 +165,8 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
             work_root.display()
         )
     })?;
+    // From here on, any early return should delete the scratch archive/extract tree.
+    let work_guard = WorkDirGuard::new(work_root.clone());
 
     download_model_archive(&app, &archive_path)?;
     verify_model_archive(&archive_path)?;
@@ -212,6 +214,8 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
             final_dir.display()
         )
     })?;
+    // The model now lives in final_dir, so the guard should not run failure cleanup.
+    work_guard.disarm();
     let _ = fs::remove_dir_all(&work_root);
 
     let bytes = directory_size(&final_dir).unwrap_or(0);
@@ -225,6 +229,32 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
         model_dir: final_dir.display().to_string(),
         bytes,
     })
+}
+
+struct WorkDirGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl WorkDirGuard {
+    /// Arm cleanup for a model install work directory until success explicitly disarms it.
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    /// Consume the guard after a successful install so Drop skips failure cleanup.
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for WorkDirGuard {
+    /// Best-effort cleanup; install failure should not leave the large model work tree behind.
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 }
 
 /// Stream the pinned model archive from GitHub to `archive_path`, emitting
