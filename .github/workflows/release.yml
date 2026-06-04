@@ -151,7 +151,7 @@ jobs:
       - name: Rename Android APK
         run: |
           mkdir -p release-out
-          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk "release-out/Papercut_${RELEASE_TAG}_android-arm64-native-tts-debug.apk"
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk "release-out/Papercut_${RELEASE_TAG}_android-arm64-v8a.apk"
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v7
