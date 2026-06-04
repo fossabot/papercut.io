@@ -1,0 +1,17 @@
+{
+  "id": "sherpa-onnx/kokoro-multi-lang-v1_0",
+  "modelName": "kokoro-multi-lang-v1_0",
+  "sourceLabel": "k2-fsa/sherpa-onnx Kokoro multi-lang v1.0",
+  "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+  "sha256": "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046",
+  "archiveBytes": 349418188,
+  "platforms": [
+    "desktop",
+    "android"
+  ],
+  "notes": [
+    "This is the shared Kokoro model archive used by every native TTS platform.",
+    "Platform-specific sherpa-onnx/native ONNX libraries are handled separately by Cargo or Android prep scripts.",
+    "The app downloads this archive once into Tauri app data when the user clicks Download voice model."
+  ]
+}
