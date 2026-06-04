@@ -45,7 +45,11 @@ export async function ensureLocalJdk({ force = false } = {}) {
 function findExistingJavaHome() {
   const candidates = [process.env.PAPERCUT_JAVA_HOME, process.env.JAVA_HOME]
   for (const candidate of candidates) {
-    if (candidate && existsSync(join(candidate, "bin", javaExecutable()))) return candidate
+    if (
+      candidate &&
+      existsSync(join(candidate, "bin", javaExecutable())) &&
+      existsSync(join(candidate, "bin", javacExecutable()))
+    ) return candidate
   }
   return null
 }
