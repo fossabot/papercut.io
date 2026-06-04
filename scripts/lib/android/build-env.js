@@ -1,7 +1,8 @@
 import { join } from "node:path"
 import { ensureLocalJdk } from "./jdk.js"
-import { npxBin, pathSeparator, run } from "../process.js"
+import { pathSeparator, run } from "../process.js"
 import { ROOT } from "../paths.js"
+import { tauriCommand } from "../tauri.js"
 
 export { ensureLocalJdk }
 
@@ -18,12 +19,12 @@ export async function androidBuildEnv(extra = {}) {
 
 // One Android entry path keeps normal and native-TTS APK builds consistent.
 export async function runTauriAndroidBuild(args, extraEnv = {}) {
-  const command = npxBin()
   const env = await androidBuildEnv(extraEnv)
+  const tauri = tauriCommand(args)
   console.log("[android-build] JAVA_HOME=" + env.JAVA_HOME)
-  await run(command, ["tauri", ...args], {
+  await run(tauri.command, tauri.args, {
     cwd: ROOT,
     env,
-    label: command + " tauri " + args.join(" "),
+    label: "tauri " + args.join(" "),
   })
 }

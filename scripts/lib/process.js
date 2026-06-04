@@ -3,11 +3,6 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { ROOT } from "./paths.js"
 
-// Windows npm exposes npx through a .cmd shim.
-export function npxBin() {
-  return process.platform === "win32" ? "npx.cmd" : "npx"
-}
-
 export function pathSeparator() {
   return process.platform === "win32" ? ";" : ":"
 }
