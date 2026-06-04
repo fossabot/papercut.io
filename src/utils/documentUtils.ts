@@ -9,7 +9,9 @@ export function extractPageFromAnchor(url: string): number {
 }
 
 export function deriveAuthor(url: string): string {
-  if (/^\/(uploads)\//.test(url)) return 'User Uploads'
+  // if (/^\/(uploads)\//.test(url)) return 'User Uploads'
+  if (/^\/(uploads|user-uploads)\//.test(url)) return 'User Uploads'
+
   const idx = url.indexOf('/documents/')
   if (idx === -1) return UNCATEGORIZED
   const tail = url.slice(idx + '/documents/'.length)
