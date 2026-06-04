@@ -24,26 +24,42 @@ export function useTtsHighlight(
   const searchStartRef = useRef(0)
 
   useEffect(() => {
+    const iframe = iframeRef.current
+
     if (!enabled || !currentText) {
-      const doc = iframeRef.current?.contentDocument
+      const doc = iframe?.contentDocument
       if (doc) clearTtsHighlight(doc)
       searchStartRef.current = 0
       return
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        const result = highlightTtsChunk(iframeRef.current, currentText, searchStartRef.current)
-        if (!result) return
+    let frame: number | null = null
+    const attemptHighlight = () => {
+      if (frame !== null) window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        try {
+          const result = highlightTtsChunk(iframeRef.current, currentText, searchStartRef.current)
+          if (!result) return
 
-        searchStartRef.current = result.normalizedIndex + 1
-        result.mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      } catch (err) {
-        console.warn('Unable to highlight current TTS chunk:', err)
-      }
-    })
+          searchStartRef.current = result.normalizedIndex + 1
+          result.mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        } catch (err) {
+          console.warn('Unable to highlight current TTS chunk:', err)
+        }
+      })
+    }
 
-    return () => window.cancelAnimationFrame(frame)
+    const doc = iframe?.contentDocument
+    const shouldRetryOnLoad = iframe && (!doc || doc.readyState === 'loading')
+    if (shouldRetryOnLoad) iframe.addEventListener('load', attemptHighlight)
+
+    attemptHighlight()
+
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame)
+      if (shouldRetryOnLoad) iframe.removeEventListener('load', attemptHighlight)
+    }
   }, [currentChunkIndex, currentText, enabled, iframeRef])
 }
 
