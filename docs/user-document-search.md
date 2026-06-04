@@ -49,6 +49,27 @@ Storage:
 - Sanitized uploaded HTML is stored under Tauri app data at `document_uploads/{upload_id}/source.html`.
 - The runtime search index lives at `document_uploads/search.sqlite3`.
 
+## Frontend And Viewer Architecture
+
+The detailed upload and viewer architecture lives here instead of the README so the README can stay focused on setup, builds, and release usage. Keep this section current when upload formats, viewer routing, or search ownership changes.
+
+The frontend keeps upload, search, and viewing responsibilities separated:
+
+- `src/App.tsx` is the composition point for search, library, reader, audiobook, and upload state. It wires the pieces together but delegates upload commands, filtering, search, and rendering to narrower modules.
+- `src/uploads/DocumentUploads.ts` is the upload API boundary. React code calls these helpers instead of invoking Tauri commands directly throughout the UI.
+- `src/hooks/useSearch.ts` merges bundled Pagefind results with uploaded-document SQLite results and returns the shared `SearchResult` shape.
+- `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the library-facing import/delete/filter controls. Import options stay option-driven so generic document import and audiobook bundle import can appear together without sharing backend code.
+- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, iframe sizing, scroll-to-top behavior, and TTS highlight integration.
+
+Viewer rendering is plugin-based:
+
+- `src/viewers/registry.ts` chooses a `ViewerPlugin` by URL.
+- More specific formats must be registered before the HTML fallback. Today PDF and EPUB entries are reserved ahead of the catch-all HTML viewer.
+- `src/viewers/HtmlViewer.tsx` renders sanitized HTML through `srcDoc` in a sandboxed iframe.
+- New formats should add a parser/indexing module on the Rust side first. Add a new viewer only when the stored source needs different rendering from sanitized HTML.
+
+This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
+
 ## Import Pipeline
 
 The runtime upload path follows a parser pipeline that can be reused for future formats:
@@ -136,7 +157,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 For the first shippable upload branch, keep the generic document work separate from TTS:
 
 - Include `src/uploads/DocumentUploads.ts`.
-- Include `src-tauri/src/document_uploads.rs` and the command registration in `src-tauri/src/lib.rs`.
+- Include `src-tauri/src/document_uploads/` and the command registration in `src-tauri/src/lib.rs`.
 - Include the `rusqlite` dependency.
 - Include App UI changes for the **Import > HTML** option, **User Uploads**, uploaded-document delete, and merged search.
 - Exclude `.papercut-audiobook` import/export work if you want a non-TTS branch.
