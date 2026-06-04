@@ -60,10 +60,10 @@ jobs:
         run: npm run lint
 
       - name: Build frontend + Pagefind index
-        run: npm run build:frontend
+        run: npm run build
 
       - name: Build Tauri app
-        run: npm run tauri:build
+        run: npm run desktop
 
       - name: Upload .deb artifact (Linux)
         if: matrix.platform == 'linux'
@@ -129,10 +129,10 @@ jobs:
         run: npm ci
 
       - name: Build frontend + Pagefind index
-        run: npm run build:frontend
+        run: npm run build
 
       - name: Build Android APK
-        run: npm run tauri:android:build
+        run: npm run android:apk
         env:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/29.0.13846066
 
