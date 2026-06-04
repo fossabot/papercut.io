@@ -1,0 +1,110 @@
+export type TtsDiagnosticLevel = 'info' | 'warn' | 'error'
+
+export interface TtsDiagnosticEvent {
+  id: string
+  timestamp: number
+  level: TtsDiagnosticLevel
+  label: string
+  data: Record<string, unknown>
+}
+
+const STORAGE_KEY = 'papercut.ttsDiagnostics.v1'
+const MAX_EVENTS = 100
+
+let events: TtsDiagnosticEvent[] = loadEvents()
+const listeners = new Set<() => void>()
+
+export function getTtsDiagnostics(): TtsDiagnosticEvent[] {
+  return events
+}
+
+export function subscribeTtsDiagnostics(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+export function clearTtsDiagnostics(): void {
+  events = []
+  persistEvents()
+  notifyListeners()
+}
+
+export function logTtsDiagnostic(
+  label: string,
+  data: Record<string, unknown> = {},
+  level: TtsDiagnosticLevel = 'info',
+): void {
+  const event: TtsDiagnosticEvent = {
+    id: String(Date.now()) + '-' + Math.random().toString(16).slice(2),
+    timestamp: Date.now(),
+    level,
+    label,
+    data: normalizeData(data),
+  }
+
+  events = [event, ...events].slice(0, MAX_EVENTS)
+  persistEvents()
+  notifyListeners()
+
+  if (level === 'error') {
+    console.error(label, data)
+  } else if (level === 'warn') {
+    console.warn(label, data)
+  } else {
+    console.info(label, data)
+  }
+}
+
+function normalizeData(data: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      normalized[key] = value
+    } else if (value === undefined) {
+      normalized[key] = ''
+    } else {
+      normalized[key] = String(value)
+    }
+  }
+  return normalized
+}
+
+function loadEvents(): TtsDiagnosticEvent[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as TtsDiagnosticEvent[]
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isDiagnosticEvent).slice(0, MAX_EVENTS)
+  } catch {
+    return []
+  }
+}
+
+function persistEvents(): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(events))
+  } catch {
+    // Diagnostics should never interrupt narration or saving.
+  }
+}
+
+function notifyListeners(): void {
+  for (const listener of listeners) listener()
+}
+
+function isDiagnosticEvent(value: TtsDiagnosticEvent): value is TtsDiagnosticEvent {
+  return Boolean(
+    value &&
+    typeof value.id === 'string' &&
+    typeof value.timestamp === 'number' &&
+    typeof value.label === 'string' &&
+    value.data &&
+    typeof value.data === 'object',
+  )
+}
