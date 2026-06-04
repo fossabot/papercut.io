@@ -213,9 +213,9 @@ function renderIconPath(name: AudioIconName) {
     case 'forward':
       return <path d="M13 6v12l8.5-6zM3 6v12l8.5-6z" />
     case 'save':
-      return <path d="M5 3h12l2 2v16H5zM8 3v6h8V3M8 18h8v-5H8z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      return <path d="M5 3h12l2 2v16H5zM8 3v6h8V3M8 18h8v-5H8z" fill="none" stroke="currentcolor" strokeWidth="2" strokeLinejoin="round" />
     case 'menu':
-      return <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      return <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentcolor" strokeWidth="2" strokeLinecap="round" />
   }
 }
 

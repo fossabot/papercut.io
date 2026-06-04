@@ -119,7 +119,7 @@ export function AudioSetupPanel({
 function DownloadIcon() {
   return (
     <svg className="audio-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 3v10m0 0 4-4m-4 4-4-4M5 17v3h14v-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 3v10m0 0 4-4m-4 4-4-4M5 17v3h14v-3" fill="none" stroke="currentcolor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
