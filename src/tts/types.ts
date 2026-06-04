@@ -1,5 +1,5 @@
 export const KOKORO_MODEL_ID = 'sherpa-onnx/kokoro-multi-lang-v1_0'
-export const KOKORO_AUDIO_CACHE_VERSION = 'native-save-v3-360-sanitized'
+export const KOKORO_AUDIO_CACHE_VERSION = 'native-save-v4-segmented'
 export const KOKORO_MODEL_DTYPE = 'native'
 export const KOKORO_DEFAULT_VOICE = 'af_heart'
 export const KOKORO_DEFAULT_SPEED = 1

@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react'
-
-interface NormalizedTextPoint {
-  node: Text
-  offset: number
-}
+import { buildReadableDomTextMap, normalizeForTextAlignment, type NormalizedTextPoint } from '../alignment/domTextMap'
 
 interface TtsHighlightResult {
   normalizedIndex: number
+  normalizedEndIndex: number
   mark: HTMLElement
+}
+
+interface HighlightTextRange {
+  node: Text
+  startOffset: number
+  endOffset: number
 }
 
 interface UseTtsHighlightOptions {
@@ -42,7 +45,7 @@ export function useTtsHighlight(
           const result = highlightTtsChunk(iframeRef.current, currentText, searchStartRef.current)
           if (!result) return
 
-          searchStartRef.current = result.normalizedIndex + 1
+          searchStartRef.current = result.normalizedEndIndex + 1
           result.mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
         } catch (err) {
           console.warn('Unable to highlight current TTS chunk:', err)
@@ -63,9 +66,6 @@ export function useTtsHighlight(
   }, [currentChunkIndex, currentText, enabled, iframeRef])
 }
 
-function normalizeForTtsHighlight(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase()
-}
 
 function clearTtsHighlight(doc: Document): void {
   const marks = doc.querySelectorAll('mark[data-tts-current]')
@@ -99,61 +99,6 @@ function ensureTtsHighlightStyles(doc: Document): void {
   doc.head.appendChild(style)
 }
 
-function collectReadableTextNodes(doc: Document): Text[] {
-  const body = doc.body
-  if (!body) return []
-
-  const textNodes: Text[] = []
-  const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT
-      const parent = node.parentElement
-      if (parent?.closest('script, style, noscript')) return NodeFilter.FILTER_REJECT
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
-
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    textNodes.push(node as Text)
-  }
-
-  return textNodes
-}
-
-// Normalized text loses whitespace details, so this map lets us convert a
-// normalized match index back to the original Text node and character offset.
-function buildNormalizedTextMap(textNodes: Text[]): {
-  text: string
-  map: NormalizedTextPoint[]
-} {
-  let text = ''
-  const map: NormalizedTextPoint[] = []
-  let pendingWhitespace: NormalizedTextPoint | null = null
-
-  for (const node of textNodes) {
-    const raw = node.textContent ?? ''
-    for (let offset = 0; offset < raw.length; offset++) {
-      const char = raw[offset]
-      if (/\s/.test(char)) {
-        if (text.length > 0) pendingWhitespace = { node, offset }
-        continue
-      }
-
-      if (pendingWhitespace) {
-        text += ' '
-        map.push(pendingWhitespace)
-        pendingWhitespace = null
-      }
-
-      text += char.toLowerCase()
-      map.push({ node, offset })
-    }
-  }
-
-  return { text, map }
-}
-
 function highlightTtsChunk(
   iframe: HTMLIFrameElement | null,
   chunkText: string,
@@ -165,27 +110,76 @@ function highlightTtsChunk(
   clearTtsHighlight(doc)
   ensureTtsHighlightStyles(doc)
 
-  const target = normalizeForTtsHighlight(chunkText)
+  const target = normalizeForTextAlignment(chunkText)
   if (!target) return null
 
-  const { text, map } = buildNormalizedTextMap(collectReadableTextNodes(doc))
+  const { text, map } = buildReadableDomTextMap(doc)
   const boundedStart = Math.min(Math.max(startAt, 0), Math.max(text.length - 1, 0))
   let index = text.indexOf(target, boundedStart)
   if (index === -1 && boundedStart > 0) index = text.indexOf(target)
   if (index === -1) return null
 
-  const start = map[index]
-  const end = map[index + target.length - 1]
-  if (!start || !end) return null
+  const normalizedEndIndex = index + target.length - 1
+  const mark = markTextMapRange(doc, map, index, normalizedEndIndex)
+  if (!mark) return null
 
-  const range = doc.createRange()
-  range.setStart(start.node, start.offset)
-  range.setEnd(end.node, end.offset + 1)
+  return { normalizedIndex: index, normalizedEndIndex, mark }
+}
 
-  const mark = doc.createElement('mark')
-  mark.setAttribute('data-tts-current', 'true')
-  mark.appendChild(range.extractContents())
-  range.insertNode(mark)
+function markTextMapRange(
+  doc: Document,
+  map: NormalizedTextPoint[],
+  startIndex: number,
+  endIndex: number,
+): HTMLElement | null {
+  const ranges = collectTextRanges(map, startIndex, endIndex)
+  const marks: HTMLElement[] = []
 
-  return { normalizedIndex: index, mark }
+  for (let index = ranges.length - 1; index >= 0; index--) {
+    const textRange = ranges[index]
+    const parent = textRange.node.parentNode
+    const startOffset = Math.min(textRange.startOffset, textRange.node.length)
+    const endOffset = Math.min(textRange.endOffset, textRange.node.length)
+    if (!parent || startOffset >= endOffset) continue
+
+    const range = doc.createRange()
+    range.setStart(textRange.node, startOffset)
+    range.setEnd(textRange.node, endOffset)
+
+    const mark = doc.createElement('mark')
+    mark.setAttribute('data-tts-current', 'true')
+    mark.appendChild(range.extractContents())
+    range.insertNode(mark)
+    marks.unshift(mark)
+  }
+
+  return marks[0] ?? null
+}
+
+function collectTextRanges(
+  map: NormalizedTextPoint[],
+  startIndex: number,
+  endIndex: number,
+): HighlightTextRange[] {
+  const ranges: HighlightTextRange[] = []
+
+  for (let index = startIndex; index <= endIndex; index++) {
+    const point = map[index]
+    if (!point) continue
+
+    const previous = ranges[ranges.length - 1]
+    if (previous?.node === point.node) {
+      previous.startOffset = Math.min(previous.startOffset, point.offset)
+      previous.endOffset = Math.max(previous.endOffset, point.offset + 1)
+      continue
+    }
+
+    ranges.push({
+      node: point.node,
+      startOffset: point.offset,
+      endOffset: point.offset + 1,
+    })
+  }
+
+  return ranges
 }

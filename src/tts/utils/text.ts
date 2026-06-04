@@ -1,6 +1,20 @@
+import {
+  extractReadableSegmentsFromHtml,
+  extractReadableTextFromSegments,
+  normalizeSegmentText,
+  normalizeSpeechText,
+  type ReadableSegment,
+  type ReadableSegmentKind,
+} from '../alignment/readableSegments'
+
 export interface SpeechChunkProfile {
   maxChunkLength: number
   minChunkLength: number
+}
+
+interface SpeechChunkCandidate {
+  text: string
+  kind: ReadableSegmentKind
 }
 
 // Playback-sized chunks keep skip/highlight interactions responsive.
@@ -17,22 +31,15 @@ export const AUDIOBOOK_SAVE_CHUNK_PROFILE: SpeechChunkProfile = {
   minChunkLength: 80,
 }
 
+// Compatibility wrapper for callers that still need one normalized readable string.
 export function extractReadableTextFromHtml(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  doc.querySelectorAll('script, style, noscript, svg').forEach((el) => el.remove())
-
-  return normalizeSpeechText(doc.body?.textContent ?? doc.documentElement.textContent ?? '')
+  return extractReadableTextFromSegments(extractReadableSegmentsFromHtml(html))
 }
 
-export function normalizeSpeechText(text: string): string {
-  return text
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim()
-}
+export { normalizeSpeechText }
 
+// Chunks already-extracted plain text; HTML callers should prefer segment-aware
+// chunking so visual block boundaries are not lost.
 export function chunkSpeechText(
   text: string,
   profile: SpeechChunkProfile = PLAYBACK_CHUNK_PROFILE,
@@ -40,34 +47,51 @@ export function chunkSpeechText(
   const normalized = normalizeSpeechText(text)
   if (!normalized) return []
 
-  const paragraphs = normalized
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-
-  const chunks: string[] = []
-  for (const paragraph of paragraphs) {
-    appendParagraphChunks(paragraph, chunks, profile)
-  }
-
-  return mergeShortChunks(chunks, profile)
+  return chunkReadableSegments([{ text: normalized, kind: 'paragraph' }], profile)
 }
 
 export function chunkAudiobookSaveText(text: string): string[] {
   return chunkSpeechText(text, AUDIOBOOK_SAVE_CHUNK_PROFILE)
 }
 
-function mergeShortChunks(chunks: string[], profile: SpeechChunkProfile): string[] {
-  const merged: string[] = []
+// Builds save-time audiobook chunks from HTML segments so headings, paragraphs,
+// and lists stay aligned with the viewer highlight map.
+export function chunkAudiobookSaveHtml(html: string): string[] {
+  return chunkReadableSegments(extractReadableSegmentsFromHtml(html), AUDIOBOOK_SAVE_CHUNK_PROFILE)
+}
+
+// Shared chunking entry point for format adapters. EPUB/PDF should emit
+// ReadableSegment[] and reuse this instead of adding format logic to playback.
+export function chunkReadableSegments(
+  segments: ReadableSegment[],
+  profile: SpeechChunkProfile = PLAYBACK_CHUNK_PROFILE,
+): string[] {
+  const chunks: SpeechChunkCandidate[] = []
+
+  for (const segment of segments) {
+    appendSegmentChunks(segment, chunks, profile)
+  }
+
+  return mergeShortChunks(chunks, profile).map((chunk) => chunk.text)
+}
+
+// Merges tiny adjacent chunks only when their segment kinds are compatible; this
+// avoids folding headings into paragraphs just to satisfy a minimum length.
+function mergeShortChunks(chunks: SpeechChunkCandidate[], profile: SpeechChunkProfile): SpeechChunkCandidate[] {
+  const merged: SpeechChunkCandidate[] = []
 
   for (const chunk of chunks) {
     const previous = merged[merged.length - 1]
     if (
       previous &&
-      previous.length < profile.minChunkLength &&
-      previous.length + chunk.length + 1 <= profile.maxChunkLength
+      canMergeChunks(previous.kind, chunk.kind) &&
+      previous.text.length < profile.minChunkLength &&
+      previous.text.length + chunk.text.length + 1 <= profile.maxChunkLength
     ) {
-      merged[merged.length - 1] = previous + ' ' + chunk
+      merged[merged.length - 1] = {
+        ...previous,
+        text: previous.text + ' ' + chunk.text,
+      }
     } else {
       merged.push(chunk)
     }
@@ -76,11 +100,16 @@ function mergeShortChunks(chunks: string[], profile: SpeechChunkProfile): string
   return merged
 }
 
-function appendParagraphChunks(
-  paragraph: string,
-  chunks: string[],
+// Splits one readable segment into sentence-sized TTS requests while preserving
+// the segment kind for later merge decisions.
+function appendSegmentChunks(
+  segment: ReadableSegment,
+  chunks: SpeechChunkCandidate[],
   profile: SpeechChunkProfile,
 ): void {
+  const paragraph = normalizeSegmentText(segment.text)
+  if (!paragraph) return
+
   const sentences = paragraph
     .match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g)
     ?.map((sentence) => sentence.trim())
@@ -89,22 +118,22 @@ function appendParagraphChunks(
   let current = ''
   for (const sentence of sentences) {
     if (sentence.length > profile.maxChunkLength) {
-      flushChunk(chunks, current)
+      flushChunk(chunks, current, segment.kind)
       current = ''
-      splitLongSentence(sentence, profile).forEach((part) => flushChunk(chunks, part))
+      splitLongSentence(sentence, profile).forEach((part) => flushChunk(chunks, part, segment.kind))
       continue
     }
 
     const next = current ? current + ' ' + sentence : sentence
     if (next.length > profile.maxChunkLength && current.length >= profile.minChunkLength) {
-      flushChunk(chunks, current)
+      flushChunk(chunks, current, segment.kind)
       current = sentence
     } else {
       current = next
     }
   }
 
-  flushChunk(chunks, current)
+  flushChunk(chunks, current, segment.kind)
 }
 
 function splitLongSentence(sentence: string, profile: SpeechChunkProfile): string[] {
@@ -137,7 +166,17 @@ function splitLongSentence(sentence: string, profile: SpeechChunkProfile): strin
   return chunks
 }
 
-function flushChunk(chunks: string[], text: string): void {
-  const normalized = normalizeSpeechText(text)
-  if (normalized) chunks.push(normalized)
+// Normalizes the final chunk text at the boundary where it becomes cache-keyed
+// audiobook input.
+function flushChunk(chunks: SpeechChunkCandidate[], text: string, kind: ReadableSegmentKind): void {
+  const normalized = normalizeSegmentText(text)
+  if (normalized) chunks.push({ text: normalized, kind })
+}
+
+// Encodes the UX rule for structural boundaries: headings stand alone, and list
+// items only merge with other list items.
+function canMergeChunks(previous: ReadableSegmentKind, next: ReadableSegmentKind): boolean {
+  if (previous === 'heading' || next === 'heading') return false
+  if (previous === 'listItem' || next === 'listItem') return previous === next
+  return true
 }

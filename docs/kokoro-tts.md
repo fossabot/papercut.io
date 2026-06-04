@@ -89,6 +89,14 @@ Instead, audio is generated on demand:
 
 Save uses a conservative chunk profile that is separate from playback chunking. Playback keeps larger chunks for comfortable skip/highlight behavior, while Save uses smaller sentence-like chunks so one problematic text range is less likely to kill a long Android job and Resume has less work to retry.
 
+### Narration Text Alignment
+
+Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
+
+The viewer highlighter uses a matching DOM text map that inserts stable boundaries between readable blocks while still mapping each normalized character back to the original iframe text node. During playback, only the current chunk is highlighted and audio loading remains windowed around the current position; the app does not preload or scan hundreds of saved WAV chunks for long audiobooks.
+
+This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported.
+
 Native synthesis sanitizes text before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, and emoji/non-BMP symbols are dropped for the English Kokoro path. This slightly changes unusual source text, but it avoids feeding unsupported characters into native tokenization.
 
 Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Playback is windowed: React loads the current chunk and a small lookahead instead of scanning every saved WAV up front. This keeps very long audiobooks responsive and avoids creating hundreds of Blob URLs at once.
@@ -134,7 +142,7 @@ Interpretation guide:
 
 Large runtime assets stay out of git. Commit code, scripts, docs, Cargo files, package metadata, and `src-tauri/tts/model-manifest.json`; do not commit downloaded model files, generated Android libraries, built frontend output, or generated audiobook WAV chunks.
 
-The current native audiobook cache version is `native-save-v3-360-sanitized`. Updating that value intentionally invalidates older saved-audiobook records and incomplete downloads because their chunk boundaries or text normalization may no longer match. The app hides old records but does not automatically delete their files from user data.
+The current native audiobook cache version is `native-save-v4-segmented`. Updating that value intentionally invalidates older saved-audiobook records and incomplete downloads because their chunk boundaries or text normalization may no longer match. The app hides old records but does not automatically delete their files from user data.
 
 Generated files that should stay uncommitted:
 

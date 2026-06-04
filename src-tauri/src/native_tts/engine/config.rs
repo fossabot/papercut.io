@@ -24,7 +24,7 @@ pub(super) const MODEL_ARCHIVE_BYTES: u64 = 349_418_188;
 pub(super) const MODEL_ID: &str = "sherpa-onnx/kokoro-multi-lang-v1_0";
 /// Saved-audiobook cache version. Bumping this intentionally invalidates older
 /// saved records and bundles whose chunk boundaries / text normalization differ.
-pub(super) const CACHE_VERSION: &str = "native-save-v3-360-sanitized";
+pub(super) const CACHE_VERSION: &str = "native-save-v4-segmented";
 
 /// Leading magic bytes identifying a Papercut audiobook export bundle.
 pub(super) const BUNDLE_MAGIC: &[u8] = b"PAPERCUT_AUDIOBOOK_BUNDLE_V2\n";

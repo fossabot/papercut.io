@@ -29,7 +29,7 @@ import {
   type NativeTtsModelInstallProgress,
   type NativeTtsModelStatus,
 } from '../api/nativeTts'
-import { chunkAudiobookSaveText, extractReadableTextFromHtml } from '../utils/text'
+import { chunkAudiobookSaveHtml } from '../utils/text'
 import type { KokoroDtype, KokoroVoice, TtsChunk } from '../types'
 import { isUserUploadUrl, removeUserUpload, upsertUserUpload, type UserUploadDocument } from '../storage/UserUploads'
 import { useAudiobookCache } from './useAudiobookCache'
@@ -207,7 +207,7 @@ export function useAudiobookManager({
       return
     }
 
-    setTtsSaveChunks(audiobookSaveChunksFromText(extractReadableTextFromHtml(docContent)))
+    setTtsSaveChunks(audiobookSaveChunksFromHtml(docContent))
   }, [docContent, selectedDoc])
 
   useEffect(() => {
@@ -350,7 +350,7 @@ export function useAudiobookManager({
 
   const getAudiobookSaveChunksForDocument = useCallback(async (documentUrl: string): Promise<TtsChunk[]> => {
     const html = await loadHtmlDocument(documentUrl)
-    return audiobookSaveChunksFromText(extractReadableTextFromHtml(html))
+    return audiobookSaveChunksFromHtml(html)
   }, [loadHtmlDocument])
 
   const getSelectedAudiobookSaveChunks = useCallback(async (): Promise<TtsChunk[]> => {
@@ -705,8 +705,8 @@ export function useAudiobookManager({
   }
 }
 
-function audiobookSaveChunksFromText(text: string): TtsChunk[] {
-  return buildRuntimeChunks(chunkAudiobookSaveText(text), 'save-c')
+function audiobookSaveChunksFromHtml(html: string): TtsChunk[] {
+  return buildRuntimeChunks(chunkAudiobookSaveHtml(html), 'save-c')
 }
 
 function buildRuntimeChunks(texts: string[], prefix: string): TtsChunk[] {
