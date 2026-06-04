@@ -3,7 +3,7 @@ import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
 import { useFindInPage } from '../../hooks/useFindInPage'
-// import { useTtsHighlight } from '../../tts/useTtsHighlight' // TTS — restore in TTS branch
+import { useTtsHighlight } from '../../tts/hooks/useTtsHighlight'
 
 interface TtsHighlightOptions {
   enabled: boolean
@@ -13,6 +13,7 @@ interface TtsHighlightOptions {
 
 interface DocumentViewerProps {
   url: string
+  title?: string
   content: string
   className?: string
   headerControls?: ReactNode
@@ -23,11 +24,12 @@ interface DocumentViewerProps {
 
 export function DocumentViewer({
   url,
+  title,
   content,
   className = '',
   headerControls,
   beforeDocument,
-  // ttsHighlight, // TTS — restore in TTS branch
+  ttsHighlight,
   onClose,
 }: DocumentViewerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -46,12 +48,11 @@ export function DocumentViewer({
     setShowFind,
   } = useFindInPage(iframeRef)
 
-  // TTS — restore in TTS branch
-  // useTtsHighlight(iframeRef, ttsHighlight ?? {
-  //   enabled: false,
-  //   currentText: '',
-  //   currentChunkIndex: null,
-  // })
+  useTtsHighlight(iframeRef, ttsHighlight ?? {
+    enabled: false,
+    currentText: '',
+    currentChunkIndex: null,
+  })
 
   useEffect(() => {
     const iframe = iframeRef.current
@@ -95,7 +96,7 @@ export function DocumentViewer({
           <button className="back-button" onClick={onClose}>&larr; Back</button>
         </div>
         <div className="header-center">
-          <h1 className="app-title">Papercut</h1>
+          <h1 className="app-title doc-title" title={title}>{title ?? 'Papercut'}</h1>
         </div>
         <div className="header-right">
           {headerControls}
