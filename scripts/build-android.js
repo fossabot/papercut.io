@@ -3,7 +3,8 @@ import { join } from "node:path"
 import { runTauriAndroidBuild } from "./lib/android/build-env.js"
 import {
   SHERPA_DEFAULT_ANDROID_ABI,
-  SHERPA_DEFAULT_ANDROID_RUST_TARGET
+  SHERPA_DEFAULT_ANDROID_RUST_TARGET,
+  SHERPA_DEFAULT_ANDROID_TAURI_TARGET
 } from "./lib/android/constants.js"
 import {
   androidSherpaLibDir,
@@ -26,6 +27,7 @@ if (nativeTts) {
 async function runNativeTtsAndroidBuild(extraArgs) {
   const abi = SHERPA_DEFAULT_ANDROID_ABI
   const rustTarget = SHERPA_DEFAULT_ANDROID_RUST_TARGET
+  const tauriTarget = SHERPA_DEFAULT_ANDROID_TAURI_TARGET
   const libDir = androidSherpaLibDir(abi)
 
   await ensureAndroidSherpaLibs()
@@ -36,7 +38,7 @@ async function runNativeTtsAndroidBuild(extraArgs) {
 
   const args = extraArgs.length > 0
     ? extraArgs
-    : ["android", "build", "--apk", "--debug", "--target", "aarch64", "--features", "native-tts-shared"]
+    : ["android", "build", "--apk", "--debug", "--target", tauriTarget, "--features", "native-tts-shared"]
 
   console.log("[sherpa-android-build] SHERPA_ONNX_LIB_DIR=" + libDir)
   console.log("[sherpa-android-build] runtime model download is enabled; model assets are not packaged into the APK")
