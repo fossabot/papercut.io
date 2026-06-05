@@ -11,3 +11,10 @@ export NVM_DIR="$HOME/.nvm"
 # Load cargo/rust if available
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 [ -f "$HOME/.var/app/com.vscodium.codium/data/cargo/env" ] && . "$HOME/.var/app/com.vscodium.codium/data/cargo/env"
+
+# Prefer the repo-local JDK prepared by npm run prepare:jdk when present.
+PAPERCUT_LOCAL_JDK="$PWD/src-tauri/tts/runtime/jdk/temurin-17"
+if [ -x "$PAPERCUT_LOCAL_JDK/bin/java" ]; then
+  export JAVA_HOME="$PAPERCUT_LOCAL_JDK"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi

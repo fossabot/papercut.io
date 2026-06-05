@@ -1,6 +1,6 @@
 # Papercut
 
-A lightweight desktop application for full-text search across document collections. Built with Tauri, React, Vite, Pagefind, and SQLite FTS.
+Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native Kokoro TTS.
 
 Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
 
@@ -78,6 +78,16 @@ Required to build the Android APK:
 
 **Install Java 17:**
 
+The Android build scripts can prepare a repo-local Eclipse Temurin JDK 17 automatically. This is useful in sandboxed editor environments where system package managers are not available:
+
+```bash
+npm run prepare:jdk
+```
+
+The local JDK is extracted to `src-tauri/tts/runtime/jdk/temurin-17`, which is ignored by git. The fallback archive is pinned to Eclipse Temurin 17.0.19+10 and verified with SHA-256 before extraction. The helper downloads through a temporary file and only promotes the archive after a completed fetch, so interrupted downloads do not leave a partial archive in place. `npm run android:apk` and `npm run android:apk:native-tts` set `JAVA_HOME` to this local JDK automatically when no external `JAVA_HOME` is available.
+
+System JDK installs also work:
+
 ```bash
 # Ubuntu/Debian
 sudo apt install openjdk-17-jdk
@@ -130,43 +140,74 @@ npm install
 npm run tauri:dev
 ```
 
-This starts the Vite dev server and launches the Tauri desktop window with hot reload. Note that the Pagefind search index is only available after a full build, so search will not work in dev mode.
+This starts the Vite dev server and launches the Tauri desktop window with hot reload. Bundled-document search requires a built Pagefind index, so bundled search is only available after `npm run build`. Runtime uploaded-document search works inside the Tauri app after documents are imported.
 
 ### Production build
 
 ```bash
-npm run tauri:build
+npm run desktop
 ```
+
+When this command is run from a Flatpak-hosted editor terminal, the script automatically delegates the desktop build to the host OS with `flatpak-spawn --host`. That keeps the command the same while letting Tauri and `linuxdeploy` see the real host WebKitGTK/GTK libraries needed for `.deb`, `.rpm`, and AppImage bundling. You do not need to source `tauri-env.sh` before `npm run desktop`; if it has already been sourced, the desktop wrapper removes the Flatpak pkg-config variables before running the host build.
 
 This runs the full pipeline:
 
-1. TypeScript compilation and Vite build
-2. Pagefind indexes all HTML documents in `public/documents/`
-3. Tauri compiles the Rust backend and bundles the desktop application
+1. TypeScript compilation
+2. Vite frontend build
+3. Pagefind indexes all HTML documents in `public/documents/`
+4. Tauri compiles the Rust backend and bundles the desktop application
 
 The built binary is output to `src-tauri/target/release/app` (`app.exe` on Windows). Installers are generated in `src-tauri/target/release/bundle/`:
 
 - **Linux:** `.deb`, `.rpm`, and `.AppImage`
-- **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/`
+- **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/` when building on Windows
 
-**Arch-based systems:** The `linuxdeploy` tool used to bundle the AppImage contains an old `strip` binary that cannot handle Arch's newer ELF format. Prefix the build command with `NO_STRIP=1` to skip stripping:
+`npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
+
+Install the generated Debian package with a dependency-aware command so WebKitGTK and GTK are installed if needed:
 
 ```bash
-NO_STRIP=1 npm run tauri:build
+sudo apt install ./src-tauri/target/release/bundle/deb/Papercut_1.0.0_amd64.deb
 ```
 
-To avoid typing this every time, set it permanently in your shell:
+If you previously used `sudo dpkg -i ...` and the app did not launch, run `sudo apt -f install` once to finish installing missing dependencies, then reinstall the newly generated `.deb`.
 
-```fish
-set -Ux NO_STRIP 1
+**AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`.
+
+### Version bump checklist
+
+For an app release, keep the frontend package version, Tauri bundle version, and Rust crate version in sync.
+
+Update these files:
+
+- `package.json` — React/frontend package version.
+- `package-lock.json` — npm lockfile version metadata.
+- `src-tauri/tauri.conf.json` — Tauri app/bundle version used by installers.
+- `src-tauri/Cargo.toml` — Rust crate version.
+- `src-tauri/Cargo.lock` — refreshed if Cargo records the local crate version change.
+
+Suggested flow:
+
+```bash
+VERSION=1.0.1
+npm version "$VERSION" --no-git-tag-version
 ```
+
+Then set `version` to the same value in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and run:
+
+```bash
+cargo check --manifest-path src-tauri/Cargo.toml --features native-tts-shared
+npm run build
+```
+
+Commit the changed version files together with the release changes.
 
 ### Running the AppImage (Arch-based systems)
 
 On Arch-based systems, the AppImage may show a blank screen due to a WebKit GBM buffer allocation failure with modern Mesa drivers. Set `WEBKIT_DISABLE_COMPOSITING_MODE=1` to disable GPU compositing:
 
 ```bash
-WEBKIT_DISABLE_COMPOSITING_MODE=1 ./Papercut_0.1.0_amd64.AppImage
+WEBKIT_DISABLE_COMPOSITING_MODE=1 ./Papercut_1.0.0_amd64.AppImage
 ```
 
 To avoid setting this every time, export it permanently in your shell:
@@ -183,11 +224,15 @@ Before building for Android the first time, initialize the Android project (run 
 npm run tauri -- android init
 ```
 
-Then build the APK:
+Then build the APK. The wrapper prepares/uses the local JDK and sets `JAVA_HOME` automatically:
 
 ```bash
-npm run tauri:android:build
+npm run android:apk
 ```
+
+Use `npm run android:apk:native-tts` when building the Android APK with native audiobook generation/playback.
+
+Audiobooks are not pre-rendered into the APK. Users save full audiobooks on demand from the document UI, and generated audio is stored as local app user data.
 
 The APK is output to:
 
@@ -199,18 +244,52 @@ The `--debug` flag signs the APK automatically with a debug keystore, which is r
 
 To sideload on an Android device, enable **Install unknown apps** in Settings and transfer the `.apk` file directly (via USB, ADB, or file share).
 
-### Frontend-only build
 
-To build just the frontend and generate the Pagefind index without compiling the Tauri binary:
+### Android build troubleshooting
+
+If Cargo prints `Blocking waiting for file lock on artifact directory`, another Rust/Tauri build is holding the target directory lock. Wait for the other build to finish, or stop the older terminal process and rerun the command. If no Cargo/Rust process is running, rerunning with a fresh terminal normally clears it.
+
+### Offline native Kokoro text-to-speech
+
+Papercut uses native sherpa-onnx for Kokoro TTS in desktop builds, and includes an arm64 Android native-TTS build path backed by the official sherpa-onnx Android shared libraries. The old browser-worker fallback has been removed; browser preview still works for document/search UI, but it cannot synthesize audio.
+
+The Kokoro model is not packaged into desktop installers or Android APKs by default. Users install it once from the Audiobook settings cog with **Download voice model**. The app downloads the pinned official sherpa-onnx release asset into Tauri app data and verifies its SHA-256 before using it:
+
+- Source: k2-fsa/sherpa-onnx Kokoro multi-lang v1.0
+- URL: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+- SHA-256: `c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046`
+- Archive size: about 333 MB
+
+Desktop and Android use the same model archive. Only the native libraries are platform-specific: desktop builds use the Rust `sherpa-onnx` dependency, while Android native TTS uses the pinned sherpa-onnx Android shared-library archive prepared by `npm run prepare:sherpa-android-libs` and verified before extraction.
+
+The process is documented in [docs/kokoro-tts.md](docs/kokoro-tts.md). Desktop scripts compile the `native-tts-shared` feature so speech generation runs through Tauri commands backed by sherpa-onnx without the high-memory static link step. For Android native TTS, run `npm run prepare:jdk`, `npm run prepare:sherpa-android-libs`, and then `npm run android:apk:native-tts`; the wrapper sets `JAVA_HOME` and `SHERPA_ONNX_LIB_DIR` automatically for arm64 builds and does not package model files into the APK.
+
+Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Generated audio is user data, not part of the app bundle.
+
+Build helper scripts under `scripts/` are build orchestration, not a replacement for npm, Cargo, or Android SDK Manager. npm owns frontend tooling, Cargo owns Rust dependencies, and Android SDK Manager owns SDK/NDK installs. The scripts bridge the gaps: project paths, version constants, child-process execution, archive extraction, checked downloads, Android JDK/sherpa staging, Linux shared-library bundling, and Flatpak host-build delegation. OS-specific helpers live under `scripts/lib/android/` and `scripts/lib/linux/`.
+
+The audio UI supports saved-only playback, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
+
+### Browser build and preview
+
+Build the frontend, generate the Pagefind index, then run the browser preview server with one command:
+
+```bash
+npm run browser
+```
+
+For CI or packaging steps that only need the built frontend artifacts, run:
 
 ```bash
 npm run build
 ```
 
-You can then preview the frontend in a browser:
+The `build` command is split into named stages for troubleshooting and CI reuse:
 
 ```bash
-npm run preview
+npm run build:typecheck
+npm run build:vite
+npm run build:search-index
 ```
 
 ## Adding Documents
@@ -252,8 +331,8 @@ This first upload branch is intentionally HTML-only. PDF and EPUB uploads should
 
 Search is **explicit**: the app only searches when the user clicks the **Search** button next to the input or presses **Enter**. Typing does not trigger search. This keeps CPU and memory flat at scale (thousands of documents, large per-result fragment fetches). Bundled-document queries go through Pagefind, uploaded-document queries go through SQLite FTS5, and the React UI merges both result sets.
 
-- Queries are lowercased before being passed to the search providers, making search case-insensitive regardless of how the user types it (`Highest Stage of Capitalism` and `highest stage of capitalism` return the same results).
-- Wrapping a phrase in double quotes (`"highest stage of capitalism"`) runs an **exact phrase** match for bundled Pagefind results. Pagefind itself does not support phrase syntax, so the app:
+- Queries are lowercased before being passed to the search providers, making search case-insensitive regardless of how the user types it (`The quick brown fox jumped over the lazy dog` and `the quick brown fox jumped over the lazy dog` return the same results).
+- Wrapping a phrase in double quotes (`"the quick brown fox jumped over the lazy dog"`) runs an **exact phrase** match for bundled Pagefind results. Pagefind itself does not support phrase syntax, so the app:
   1. Strips the quotes for the Pagefind call (term-matching to narrow the candidate set to ~50 docs).
   2. Fetches each candidate document via its URL, strips HTML tags, normalizes whitespace and curly quotes, lowercases, and checks for the phrase as a substring.
   3. Drops candidates that don't contain the phrase. Multiple quoted phrases in one query are ANDed together.
@@ -272,90 +351,36 @@ source ./tauri-env.sh
 npm run tauri:dev
 ```
 
-This sets `PKG_CONFIG_PATH` and `PKG_CONFIG_SYSROOT_DIR` to point at the host system libraries mounted at `/run/host/`.
+This sets `PKG_CONFIG_PATH` and `PKG_CONFIG_SYSROOT_DIR` to point at the host system libraries mounted at `/run/host/`. Production desktop builds use `npm run desktop`, which delegates to the host automatically when Flatpak is detected so AppImage bundling can resolve host WebKitGTK dependencies.
 
 ## Project Structure
 
 ```
 papercut.io/
-├── public/documents/        # HTML documents to index
-├── src/                     # React frontend
-│   ├── App.tsx              # App shell — wires hooks to components, no business logic
-│   ├── App.css              # Global styles
-│   ├── index.css            # Base styles
-│   ├── main.tsx             # Entry point
-│   ├── types/               # Shared TypeScript interfaces
-│   │   └── search.ts        # SearchResult, DocumentInfo, PagefindInstance
-│   ├── utils/               # Pure, React-free helpers (unit-testable)
-│   │   ├── textUtils.ts     # Normalize / escape helpers
-│   │   ├── documentUtils.ts # deriveAuthor, extractPageFromAnchor
-│   │   └── phraseSearch.ts  # Exact-phrase fetch cache, excerpt building
-│   ├── hooks/               # Stateful logic, one concern per hook
-│   │   ├── usePagefind.ts   # Loads the index, exposes all documents
-│   │   ├── useSearch.ts     # Query, results, exact-phrase filtering
-│   │   ├── useDocumentFilters.ts # Author grouping + filter selection
-│   │   └── useFindInPage.ts # In-document find/highlight + Ctrl+F
-│   ├── components/          # Presentational UI components
-│   │   ├── SearchBar/
-│   │   ├── SearchResults/
-│   │   ├── DocumentsPanel/
-│   │   ├── DocumentViewer/  # Hosts the resolved viewer + find bar
-│   │   ├── FindBar/
-│   │   └── ScrollTopButton/
-│   └── viewers/             # Pluggable document viewers (see below)
-│       ├── types.ts         # ViewerPlugin / ViewerProps contracts
-│       ├── registry.ts      # resolveViewer(url) → picks a viewer
-│       ├── HtmlViewer.tsx   # Active — renders HTML in a sandboxed iframe
-│       ├── PdfViewer.tsx    # Stub — ready for pdf.js
-│       └── EpubViewer.tsx   # Stub — ready for epub.js
-├── src-tauri/               # Tauri / Rust backend
-├── index.html               # HTML shell
-├── vite.config.ts           # Vite configuration
-├── package.json             # Scripts and dependencies
-└── tauri-env.sh             # Flatpak environment helper
+├── public/documents/              # Bundled HTML documents indexed by Pagefind
+├── src/                           # React frontend
+│   ├── assets/                    # Bundled UI assets, including the header icon
+│   ├── components/                # Reusable UI and reader/search/library panels
+│   ├── hooks/                     # Shared React state hooks
+│   ├── tts/                       # Audiobook API, components, hooks, storage, diagnostics
+│   ├── uploads/                   # User-upload client API and types
+│   ├── utils/                     # Search, formatting, document, and debug helpers
+│   ├── viewers/                   # Document viewer registry and viewer implementations
+│   ├── App.tsx                    # App shell and tab orchestration
+│   ├── App.css                    # Main app styles
+│   ├── index.css                  # Base styles
+│   └── main.tsx                   # Entry point
+├── src-tauri/                     # Tauri / Rust backend
+│   ├── src/document_uploads/      # Runtime HTML upload + SQLite FTS indexing
+│   ├── src/native_tts/            # Native sherpa-onnx TTS and audiobook bundles
+│   ├── tts/model-manifest.json    # Pinned Kokoro model metadata
+│   ├── tauri.conf.json            # Base Tauri config
+│   └── tauri.linux.conf.json      # Linux shared-library bundle config
+├── scripts/                       # Desktop/Android build orchestration
+│   └── lib/                       # Shared and platform-specific script helpers
+├── docs/                          # Feature and architecture notes
+├── index.html                     # HTML shell
+├── vite.config.ts                 # Vite configuration
+├── package.json                   # Scripts and dependencies
+└── tauri-env.sh                   # Flatpak development environment helper
 ```
-
-## Architecture
-
-The frontend is organized in three layers so features can be added without touching unrelated logic. Dependencies only ever point downward: components use hooks, hooks use utils, utils depend on nothing.
-
-1. **Utils** (`src/utils/`) — Pure functions with no React imports. Text normalization, author derivation, and the exact-phrase search (which fetches document text, caches it at module level, and builds highlighted excerpts). Because they are side-effect-free, they are the easiest layer to unit-test.
-
-2. **Hooks** (`src/hooks/`) — Each hook owns one slice of state and its side effects. `usePagefind` loads the search index; `useSearch` runs queries and applies exact-phrase filtering with race-condition guards; `useDocumentFilters` groups documents by author and tracks filter selection; `useFindInPage` drives in-document highlighting and registers its own `Ctrl+F` / `Escape` listeners.
-
-3. **Components** (`src/components/`) — Presentational pieces that receive data and callbacks via props. `App.tsx` is the only place that composes hooks together; everything else just renders.
-
-### Document viewer plugins
-
-`DocumentViewer` does not know how to render any specific file type. Instead it asks the registry which viewer handles a given URL. Each viewer file (`HtmlViewer.tsx`, `PdfViewer.tsx`, `EpubViewer.tsx`) exports only a React component; the registry maps each component to a `canHandle` predicate:
-
-```ts
-// src/viewers/registry.ts
-const viewerPlugins: ViewerPlugin[] = [
-  { id: 'pdf',  canHandle: (url) => /\.pdf$/i.test(url),  Component: PdfViewer },
-  { id: 'epub', canHandle: (url) => /\.epub$/i.test(url), Component: EpubViewer },
-  htmlPlugin, // canHandle: () => true — catch-all fallback
-]
-
-export function resolveViewer(url: string): ViewerPlugin {
-  return viewerPlugins.find((p) => p.canHandle(url)) ?? htmlPlugin
-}
-```
-
-Keeping components and descriptors separate lets Vite's fast refresh work (component files export only components) and centralizes URL resolution in one place. The plugin contract:
-
-```ts
-// src/viewers/types.ts
-export interface ViewerPlugin {
-  id: string
-  canHandle: (url: string) => boolean
-  Component: React.FC<ViewerProps>
-}
-```
-
-Order matters — more specific formats are listed before the catch-all HTML fallback. To **add support for a new document type** (e.g. PDF):
-
-1. Implement the component in `src/viewers/PdfViewer.tsx` (the stub is already exported).
-2. Register it in `registry.ts` with a `canHandle` predicate (the `pdf` / `epub` entries are already wired). No changes to `App.tsx` or `DocumentViewer` are required.
-
-If a viewer needs extra capabilities (PDF zoom, page scroll callbacks, etc.), widen the `ViewerProps` interface with optional fields so existing viewers stay unaffected.

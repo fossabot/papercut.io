@@ -1,0 +1,369 @@
+import { createAudiobookId } from '../storage/AudiobookLibrary'
+import type { KokoroTtsOptions, TtsChunk } from '../types'
+
+const SAVE_PROGRESS_EVENT = 'tts-native-save-progress'
+const MODEL_INSTALL_PROGRESS_EVENT = 'tts-model-install-progress'
+
+export interface NativeTtsCapabilities {
+  available: boolean
+  backend: string
+  reason: string
+  modelDir?: string | null
+  platform: string
+  defaultThreadCount: number
+  maxThreadCount: number
+}
+
+export interface NativeTtsModelStatus {
+  installed: boolean
+  installing: boolean
+  modelDir?: string | null
+  sourceUrl: string
+  sourceLabel: string
+  archiveBytes: number
+  installedBytes: number
+  sha256: string
+  message: string
+}
+
+export interface NativeTtsModelInstallProgress {
+  status: 'starting' | 'downloading' | 'extracting' | 'installed' | string
+  message: string
+  downloadedBytes: number
+  totalBytes: number
+  percent: number
+}
+
+export interface NativeTtsModelInstallResult {
+  modelDir: string
+  bytes: number
+}
+
+export interface NativeTtsChunkResult {
+  chunk: TtsChunk
+  wav: ArrayBuffer
+  sampleRate: number
+  audioDurationSec: number
+  wavBytes: number
+  generateMs: number
+  backend: string
+}
+
+export interface NativeAudiobookStatus {
+  cachedChunks: number
+  totalChunks: number
+  complete: boolean
+  dir: string
+  audioDurationSec: number
+  wavBytes: number
+}
+
+export interface NativeAudiobookSaveProgress {
+  jobId: string
+  status: 'checking' | 'saving' | 'saved' | 'cancelled' | string
+  message: string
+  cachedChunks: number
+  totalChunks: number
+  generatedChunks: number
+  chunkId?: string | null
+  chunkNumber?: number | null
+  textChars?: number | null
+  textPreview?: string | null
+  generateMs?: number | null
+  audioDurationSec?: number | null
+  wavBytes?: number | null
+  totalAudioDurationSec: number
+  totalWavBytes: number
+  backend: string
+}
+
+export interface NativeAudiobookSaveResult {
+  jobId: string
+  cachedChunks: number
+  totalChunks: number
+  generatedChunks: number
+  complete: boolean
+  dir: string
+  generateMs: number
+  audioDurationSec: number
+  wavBytes: number
+  backend: string
+}
+
+export interface NativeAudiobookExportResult {
+  path: string
+  audioPath: string
+  metadataPath: string
+  htmlPath: string
+  chunks: number
+  audioDurationSec: number
+  wavBytes: number
+}
+
+export interface NativeAudiobookImportResult {
+  documentUrl: string
+  title: string
+  voice: string
+  speed: number
+  dtype: string
+  chunks: number
+  audioDurationSec: number
+  wavBytes: number
+}
+
+export interface NativeAudiobookDeleteResult {
+  deletedAudio: boolean
+  deletedUserUpload: boolean
+  bytesFreed: number
+}
+
+interface NativeTtsChunkResponse {
+  chunkId?: string | null
+  wavBase64: string
+  sampleRate: number
+  audioDurationSec: number
+  wavBytes: number
+  generateMs: number
+  backend: string
+}
+
+let capabilitiesPromise: Promise<NativeTtsCapabilities> | null = null
+
+export function isNativeTtsRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+export function resetNativeTtsCapabilities(): void {
+  capabilitiesPromise = null
+}
+
+export async function getNativeTtsCapabilities(): Promise<NativeTtsCapabilities> {
+  if (!capabilitiesPromise) {
+    capabilitiesPromise = loadNativeTtsCapabilities()
+  }
+  return capabilitiesPromise
+}
+
+export async function requireNativeTtsCapabilities(): Promise<NativeTtsCapabilities> {
+  const capabilities = await getNativeTtsCapabilities()
+  if (!capabilities.available) {
+    throw new Error(capabilities.reason || 'Native TTS is not available')
+  }
+  return capabilities
+}
+
+export async function getNativeTtsModelStatus(): Promise<NativeTtsModelStatus> {
+  if (!isNativeTtsRuntime()) {
+    return {
+      installed: false,
+      installing: false,
+      modelDir: null,
+      sourceUrl: '',
+      sourceLabel: 'k2-fsa/sherpa-onnx Kokoro',
+      archiveBytes: 0,
+      installedBytes: 0,
+      sha256: '',
+      message: 'Native TTS is only available in the desktop or Android app.',
+    }
+  }
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeTtsModelStatus>('tts_model_status')
+}
+
+export async function installNativeTtsModel(): Promise<NativeTtsModelInstallResult> {
+  const invoke = await loadTauriInvoke()
+  const result = await invoke<NativeTtsModelInstallResult>('tts_install_model')
+  resetNativeTtsCapabilities()
+  return result
+}
+
+export async function listenNativeTtsModelInstallProgress(
+  handler: (progress: NativeTtsModelInstallProgress) => void,
+): Promise<() => void> {
+  if (!isNativeTtsRuntime()) return () => {}
+  const mod = await import('@tauri-apps/api/event')
+  return mod.listen<NativeTtsModelInstallProgress>(MODEL_INSTALL_PROGRESS_EVENT, (event) => {
+    handler(event.payload)
+  })
+}
+export async function getNativeAudiobookStatus(
+  documentUrl: string,
+  chunks: TtsChunk[],
+  options: KokoroTtsOptions,
+): Promise<NativeAudiobookStatus> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookStatus>('tts_native_audiobook_status', {
+    request: {
+      audiobookId: createAudiobookId(documentUrl, options),
+      chunks,
+    },
+  })
+}
+
+
+export async function getNativeSavedAudiobookChunk(
+  documentUrl: string,
+  chunk: TtsChunk,
+  index: number,
+  options: KokoroTtsOptions,
+): Promise<NativeTtsChunkResult | null> {
+  if (!isNativeTtsRuntime()) return null
+  const invoke = await loadTauriInvoke()
+  try {
+    const response = await invoke<NativeTtsChunkResponse>('tts_get_native_audiobook_chunk', {
+      request: {
+        audiobookId: createAudiobookId(documentUrl, options),
+        chunk,
+        index,
+      },
+    })
+    return responseToChunkResult(chunk, response)
+  } catch {
+    return null
+  }
+}
+
+export async function saveNativeAudiobook(
+  input: {
+    jobId: string
+    documentUrl: string
+    title: string
+    chunks: TtsChunk[]
+    options: KokoroTtsOptions
+  },
+): Promise<NativeAudiobookSaveResult> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookSaveResult>('tts_save_audiobook_native', {
+    request: {
+      jobId: input.jobId,
+      audiobookId: createAudiobookId(input.documentUrl, input.options),
+      documentUrl: input.documentUrl,
+      title: input.title,
+      chunks: input.chunks,
+      voice: input.options.voice,
+      speed: input.options.speed,
+      threadCount: input.options.threadCount,
+    },
+  })
+}
+
+export async function cancelNativeAudiobookSave(jobId: string): Promise<void> {
+  if (!isNativeTtsRuntime()) return
+  const invoke = await loadTauriInvoke()
+  await invoke('tts_cancel_audiobook_save', { jobId })
+}
+
+export async function exportNativeAudiobook(
+  input: {
+    documentUrl: string
+    title: string
+    sourceHtml: string
+    chunks: TtsChunk[]
+    options: KokoroTtsOptions
+  },
+): Promise<NativeAudiobookExportResult> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookExportResult>('tts_export_audiobook_native', {
+    request: {
+      audiobookId: createAudiobookId(input.documentUrl, input.options),
+      documentUrl: input.documentUrl,
+      title: input.title,
+      sourceHtml: input.sourceHtml,
+      chunks: input.chunks,
+      voice: input.options.voice,
+      speed: input.options.speed,
+      dtype: input.options.dtype ?? 'native',
+    },
+  })
+}
+
+export async function importNativeAudiobook(): Promise<NativeAudiobookImportResult> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookImportResult>('tts_import_audiobook_native')
+}
+
+export async function deleteNativeAudiobook(input: {
+  audiobookId: string
+  documentUrl: string
+  deleteUserUpload: boolean
+}): Promise<NativeAudiobookDeleteResult> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookDeleteResult>('tts_delete_audiobook_native', {
+    request: input,
+  })
+}
+
+export async function getImportedAudiobookSource(documentUrl: string): Promise<string> {
+  const invoke = await loadTauriInvoke()
+  return invoke<string>('tts_get_imported_audiobook_source', {
+    request: { documentUrl },
+  })
+}
+
+export async function listenNativeAudiobookSaveProgress(
+  handler: (progress: NativeAudiobookSaveProgress) => void,
+): Promise<() => void> {
+  if (!isNativeTtsRuntime()) return () => {}
+  const mod = await import('@tauri-apps/api/event')
+  return mod.listen<NativeAudiobookSaveProgress>(SAVE_PROGRESS_EVENT, (event) => {
+    handler(event.payload)
+  })
+}
+
+async function loadNativeTtsCapabilities(): Promise<NativeTtsCapabilities> {
+  if (!isNativeTtsRuntime()) {
+    return {
+      available: false,
+      backend: 'native-unavailable',
+      reason: 'Native sherpa-onnx TTS is only available in the desktop or Android app.',
+      platform: 'browser',
+      defaultThreadCount: 1,
+      maxThreadCount: 1,
+    }
+  }
+
+  try {
+    const invoke = await loadTauriInvoke()
+    return await invoke<NativeTtsCapabilities>('tts_native_capabilities')
+  } catch (err) {
+    return {
+      available: false,
+      backend: 'native-unavailable',
+      reason: err instanceof Error ? err.message : String(err),
+      platform: 'unknown',
+      defaultThreadCount: 1,
+      maxThreadCount: 1,
+    }
+  }
+}
+
+async function loadTauriInvoke() {
+  const mod = await import('@tauri-apps/api/core')
+  return mod.invoke
+}
+
+function responseToChunkResult(chunk: TtsChunk, response: NativeTtsChunkResponse): NativeTtsChunkResult {
+  return {
+    chunk,
+    wav: base64ToArrayBuffer(response.wavBase64),
+    sampleRate: response.sampleRate,
+    audioDurationSec: response.audioDurationSec,
+    wavBytes: response.wavBytes,
+    generateMs: response.generateMs,
+    backend: response.backend,
+  }
+}
+
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return bytes.buffer
+}

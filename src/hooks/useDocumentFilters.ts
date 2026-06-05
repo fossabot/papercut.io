@@ -32,7 +32,7 @@ export function useDocumentFilters(
   options: UseDocumentFiltersOptions = {},
 ): UseDocumentFiltersReturn {
   const [selectedFilters, setSelectedFilters] = useState<Set<string>>(new Set())
-  const [showDocuments, setShowDocuments] = useState(false)
+  const [showDocuments, setShowDocuments] = useState(true)
   const [documentFilter, setDocumentFilter] = useState('')
   const [collapsedAuthors, setCollapsedAuthors] = useState<Set<string>>(new Set())
 
