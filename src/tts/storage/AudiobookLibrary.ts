@@ -23,6 +23,7 @@ export interface SavedAudiobookRecord {
   chunks: number
   audioDurationSec?: number
   wavBytes?: number
+  recovered?: boolean
 }
 
 export function createAudiobookId(documentUrl: string, options: KokoroTtsOptions): string {
@@ -51,11 +52,22 @@ export function getSavedAudiobooks(): SavedAudiobookRecord[] {
         cacheVersion: record.cacheVersion || 'legacy',
         dtype: record.dtype || KOKORO_MODEL_DTYPE,
       }))
-      .filter((record) => record.cacheVersion === KOKORO_AUDIO_CACHE_VERSION)
       : []
   } catch {
     return []
   }
+}
+
+export function isCurrentAudiobookRecord(record: SavedAudiobookRecord): boolean {
+  if (record.modelId !== KOKORO_MODEL_ID || record.cacheVersion !== KOKORO_AUDIO_CACHE_VERSION) {
+    return false
+  }
+
+  return record.id === createAudiobookId(record.documentUrl, {
+    voice: record.voice as KokoroTtsOptions['voice'],
+    speed: record.speed,
+    dtype: record.dtype as KokoroTtsOptions['dtype'],
+  })
 }
 
 export function markAudiobookSaved(record: Omit<SavedAudiobookRecord, 'id' | 'modelId' | 'savedAt'>): SavedAudiobookRecord {
@@ -86,7 +98,7 @@ export function removeSavedAudiobook(id: string): void {
 
 export function hasSavedAudiobook(documentUrl: string, options: KokoroTtsOptions): boolean {
   const id = createAudiobookId(documentUrl, options)
-  return getSavedAudiobooks().some((item) => item.id === id)
+  return getSavedAudiobooks().some((item) => isCurrentAudiobookRecord(item) && item.id === id)
 }
 
 function normalizeDocumentUrl(documentUrl: string): string {

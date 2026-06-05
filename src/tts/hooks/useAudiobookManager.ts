@@ -4,6 +4,7 @@ import type { UploadedDocument } from '../../uploads/DocumentUploads'
 import {
   createAudiobookId,
   getSavedAudiobooks,
+  isCurrentAudiobookRecord,
   markAudiobookSaved,
   removeSavedAudiobook,
   type SavedAudiobookRecord,
@@ -96,7 +97,27 @@ export function useAudiobookManager({
     cancel: cancelAudiobookSave,
   } = useAudiobookCache()
 
-  const savedAudiobookIds = useMemo(() => new Set(savedAudiobooks.map((record) => record.id)), [savedAudiobooks])
+  const currentSavedAudiobooks = useMemo(
+    () => savedAudiobooks.filter(isCurrentAudiobookRecord),
+    [savedAudiobooks],
+  )
+  const recoveredUserUploadAudiobooks = useMemo(() => {
+    const registeredUrls = new Set(savedAudiobooks.map((record) => record.documentUrl))
+    return userUploads
+      .filter((upload) => !registeredUrls.has(upload.url))
+      .map(recoveredUserUploadAudiobook)
+  }, [savedAudiobooks, userUploads])
+  const outdatedSavedAudiobooks = useMemo(
+    () => [
+      ...savedAudiobooks.filter((record) => !isCurrentAudiobookRecord(record)),
+      ...recoveredUserUploadAudiobooks,
+    ],
+    [recoveredUserUploadAudiobooks, savedAudiobooks],
+  )
+  const savedAudiobookIds = useMemo(
+    () => new Set(currentSavedAudiobooks.map((record) => record.id)),
+    [currentSavedAudiobooks],
+  )
 
   const getDocumentTitle = useCallback((url: string): string => {
     return uploadedDocuments.find((doc) => doc.url === url)?.title
@@ -505,7 +526,25 @@ export function useAudiobookManager({
   }, [getAudiobookSaveChunksForDocument, loadHtmlDocument])
 
   const handleDeleteSavedAudiobook = useCallback(async (record: SavedAudiobookRecord) => {
-    const deleteUserUpload = isUserUploadUrl(record.documentUrl)
+    const activeSaveForDocument = audiobookDownload?.url === record.documentUrl && (
+      downloadAudiobookState.status === 'checking' || downloadAudiobookState.status === 'saving'
+    )
+    const queuedSaveForDocument = audiobookDownloads.some((item) => item.documentUrl === record.documentUrl)
+    if (record.recovered && (activeSaveForDocument || queuedSaveForDocument)) {
+      setAudiobookDelete({
+        id: record.id,
+        status: 'error',
+        message: activeSaveForDocument
+          ? 'Pause this audiobook save and remove it from the queue before deleting recovered audio.'
+          : 'Remove this audiobook from the queue before deleting recovered audio.',
+      })
+      return
+    }
+
+    const documentIsStillReferenced = savedAudiobooks.some((item) => (
+      item.id !== record.id && item.documentUrl === record.documentUrl
+    )) || audiobookDownloads.some((item) => item.documentUrl === record.documentUrl)
+    const deleteUserUpload = isUserUploadUrl(record.documentUrl) && !documentIsStillReferenced
     const confirmed = window.confirm(
       deleteUserUpload
         ? 'Delete this saved audiobook and imported User Upload from this device?'
@@ -519,19 +558,26 @@ export function useAudiobookManager({
         audiobookId: record.id,
         documentUrl: record.documentUrl,
         deleteUserUpload,
+        deleteAllForDocument: record.recovered === true,
       })
 
       removeSavedAudiobook(record.id)
       if (deleteUserUpload) removeUserUpload(record.documentUrl)
       setSavedAudiobooks(getSavedAudiobooks())
       onUserUploadsChanged()
-      if (selectedDoc === record.documentUrl) {
+      const deletedSelectedAudiobook = selectedDoc === record.documentUrl && record.id === createAudiobookId(selectedDoc, {
+        voice: ttsVoice,
+        speed: ttsSpeed,
+        dtype: ttsDtype,
+      })
+      if (deleteUserUpload && selectedDoc === record.documentUrl) {
         stopTts()
         resetSelectedAudiobookState()
-        if (deleteUserUpload) {
-          onClearDocument()
-          setTtsSaveChunks(null)
-        }
+        onClearDocument()
+        setTtsSaveChunks(null)
+      } else if (deletedSelectedAudiobook) {
+        stopTts()
+        resetSelectedAudiobookState()
       }
 
       const storage = formatStorageSize(result.bytesFreed)
@@ -547,7 +593,7 @@ export function useAudiobookManager({
         message: err instanceof Error ? err.message : String(err),
       })
     }
-  }, [onClearDocument, onUserUploadsChanged, resetSelectedAudiobookState, selectedDoc, stopTts])
+  }, [audiobookDownload, audiobookDownloads, downloadAudiobookState.status, onClearDocument, onUserUploadsChanged, resetSelectedAudiobookState, savedAudiobooks, selectedDoc, stopTts, ttsDtype, ttsSpeed, ttsVoice])
 
   const importAudiobook = useCallback(async (openDocument: (url: string) => Promise<void>) => {
     setAudiobookImport({ status: 'importing', message: 'Importing audiobook bundle' })
@@ -637,7 +683,8 @@ export function useAudiobookManager({
   const queuedAudiobookDownloads = audiobookDownloads.filter((record) => (
     !(activeDownloadIsRunning && activeDownloadId === record.id)
   ))
-  const visibleSavedAudiobooks = savedAudiobooks.slice().sort((a, b) => b.savedAt - a.savedAt)
+  const visibleSavedAudiobooks = currentSavedAudiobooks.slice().sort((a, b) => b.savedAt - a.savedAt)
+  const visibleOutdatedAudiobooks = outdatedSavedAudiobooks.slice().sort((a, b) => b.savedAt - a.savedAt)
 
   return {
     audioControlsProps: {
@@ -684,6 +731,7 @@ export function useAudiobookManager({
       isSaving: isSavingAudiobook,
       queuedDownloads: queuedAudiobookDownloads,
       savedAudiobooks: visibleSavedAudiobooks,
+      outdatedAudiobooks: visibleOutdatedAudiobooks,
       onCancelSave: handleCancelAudiobookSave,
       onDeleteSaved: handleDeleteSavedAudiobook,
       onExportSaved: handleExportSavedAudiobook,
@@ -702,6 +750,24 @@ export function useAudiobookManager({
       currentText: ttsState.currentText,
       currentChunkIndex: ttsState.currentChunkIndex,
     },
+  }
+}
+
+function recoveredUserUploadAudiobook(upload: UserUploadDocument): SavedAudiobookRecord {
+  return {
+    id: 'recovered-import|' + upload.url,
+    documentUrl: upload.url,
+    title: upload.title,
+    voice: upload.voice,
+    speed: upload.speed,
+    modelId: 'unknown',
+    cacheVersion: 'recovered-import',
+    dtype: upload.dtype,
+    savedAt: upload.importedAt,
+    chunks: upload.chunks,
+    audioDurationSec: upload.audioDurationSec,
+    wavBytes: upload.wavBytes,
+    recovered: true,
   }
 }
 

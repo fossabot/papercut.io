@@ -48,6 +48,7 @@ interface AudiobooksPanelProps {
   isSaving: boolean
   queuedDownloads: AudiobookDownloadRecord[]
   savedAudiobooks: SavedAudiobookRecord[]
+  outdatedAudiobooks: SavedAudiobookRecord[]
   onCancelSave: () => void
   onDeleteSaved: (record: SavedAudiobookRecord) => void
   onExportSaved: (record: SavedAudiobookRecord) => void
@@ -68,6 +69,7 @@ export function AudiobooksPanel({
   isSaving,
   queuedDownloads,
   savedAudiobooks,
+  outdatedAudiobooks,
   onCancelSave,
   onDeleteSaved,
   onExportSaved,
@@ -79,9 +81,10 @@ export function AudiobooksPanel({
   const [setupOpen, setSetupOpen] = useState(false)
   const activePercent = getDownloadPercent(downloadState.cachedChunks, downloadState.totalChunks)
   const savedCount = savedAudiobooks.length
+  const outdatedCount = outdatedAudiobooks.length
   const queueCount = queuedDownloads.length
-  const meta = formatAudiobookMeta(isSaving, queueCount, savedCount)
-  const hasAudiobooks = isSaving || queueCount > 0 || savedCount > 0
+  const meta = formatAudiobookMeta(isSaving, queueCount, savedCount, outdatedCount)
+  const hasAudiobooks = isSaving || queueCount > 0 || savedCount > 0 || outdatedCount > 0
 
   return (
     <Panel
@@ -240,7 +243,51 @@ export function AudiobooksPanel({
           </section>
         )}
 
-        {deleteState && deleteState.status !== 'deleting' && !savedAudiobooks.some((record) => record.id === deleteState.id) && (
+        {outdatedCount > 0 && (
+          <section className="audiobooks-section" aria-label="Outdated audiobooks">
+            <h3 className="audiobooks-section-title">Outdated audio</h3>
+            {outdatedAudiobooks.map((record) => {
+              const recordDeleteState = deleteState?.id === record.id ? deleteState : null
+              const deleting = recordDeleteState?.status === 'deleting'
+              const storage = formatStorageSize(record.wavBytes)
+              return (
+                <div key={record.id} className="audiobook-item audiobook-item-saved audiobook-item-outdated">
+                  <div className="audiobook-saved-main audiobook-saved-main-disabled">
+                    <span className="audiobook-title">{record.title}</span>
+                    <span className="audiobook-meta">
+                      {formatAudiobookVoiceMeta(record.voice, record.speed, record.dtype)}
+                      {' - ' + record.chunks + ' chunks'}
+                      {record.audioDurationSec ? ' - ' + formatDuration(record.audioDurationSec) : ''}
+                      {storage ? ' - ' + storage : ''}
+                    </span>
+                    <span className="audiobook-status-text audiobook-outdated-status">
+                      {record.recovered
+                        ? 'Recovered imported audio. Playback and export are unavailable; delete it to reclaim storage.'
+                        : 'Created with an older or incompatible audio version. Playback and export are unavailable.'}
+                    </span>
+                  </div>
+                  <button
+                    className="audiobook-delete"
+                    disabled={deleting}
+                    onClick={() => onDeleteSaved(record)}
+                  >
+                    {deleting ? 'Deleting' : 'Delete'}
+                  </button>
+                  {recordDeleteState && (
+                    <div
+                      className={'audiobook-status-text audiobook-operation-status audiobook-delete-' + recordDeleteState.status}
+                      title={recordDeleteState.message}
+                    >
+                      {recordDeleteState.message}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </section>
+        )}
+
+        {deleteState && deleteState.status !== 'deleting' && !savedAudiobooks.some((record) => record.id === deleteState.id) && !outdatedAudiobooks.some((record) => record.id === deleteState.id) && (
           <div className={'audiobook-status-text audiobook-delete-summary audiobook-delete-' + deleteState.status}>
             {deleteState.message}
           </div>
@@ -250,11 +297,12 @@ export function AudiobooksPanel({
   )
 }
 
-function formatAudiobookMeta(isSaving: boolean, queueCount: number, savedCount: number): string | undefined {
+function formatAudiobookMeta(isSaving: boolean, queueCount: number, savedCount: number, outdatedCount: number): string | undefined {
   const parts: string[] = []
   if (isSaving) parts.push('saving')
   if (queueCount > 0) parts.push(queueCount + ' queued')
   if (savedCount > 0) parts.push(savedCount + ' saved')
+  if (outdatedCount > 0) parts.push(outdatedCount + ' outdated')
   return parts.length > 0 ? parts.join(' / ') : undefined
 }
 

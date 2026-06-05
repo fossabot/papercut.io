@@ -1456,6 +1456,16 @@
   border-color: #6366f1;
 }
 
+.audiobook-item-outdated {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.audiobook-item-outdated:hover {
+  border-color: #f59e0b;
+}
+
 .audiobook-saved-main {
   display: flex;
   align-items: center;
@@ -1476,8 +1486,21 @@
   color: #4338ca;
 }
 
+.audiobook-saved-main-disabled {
+  cursor: default;
+}
+
+.audiobook-saved-main-disabled:hover {
+  color: inherit;
+}
+
 .audiobook-saved-main .audiobook-meta {
   flex: 1 1 100%;
+}
+
+.audiobook-outdated-status {
+  flex: 1 1 100%;
+  color: #92400e;
 }
 
 .audiobook-export,
