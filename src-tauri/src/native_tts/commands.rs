@@ -127,7 +127,8 @@ pub fn tts_get_imported_audiobook_source(
     get_imported_audiobook_source(app, request)
 }
 
-/// Delete a saved audiobook's audio (and optionally its imported source).
+/// Delete saved audio, including recovered historical caches when requested,
+/// and optionally remove the imported source document.
 #[tauri::command]
 pub async fn tts_delete_audiobook_native(
     app: tauri::AppHandle,

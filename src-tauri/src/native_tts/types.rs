@@ -168,6 +168,8 @@ pub(crate) struct NativeAudiobookDeleteRequest {
     pub(crate) audiobook_id: String,
     pub(crate) document_url: String,
     pub(crate) delete_user_upload: bool,
+    #[serde(default)]
+    pub(crate) delete_all_for_document: bool,
 }
 
 #[derive(Debug, Serialize)]

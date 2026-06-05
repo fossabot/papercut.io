@@ -291,7 +291,6 @@ export async function deleteNativeAudiobook(input: {
   documentUrl: string
   deleteUserUpload: boolean
 }): Promise<NativeAudiobookDeleteResult> {
-  await requireNativeTtsCapabilities()
   const invoke = await loadTauriInvoke()
   return invoke<NativeAudiobookDeleteResult>('tts_delete_audiobook_native', {
     request: input,
