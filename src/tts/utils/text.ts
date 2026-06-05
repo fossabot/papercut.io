@@ -125,8 +125,8 @@ function appendSegmentChunks(
     }
 
     const next = current ? current + ' ' + sentence : sentence
-    if (next.length > profile.maxChunkLength && current.length >= profile.minChunkLength) {
-      flushChunk(chunks, current, segment.kind)
+    if (next.length > profile.maxChunkLength) {
+      if (current) flushChunk(chunks, current, segment.kind)
       current = sentence
     } else {
       current = next
