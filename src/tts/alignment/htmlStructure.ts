@@ -51,6 +51,29 @@ export function isReadableHtmlBlock(element: Element): boolean {
   return READABLE_BLOCK_TAGS.has(element.tagName)
 }
 
+// Finds nested readable blocks below a candidate container so callers can treat
+// only true leaf blocks as text owners.
+export function hasReadableHtmlBlockDescendant(
+  element: Element,
+  hasReadableText: (text: string) => boolean,
+): boolean {
+  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node) {
+      if (node === element) return NodeFilter.FILTER_SKIP
+
+      const candidate = node as Element
+      if (candidate.matches(HTML_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT
+      if (!isReadableHtmlBlock(candidate)) return NodeFilter.FILTER_SKIP
+
+      return hasReadableText(candidate.textContent ?? '')
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP
+    },
+  })
+
+  return Boolean(walker.nextNode())
+}
+
 // Reduces HTML-specific tags into format-neutral segment kinds used by chunking.
 export function htmlSegmentKind(element: Element): ReadableSegmentKind {
   if (/^H[1-6]$/.test(element.tagName)) return 'heading'

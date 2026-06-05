@@ -1,4 +1,4 @@
-import { HTML_SKIP_SELECTOR, isReadableHtmlBlock } from './htmlStructure'
+import { HTML_SKIP_SELECTOR, hasReadableHtmlBlockDescendant, isReadableHtmlBlock } from './htmlStructure'
 import { normalizeSegmentText } from './readableSegments'
 
 export interface NormalizedTextPoint {
@@ -108,9 +108,5 @@ function appendMappedSpace(state: DomTextMapBuilder, point: NormalizedTextPoint)
 function isReadableLeafBlock(element: Element): boolean {
   if (!isReadableHtmlBlock(element)) return false
   if (!normalizeSegmentText(element.textContent ?? '')) return false
-  return !Array.from(element.children).some((child) => (
-    !child.matches(HTML_SKIP_SELECTOR) &&
-    isReadableHtmlBlock(child) &&
-    Boolean(normalizeSegmentText(child.textContent ?? ''))
-  ))
+  return !hasReadableHtmlBlockDescendant(element, (text) => Boolean(normalizeSegmentText(text)))
 }

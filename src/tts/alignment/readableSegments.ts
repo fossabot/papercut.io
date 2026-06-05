@@ -1,4 +1,4 @@
-import { HTML_SKIP_SELECTOR, htmlSegmentKind, isReadableHtmlBlock } from './htmlStructure'
+import { HTML_SKIP_SELECTOR, hasReadableHtmlBlockDescendant, htmlSegmentKind, isReadableHtmlBlock } from './htmlStructure'
 
 export type ReadableSegmentKind = 'heading' | 'paragraph' | 'listItem' | 'block' | 'inline'
 
@@ -73,9 +73,5 @@ function extractReadableSegmentsFromElement(root: Element | null): ReadableSegme
 // Treats nested readable blocks as ownership boundaries; the parent is structure,
 // not a second narration segment.
 function hasReadableBlockChild(element: Element): boolean {
-  return Array.from(element.children).some((child) => (
-    !child.matches(HTML_SKIP_SELECTOR) &&
-    isReadableHtmlBlock(child) &&
-    Boolean(normalizeSegmentText(child.textContent ?? ''))
-  ))
+  return hasReadableHtmlBlockDescendant(element, (text) => Boolean(normalizeSegmentText(text)))
 }

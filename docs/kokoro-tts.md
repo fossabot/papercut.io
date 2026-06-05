@@ -91,7 +91,7 @@ Save uses a conservative chunk profile that is separate from playback chunking. 
 
 ### Narration Text Alignment
 
-Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
+Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments, and treats wrapper containers as structure when they contain nested readable blocks; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
 
 The viewer highlighter uses a matching DOM text map that inserts stable boundaries between readable blocks while still mapping each normalized character back to the original iframe text node. During playback, only the current chunk is highlighted and audio loading remains windowed around the current position; the app does not preload or scan hundreds of saved WAV chunks for long audiobooks.
 
