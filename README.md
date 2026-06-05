@@ -384,3 +384,7 @@ papercut.io/
 ├── package.json                   # Scripts and dependencies
 └── tauri-env.sh                   # Flatpak development environment helper
 ```
+
+## License
+
+Papercut is available under the [MIT License](LICENSE.md).
