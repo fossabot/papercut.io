@@ -36,7 +36,7 @@ Desktop and Android use this same model archive. The archive contains model/data
 
 At install time, Rust downloads the archive into a temporary app cache directory, verifies the SHA-256, extracts it, checks required files, and then moves it into Tauri app data under `models/sherpa-onnx/kokoro-multi-lang-v1_0/`. If verification or extraction fails, the incomplete temp directory is not used as a model.
 
-Existing saved audiobook files are not changed by this model-download change. The saved-audiobook cache key/version is separate from where the model is installed. Existing saved WAV chunks remain app user data and playback still reads them from the native audiobook cache.
+Existing saved audiobook files are not automatically changed or deleted by a model update. The saved-audiobook cache key/version is separate from where the model is installed. Playback reads only complete caches compatible with the current model and audio-cache version; incompatible files remain in app user data as delete-only entries so the user can reclaim their storage.
 
 ## Build And Run
 
@@ -95,7 +95,7 @@ Narration chunks are built from reusable readable-text segments instead of raw `
 
 The viewer highlighter uses a matching DOM text map that inserts stable boundaries between readable blocks while still mapping each normalized character back to the original iframe text node. During playback, only the current chunk is highlighted and audio loading remains windowed around the current position; the app does not preload or scan hundreds of saved WAV chunks for long audiobooks.
 
-This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported.
+This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported. Completed local records remain visible as delete-only entries until the user removes them.
 
 Native synthesis sanitizes text before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, and emoji/non-BMP symbols are dropped for the English Kokoro path. This slightly changes unusual source text, but it avoids feeding unsupported characters into native tokenization.
 
@@ -115,7 +115,7 @@ The document header exposes one consolidated audio control surface:
 - Download voice model installs the pinned Kokoro model once into app data.
 - Threads controls the native ONNX Runtime thread count for benchmarking save/playback throughput on the current device.
 
-The home screen Audiobooks panel shows active or resumable saves with progress bars, completed saved audiobooks, export/delete actions, saved duration, saved percent, stored size, and the voice/speed metadata for each item. Completed saved audiobooks are shown regardless of the currently selected voice; opening one switches the UI to that record's voice and speed before viewing the document. The document list/search results can still be filtered to documents with saved audio for the current voice/speed selection.
+The home screen Audiobooks panel shows active or resumable saves with progress bars, completed saved audiobooks, export/delete actions, saved duration, saved percent, stored size, and the voice/speed metadata for each item. Completed compatible audiobooks are shown regardless of the currently selected voice; opening one switches the UI to that record's voice and speed before viewing the document. Records from an older model or audio-cache version remain visible in an Outdated audio section with playback and export disabled, leaving Delete as the only available action so users can reclaim storage. Imported User Uploads whose browser-side saved record was removed by an earlier upgrade are recovered into the same section from the surviving User Upload registry, and native audiobook manifests are used to locate their files during deletion. Recovery deletion is blocked while that document has an active, queued, paused, or failed resumable save; pause an active save and remove its queue entry before deleting the recovered files. The document list/search results can still be filtered to documents with compatible saved audio for the current voice/speed selection.
 
 ## Diagnostics
 
@@ -142,7 +142,7 @@ Interpretation guide:
 
 Large runtime assets stay out of git. Commit code, scripts, docs, Cargo files, package metadata, and `src-tauri/tts/model-manifest.json`; do not commit downloaded model files, generated Android libraries, built frontend output, or generated audiobook WAV chunks.
 
-The current native audiobook cache version is `native-save-v4-segmented`. Updating that value intentionally invalidates older saved-audiobook records and incomplete downloads because their chunk boundaries or text normalization may no longer match. The app hides old records but does not automatically delete their files from user data.
+The current native audiobook cache version is `native-save-v4-segmented`. Updating that value intentionally invalidates older saved-audiobook records and incomplete downloads because their chunk boundaries or text normalization may no longer match. Completed records from older versions remain visible as delete-only entries in the Audiobooks panel; playback and export stay disabled, and files are removed only when the user chooses Delete.
 
 Generated files that should stay uncommitted:
 
