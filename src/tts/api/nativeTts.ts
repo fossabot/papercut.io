@@ -290,6 +290,7 @@ export async function deleteNativeAudiobook(input: {
   audiobookId: string
   documentUrl: string
   deleteUserUpload: boolean
+  deleteAllForDocument?: boolean
 }): Promise<NativeAudiobookDeleteResult> {
   const invoke = await loadTauriInvoke()
   return invoke<NativeAudiobookDeleteResult>('tts_delete_audiobook_native', {
