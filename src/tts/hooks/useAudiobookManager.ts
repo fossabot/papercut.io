@@ -699,7 +699,6 @@ export function useAudiobookManager({
     setAudioSavedOnly,
     ttsHighlight: {
       enabled: Boolean(ttsState.currentText),
-      currentText: ttsState.currentText,
       currentChunkIndex: ttsState.currentChunkIndex,
       chunkTexts: ttsState.chunkTexts,
     },
