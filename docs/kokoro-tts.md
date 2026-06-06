@@ -93,13 +93,19 @@ Save uses a conservative chunk profile that is separate from playback chunking. 
 
 Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments, and treats wrapper containers as structure when they contain nested readable blocks; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
 
-The viewer highlighter uses a matching DOM text map that inserts stable boundaries between readable blocks while still mapping each normalized character back to the original iframe text node. During playback, only the current chunk is highlighted and audio loading remains windowed around the current position; the app does not preload or scan hundreds of saved WAV chunks for long audiobooks.
+The viewer highlighter uses a matching DOM text map that inserts stable boundaries between readable blocks while still mapping each normalized character back to the original iframe text node. On WebViews that support the CSS Custom Highlight API, the map and every chunk's ordered alignment range are built once per loaded document, then reused without wrapping or normalizing document text nodes on every chunk change. One registered `Highlight` object owns the active range; each chunk clears that object before adding its range, and shutdown clears it before removing the registry entry. This avoids stale highlight paint in WebViews that do not immediately repaint a replaced registry entry. Older WebViews retain the mark-based fallback. Only the current chunk is highlighted, and smooth scrolling waits briefly for rapid navigation to settle so repeated skip taps do not start a stack of competing scroll animations.
+
+Playback navigation is latest-intent-wins. Backward, Forward, automatic advance, and chapter-list jumps all update one foreground target. Pending and committed chunk indexes are separate: controls can keep navigating while a read is in flight, but a loaded chunk is allowed to change the audio source and visible highlight only if its job and navigation generation are still current. Rapid taps therefore cannot briefly play or highlight obsolete intermediate chunks.
+
+Audio loading is bounded separately from navigation. One foreground chunk load may run alongside one sequential speculative lookahead worker. The lookahead worker loads at most the next two chunks, is tagged with the committed navigation generation, and drops stale results before creating Blob URLs or adding them to the playback window. Playback does not scan hundreds of saved WAV chunks or launch one native read per tap for long audiobooks.
 
 This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported.
 
 Native synthesis sanitizes text before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, and emoji/non-BMP symbols are dropped for the English Kokoro path. This slightly changes unusual source text, but it avoids feeding unsupported characters into native tokenization.
 
-Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Playback is windowed: React loads the current chunk and a small lookahead instead of scanning every saved WAV up front. This keeps very long audiobooks responsive and avoids creating hundreds of Blob URLs at once.
+Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Playback is windowed: React commits one current chunk and runs one sequential lookahead worker instead of scanning every saved WAV up front. This keeps very long audiobooks responsive and avoids creating hundreds of Blob URLs at once.
+
+These playback and highlighting rules do not change narration text, chunk ids, cache keys, WAV filenames, or the exported audiobook format, so they do not require an audiobook cache-version bump.
 
 ## Audio UI
 
@@ -170,6 +176,7 @@ The next valuable work is native execution depth, not more browser fallback tuni
 
 - Add a native Android foreground service for long-running audiobook saves so generation can continue while the app is backgrounded.
 - Add deeper cancellation support inside sherpa generation itself so Cancel can interrupt a long current chunk, not only stop before the next chunk.
+- Return saved WAV chunks as raw Tauri IPC bytes from an async command instead of base64-encoding them in Rust and decoding/copying them in JavaScript.
 - Add resumable/range-aware model downloads if interrupted downloads become common on mobile networks.
 - Store one combined audiobook file per saved document after chunk generation if export/share or simpler playback becomes important.
 - Extend saved-audiobook support to PDFs with page-aware manifests and text-layer positions.

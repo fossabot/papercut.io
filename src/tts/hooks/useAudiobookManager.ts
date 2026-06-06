@@ -608,7 +608,7 @@ export function useAudiobookManager({
   const ttsIsNavigable = ttsState.status === 'playing' ||
     ttsState.status === 'loading' ||
     ttsState.status === 'paused'
-  const ttsCurrentChunkIndex = ttsState.currentChunkIndex ?? ttsState.chunksPlayed
+  const ttsCurrentChunkIndex = ttsState.pendingChunkIndex ?? ttsState.currentChunkIndex ?? ttsState.chunksPlayed
   const ttsCanSkipBackward = ttsIsNavigable && ttsCurrentChunkIndex > 0
   const ttsCanSkipForward = ttsIsNavigable &&
     ttsState.chunksTotal > 0 &&
@@ -701,6 +701,7 @@ export function useAudiobookManager({
       enabled: Boolean(ttsState.currentText),
       currentText: ttsState.currentText,
       currentChunkIndex: ttsState.currentChunkIndex,
+      chunkTexts: ttsState.chunkTexts,
     },
   }
 }

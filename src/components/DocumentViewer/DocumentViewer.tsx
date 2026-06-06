@@ -9,6 +9,7 @@ interface TtsHighlightOptions {
   enabled: boolean
   currentText: string
   currentChunkIndex: number | null
+  chunkTexts: string[]
 }
 
 interface DocumentViewerProps {
@@ -52,6 +53,7 @@ export function DocumentViewer({
     enabled: false,
     currentText: '',
     currentChunkIndex: null,
+    chunkTexts: [],
   })
 
   useEffect(() => {
