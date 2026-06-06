@@ -23,6 +23,7 @@ mod cache;
 mod config;
 mod model;
 mod paths;
+mod playback;
 mod save;
 mod synth;
 
@@ -34,4 +35,5 @@ pub(crate) use bundle::{
 };
 pub(crate) use cache::{get_native_audiobook_chunk, native_audiobook_status};
 pub(crate) use model::{install_model, model_status, native_capabilities};
+pub(crate) use playback::prepare_native_audiobook_playback;
 pub(crate) use save::{cancel_audiobook_save, save_audiobook_native};

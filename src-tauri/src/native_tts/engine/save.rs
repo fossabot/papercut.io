@@ -23,7 +23,9 @@ use tauri::Emitter;
 
 use super::cache::{scan_audiobook, wav_info};
 use super::config::SAVE_PROGRESS_EVENT;
-use super::paths::{audiobook_dir, chunk_path, speakable_chunks};
+use super::paths::{
+    audiobook_dir, chunk_path, playback_metadata_path, playback_track_path, speakable_chunks,
+};
 use super::synth::{ensure_engine, synthesize_to_file, text_preview, SherpaKokoroEngine};
 use crate::native_tts::platform::resolve_thread_count;
 use crate::native_tts::state::NativeTtsState;
@@ -310,6 +312,8 @@ pub(super) fn write_manifest(
     chunks: &[NativeTtsInputChunk],
     thread_count: i32,
 ) -> Result<(), String> {
+    let _ = fs::remove_file(playback_track_path(dir));
+    let _ = fs::remove_file(playback_metadata_path(dir));
     let generated_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| format!("System clock error: {err}"))?

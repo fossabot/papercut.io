@@ -97,6 +97,35 @@ pub(crate) struct NativeAudiobookChunkRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Request to prepare one complete saved audiobook for native mobile playback.
+#[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
+pub(crate) struct NativeAudiobookPlaybackRequest {
+    pub(crate) audiobook_id: String,
+    pub(crate) chunks: Vec<NativeTtsInputChunk>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+/// One chunk position inside the stitched native playback track.
+pub(crate) struct NativeAudiobookPlaybackChunk {
+    pub(crate) index: usize,
+    pub(crate) chunk_id: String,
+    pub(crate) start_sec: f64,
+    pub(crate) duration_sec: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Local track URL and chunk boundaries consumed by the mobile audio plugin.
+pub(crate) struct NativeAudiobookPlaybackResponse {
+    pub(crate) audio_url: String,
+    pub(crate) audio_duration_sec: f64,
+    pub(crate) wav_bytes: usize,
+    pub(crate) chunks: Vec<NativeAudiobookPlaybackChunk>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 /// Parameters for a full-audiobook save/resume job.
 #[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
 pub(crate) struct NativeAudiobookSaveRequest {

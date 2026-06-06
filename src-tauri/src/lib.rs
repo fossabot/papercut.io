@@ -6,6 +6,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_native_audio::init())
         .manage(native_tts::NativeTtsState::default())
         .invoke_handler(tauri::generate_handler![
             document_uploads::commands::document_uploads_import_html,
@@ -18,6 +19,7 @@ pub fn run() {
             native_tts::commands::tts_install_model,
             native_tts::commands::tts_native_audiobook_status,
             native_tts::commands::tts_get_native_audiobook_chunk,
+            native_tts::commands::tts_prepare_native_audiobook_playback,
             native_tts::commands::tts_save_audiobook_native,
             native_tts::commands::tts_cancel_audiobook_save,
             native_tts::commands::tts_export_audiobook_native,

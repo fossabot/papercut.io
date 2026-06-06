@@ -81,7 +81,7 @@ Required to build the Android APK:
 | Tool        | Minimum Version |
 |-------------|-----------------|
 | Java (JDK)  | 17              |
-| Android SDK | API 24+         |
+| Android SDK | API 26+         |
 | Android NDK | 29.0.13846066   |
 
 **Install Java 17:**
@@ -243,7 +243,7 @@ Then build the APK. The wrapper prepares/uses the local JDK and sets `JAVA_HOME`
 npm run android:apk
 ```
 
-Use `npm run android:apk:native-tts` when building the Android APK with native audiobook generation/playback.
+Use `npm run android:apk:native-tts` when building the Android APK with native audiobook generation and background playback. Native playback uses Android Media3/ExoPlayer through the pinned `tauri-plugin-native-audio` dependency; API 26 is the minimum supported Android version.
 
 Audiobooks are not pre-rendered into the APK. Users save full audiobooks on demand from the document UI, and generated audio is stored as local app user data.
 
@@ -277,11 +277,11 @@ Desktop and Android use the same model archive. Only the native libraries are pl
 
 The process is documented in [docs/kokoro-tts.md](docs/kokoro-tts.md). Desktop scripts compile the `native-tts-shared` feature so speech generation runs through Tauri commands backed by sherpa-onnx without the high-memory static link step. For Android native TTS, run `npm run prepare:jdk`, `npm run prepare:sherpa-android-libs`, and then `npm run android:apk:native-tts`; the wrapper sets `JAVA_HOME` and `SHERPA_ONNX_LIB_DIR` automatically for arm64 builds and does not package model files into the APK.
 
-Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Generated audio is user data, not part of the app bundle.
+Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Desktop playback keeps a bounded chunk window. Android playback lazily creates one cached `playback.wav` plus chunk-boundary metadata and hands that local track to native Media3/ExoPlayer, so playback and media controls continue while the screen is locked. The derived track is reused until the audiobook is saved or imported again, and Delete Audiobook removes it with the rest of that audiobook directory. Generated audio is user data, not part of the app bundle.
 
 Build helper scripts under `scripts/` are build orchestration, not a replacement for npm, Cargo, or Android SDK Manager. npm owns frontend tooling, Cargo owns Rust dependencies, and Android SDK Manager owns SDK/NDK installs. The scripts bridge the gaps: project paths, version constants, child-process execution, archive extraction, checked downloads, Android JDK/sherpa staging, Linux shared-library bundling, and Flatpak host-build delegation. OS-specific helpers live under `scripts/lib/android/` and `scripts/lib/linux/`.
 
-The audio UI supports saved-only playback, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
+The audio UI supports saved-only playback, Android background and lock-screen media controls, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
 
 ### Browser build and preview
 

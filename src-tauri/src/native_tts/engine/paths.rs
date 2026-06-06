@@ -90,6 +90,15 @@ pub(super) fn chunk_path(dir: &Path, index: usize, chunk: &NativeTtsInputChunk) 
     ))
 }
 
+/// Cached single-track audio and timing metadata used by native mobile playback.
+pub(super) fn playback_track_path(dir: &Path) -> PathBuf {
+    dir.join("playback.wav")
+}
+
+pub(super) fn playback_metadata_path(dir: &Path) -> PathBuf {
+    dir.join("playback.json")
+}
+
 /// Short (16-char) content fingerprint for a chunk: the frontend-supplied text
 /// hash if present, otherwise a hash of the text itself.
 fn chunk_identity(chunk: &NativeTtsInputChunk) -> String {

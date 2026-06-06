@@ -2,9 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getNativeSavedAudiobookChunk,
   getNativeTtsCapabilities,
+  prepareNativeAudiobookPlayback,
+  type NativeAudiobookPlayback,
   resetNativeTtsCapabilities,
 } from '../api/nativeTts'
 import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
+import {
+  disposeNativeAudio,
+  getNativeAudioState,
+  initializeNativeAudio,
+  listenNativeAudioState,
+  pauseNativeAudio,
+  playNativeAudio,
+  seekNativeAudio,
+  setNativeAudioSource,
+  stopNativeAudio,
+  type NativeAudioState,
+} from '../playback/nativeMobileAudio'
 import {
   KOKORO_VOICES,
   type KokoroTtsOptions,
@@ -116,6 +130,14 @@ export function useTtsPlayer() {
   const pendingTargetIndexRef = useRef<number | null>(null)
   const preloadTargetRef = useRef<PreloadTarget | null>(null)
   const preloadInFlightRef = useRef(false)
+  const mobileModeRef = useRef(false)
+  const nativeMobilePlatformRef = useRef(false)
+  const mobilePlaybackRef = useRef<NativeAudiobookPlayback | null>(null)
+  const mobileListenerRef = useRef<(() => void) | null>(null)
+  const mobileQueuedIndexRef = useRef<number | null>(null)
+  const mobileNavigationInFlightRef = useRef(false)
+  const mobileNavigationFrameRef = useRef<number | null>(null)
+  const nativeAudioInitializedRef = useRef(false)
 
   const revokeAudioUrls = useCallback(() => {
     for (const item of audioByIndexRef.current.values()) {
@@ -133,6 +155,7 @@ export function useTtsPlayer() {
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
     preloadTargetRef.current = null
+    mobileQueuedIndexRef.current = null
     setState((prev) => ({
       ...prev,
       status: 'idle',
@@ -140,6 +163,66 @@ export function useTtsPlayer() {
       ...EMPTY_PLAYBACK_STATE,
     }))
   }, [])
+
+  const updateNativePlaybackState = useCallback((nativeState: NativeAudioState) => {
+    if (!mobileModeRef.current) return
+    if (nativeState.status === 'ended') {
+      mobileListenerRef.current?.()
+      mobileListenerRef.current = null
+      mobilePlaybackRef.current = null
+      mobileModeRef.current = false
+      void stopNativeAudio().catch((err: unknown) => {
+        logTtsDiagnostic('[tts-playback] native reset failed', { error: errorMessage(err) }, 'warn')
+      })
+      finishPlayback()
+      return
+    }
+    if (nativeState.status === 'error') {
+      pausedRef.current = true
+      playingRef.current = false
+      setState((prev) => ({
+        ...prev,
+        status: 'error',
+        message: nativeState.error || 'Native audio playback failed',
+      }))
+      return
+    }
+
+    const playback = mobilePlaybackRef.current
+    if (!playback) return
+    const timing = findPlaybackChunk(playback, nativeState.currentTime)
+    if (!timing) return
+    const chunk = chunksRef.current[timing.index]
+    if (!chunk) return
+
+    const localTime = Math.min(
+      Math.max(nativeState.currentTime - timing.startSec, 0),
+      timing.durationSec,
+    )
+    currentPlayingIndexRef.current = timing.index
+    nextPlayIndexRef.current = Math.min(timing.index + 1, totalChunksRef.current)
+    playingRef.current = nativeState.isPlaying
+    if (nativeState.status === 'idle' && !mobileNavigationInFlightRef.current) {
+      pausedRef.current = true
+    }
+    if (nativeState.isPlaying) pausedRef.current = false
+    setState((prev) => ({
+      ...prev,
+      status: nativeState.isPlaying
+        ? 'playing'
+        : (nativeState.status === 'idle' ? 'paused' : 'loading'),
+      message: nativeState.buffering ? 'Buffering audiobook' : '',
+      chunksGenerated: totalChunksRef.current,
+      chunksPlayed: timing.index,
+      currentText: chunk.text,
+      currentChunkIndex: timing.index,
+      pendingChunkIndex: null,
+      currentChunkId: chunk.id,
+      currentChunkProgress: timing.durationSec > 0 ? Math.min(localTime / timing.durationSec, 1) : 0,
+      currentChunkTime: localTime,
+      currentChunkDuration: timing.durationSec,
+    }))
+  }, [finishPlayback])
 
   const playIndex = useCallback((index: number) => {
     const audio = audioRef.current
@@ -333,6 +416,56 @@ export function useTtsPlayer() {
     Math.max(totalChunksRef.current - 1, 0),
   ), [])
 
+  const runMobileNavigationWorker = useCallback(async () => {
+    if (mobileNavigationInFlightRef.current) return
+    mobileNavigationInFlightRef.current = true
+    try {
+      const shouldResume = !pausedRef.current
+      if (shouldResume) await pauseNativeAudio()
+      while (mobileQueuedIndexRef.current !== null && mobileModeRef.current) {
+        const targetIndex = mobileQueuedIndexRef.current
+        mobileQueuedIndexRef.current = null
+        const timing = mobilePlaybackRef.current?.chunks[targetIndex]
+        if (!timing) continue
+
+        pendingTargetIndexRef.current = targetIndex
+        setState((prev) => ({
+          ...prev,
+          status: 'loading',
+          message: 'Seeking to chunk ' + (targetIndex + 1) + '/' + totalChunksRef.current,
+          pendingChunkIndex: targetIndex,
+        }))
+        const nativeState = await seekNativeAudio(timing.startSec)
+        if (!mobileModeRef.current) return
+        if (mobileQueuedIndexRef.current !== null) continue
+        updateNativePlaybackState(nativeState)
+        if (shouldResume && !pausedRef.current) {
+          updateNativePlaybackState(await playNativeAudio())
+        }
+      }
+    } finally {
+      mobileNavigationInFlightRef.current = false
+    }
+  }, [updateNativePlaybackState])
+
+  const seekMobileToChunk = useCallback((index: number) => {
+    if (!mobileModeRef.current || totalChunksRef.current === 0) return
+    mobileQueuedIndexRef.current = clampChunkIndex(index)
+    if (mobileNavigationInFlightRef.current || mobileNavigationFrameRef.current !== null) return
+    mobileNavigationFrameRef.current = window.requestAnimationFrame(() => {
+      mobileNavigationFrameRef.current = null
+      void runMobileNavigationWorker().catch((err: unknown) => {
+        pausedRef.current = true
+        playingRef.current = false
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        }))
+      })
+    })
+  }, [clampChunkIndex, runMobileNavigationWorker])
+
   // Android WebView can deliver touch skips faster than audio.pause(), src
   // changes, and audio.play() promises settle. Keep one foreground loader and
   // commit a target only if it is still the newest navigation intent.
@@ -461,6 +594,29 @@ export function useTtsPlayer() {
     }
   }, [finishPlayback, revokeAudioUrls, startPlaybackAt])
 
+  useEffect(() => {
+    const syncNativeState = () => {
+      if (document.visibilityState !== 'visible' || !mobileModeRef.current) return
+      void getNativeAudioState().then(updateNativePlaybackState).catch(() => {})
+    }
+    document.addEventListener('visibilitychange', syncNativeState)
+    return () => {
+      document.removeEventListener('visibilitychange', syncNativeState)
+      mobileListenerRef.current?.()
+      mobileListenerRef.current = null
+      if (mobileNavigationFrameRef.current !== null) {
+        window.cancelAnimationFrame(mobileNavigationFrameRef.current)
+        mobileNavigationFrameRef.current = null
+      }
+      if (nativeAudioInitializedRef.current) {
+        nativeAudioInitializedRef.current = false
+        void disposeNativeAudio().catch((err: unknown) => {
+          logTtsDiagnostic('[tts-playback] native dispose failed', { error: errorMessage(err) }, 'warn')
+        })
+      }
+    }
+  }, [updateNativePlaybackState])
+
   const preload = useCallback(() => {
     setState((prev) => (prev.status === 'idle'
       ? {
@@ -473,6 +629,7 @@ export function useTtsPlayer() {
 
     void getNativeTtsCapabilities().then((capabilities) => {
       logTtsDiagnostic('[tts-native] capabilities', { ...capabilities })
+      nativeMobilePlatformRef.current = isNativeMobilePlatform(capabilities.platform)
       setState((prev) => ({
         ...prev,
         status: prev.status === 'loading' ? (capabilities.available ? 'idle' : 'error') : prev.status,
@@ -480,6 +637,41 @@ export function useTtsPlayer() {
       }))
     })
   }, [])
+
+  const startNativePlayback = useCallback(async (
+    chunks: TtsChunk[],
+    options: KokoroTtsOptions,
+    jobId: number,
+  ) => {
+    if (!options.documentUrl) {
+      throw new Error('Saved audiobook playback requires a document URL')
+    }
+    mobileModeRef.current = true
+    setState((prev) => ({
+      ...prev,
+      status: 'loading',
+      message: 'Preparing background playback',
+    }))
+    const playback = await prepareNativeAudiobookPlayback(options.documentUrl, chunks, options)
+    if (jobIdRef.current !== jobId || !mobileModeRef.current) return
+
+    mobilePlaybackRef.current = playback
+    await initializeNativeAudio()
+    nativeAudioInitializedRef.current = true
+    if (jobIdRef.current !== jobId || !mobileModeRef.current) return
+    mobileListenerRef.current?.()
+    mobileListenerRef.current = await listenNativeAudioState(updateNativePlaybackState)
+
+    const sourceState = await setNativeAudioSource({
+      src: playback.audioUrl,
+      title: options.title || 'Papercut Audiobook',
+      artist: 'Papercut',
+    })
+    if (jobIdRef.current !== jobId || !mobileModeRef.current) return
+    pausedRef.current = false
+    updateNativePlaybackState(sourceState)
+    updateNativePlaybackState(await playNativeAudio())
+  }, [updateNativePlaybackState])
 
   const speak = useCallback((chunks: TtsChunk[], options: KokoroTtsOptions) => {
     const speakableChunks = chunks.filter((chunk) => chunk.text.trim())
@@ -498,12 +690,25 @@ export function useTtsPlayer() {
       window.cancelAnimationFrame(navigationFrameRef.current)
       navigationFrameRef.current = null
     }
+    if (mobileNavigationFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileNavigationFrameRef.current)
+      mobileNavigationFrameRef.current = null
+    }
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
     preloadTargetRef.current = null
     chunksRef.current = speakableChunks
     optionsRef.current = options
     audioRef.current?.pause()
+    mobileListenerRef.current?.()
+    mobileListenerRef.current = null
+    mobilePlaybackRef.current = null
+    mobileQueuedIndexRef.current = null
+    mobileNavigationInFlightRef.current = false
+    const nativeCleanup = mobileModeRef.current && nativeAudioInitializedRef.current
+      ? stopNativeAudio()
+      : Promise.resolve()
+    mobileModeRef.current = false
     revokeAudioUrls()
 
     setState((prev) => ({
@@ -523,19 +728,61 @@ export function useTtsPlayer() {
       ...EMPTY_PLAYBACK_STATE,
     }))
 
-    if (jobIdRef.current === nextJobId) startPlaybackAt(0)
-  }, [revokeAudioUrls, startPlaybackAt])
+    void nativeCleanup
+      .then(() => getNativeTtsCapabilities())
+      .then((capabilities) => {
+        if (jobIdRef.current !== nextJobId) return
+        nativeMobilePlatformRef.current = isNativeMobilePlatform(capabilities.platform)
+        if (nativeMobilePlatformRef.current) {
+          return startNativePlayback(speakableChunks, options, nextJobId)
+        }
+        startPlaybackAt(0)
+      })
+      .catch((err: unknown) => {
+        if (jobIdRef.current !== nextJobId) return
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        }))
+      })
+  }, [revokeAudioUrls, startNativePlayback, startPlaybackAt])
 
   const pause = useCallback(() => {
     pausedRef.current = true
     playingRef.current = false
     playbackAttemptRef.current += 1
+    if (mobileModeRef.current) {
+      void pauseNativeAudio()
+        .then(updateNativePlaybackState)
+        .catch((err: unknown) => {
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          }))
+        })
+      setState((prev) => ({ ...prev, status: 'paused' }))
+      return
+    }
     audioRef.current?.pause()
     setState((prev) => ({ ...prev, status: 'paused' }))
-  }, [])
+  }, [updateNativePlaybackState])
 
   const resume = useCallback(() => {
     pausedRef.current = false
+    if (mobileModeRef.current) {
+      void playNativeAudio()
+        .then(updateNativePlaybackState)
+        .catch((err: unknown) => {
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          }))
+        })
+      return
+    }
     const audio = audioRef.current
     if (audio?.src && !audio.ended) {
       audio.play()
@@ -553,25 +800,34 @@ export function useTtsPlayer() {
       return
     }
     void startPlaybackAt(nextPlayIndexRef.current)
-  }, [startPlaybackAt])
+  }, [startPlaybackAt, updateNativePlaybackState])
 
   const skipByChunks = useCallback((delta: number) => {
     if (totalChunksRef.current === 0) return
 
-    const currentIndex = queuedTargetIndexRef.current ?? pendingTargetIndexRef.current ?? currentPlayingIndexRef.current ?? Math.max(nextPlayIndexRef.current - 1, 0)
+    const currentIndex = mobileQueuedIndexRef.current ?? queuedTargetIndexRef.current ?? pendingTargetIndexRef.current ?? currentPlayingIndexRef.current ?? Math.max(nextPlayIndexRef.current - 1, 0)
     const targetIndex = Math.min(
       Math.max(currentIndex + delta, 0),
       Math.max(totalChunksRef.current - 1, 0),
     )
 
     pausedRef.current = false
+    if (mobileModeRef.current) {
+      seekMobileToChunk(targetIndex)
+      return
+    }
     startPlaybackAt(targetIndex)
-  }, [startPlaybackAt])
+  }, [seekMobileToChunk, startPlaybackAt])
 
   const jumpToChunk = useCallback((index: number) => {
     if (totalChunksRef.current === 0) return
+    if (mobileModeRef.current) {
+      pausedRef.current = false
+      seekMobileToChunk(index)
+      return
+    }
     startPlaybackAt(index)
-  }, [startPlaybackAt])
+  }, [seekMobileToChunk, startPlaybackAt])
 
   const stop = useCallback(() => {
     jobIdRef.current += 1
@@ -586,12 +842,28 @@ export function useTtsPlayer() {
       window.cancelAnimationFrame(navigationFrameRef.current)
       navigationFrameRef.current = null
     }
+    if (mobileNavigationFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileNavigationFrameRef.current)
+      mobileNavigationFrameRef.current = null
+    }
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
     preloadTargetRef.current = null
+    mobileQueuedIndexRef.current = null
+    mobileNavigationInFlightRef.current = false
+    mobileListenerRef.current?.()
+    mobileListenerRef.current = null
+    const shouldStopNativeAudio = mobileModeRef.current && nativeAudioInitializedRef.current
+    mobileModeRef.current = false
+    mobilePlaybackRef.current = null
     chunksRef.current = []
     optionsRef.current = null
     audioRef.current?.pause()
+    if (shouldStopNativeAudio) {
+      void stopNativeAudio().catch((err: unknown) => {
+        logTtsDiagnostic('[tts-playback] native reset failed', { error: errorMessage(err) }, 'warn')
+      })
+    }
     revokeAudioUrls()
     setState((prev) => ({
       ...prev,
@@ -619,6 +891,39 @@ export function useTtsPlayer() {
     stop,
     resetNativeTtsCapabilities,
   }
+}
+
+function isNativeMobilePlatform(platform: string): boolean {
+  return platform === 'android' || platform === 'ios'
+}
+
+function findPlaybackChunk(
+  playback: NativeAudiobookPlayback,
+  currentTime: number,
+): NativeAudiobookPlayback['chunks'][number] | null {
+  const chunks = playback.chunks
+  if (chunks.length === 0) return null
+
+  let low = 0
+  let high = chunks.length - 1
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    const chunk = chunks[middle]
+    const nextStart = chunks[middle + 1]?.startSec ?? playback.audioDurationSec
+    if (currentTime < chunk.startSec) {
+      high = middle - 1
+    } else if (currentTime >= nextStart && middle < chunks.length - 1) {
+      low = middle + 1
+    } else {
+      return chunk
+    }
+  }
+
+  return currentTime < chunks[0].startSec ? chunks[0] : chunks[chunks.length - 1]
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function isTransientPlaybackInterruption(err: unknown): boolean {

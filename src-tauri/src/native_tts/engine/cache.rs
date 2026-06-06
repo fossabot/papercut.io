@@ -36,6 +36,7 @@ pub(super) struct WavInfo {
 /// plus where the `data` samples start and how many bytes they span.
 pub(super) struct WavMetadata {
     pub(super) fmt_payload: Vec<u8>,
+    pub(super) precise_audio_duration_sec: f64,
     pub(super) data_offset: usize,
     pub(super) data_bytes: usize,
     pub(super) info: WavInfo,
@@ -190,11 +191,13 @@ pub(super) fn wav_metadata(path: &Path) -> Option<WavMetadata> {
         return None;
     }
     // duration = data bytes / (rate * channels * bytes-per-sample).
-    let bytes_per_sample = (bits_per_sample as f32 / 8.0).max(1.0);
-    let audio_duration_sec =
-        data_bytes as f32 / (sample_rate as f32 * channels as f32 * bytes_per_sample);
+    let bytes_per_sample = (bits_per_sample as f64 / 8.0).max(1.0);
+    let precise_audio_duration_sec =
+        data_bytes as f64 / (sample_rate as f64 * channels as f64 * bytes_per_sample);
+    let audio_duration_sec = precise_audio_duration_sec as f32;
     Some(WavMetadata {
         fmt_payload,
+        precise_audio_duration_sec,
         data_offset: audio_offset,
         data_bytes,
         info: WavInfo {

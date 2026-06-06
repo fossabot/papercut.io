@@ -49,6 +49,20 @@ export interface NativeTtsChunkResult {
   backend: string
 }
 
+export interface NativeAudiobookPlaybackChunk {
+  index: number
+  chunkId: string
+  startSec: number
+  durationSec: number
+}
+
+export interface NativeAudiobookPlayback {
+  audioUrl: string
+  audioDurationSec: number
+  wavBytes: number
+  chunks: NativeAudiobookPlaybackChunk[]
+}
+
 export interface NativeAudiobookStatus {
   cachedChunks: number
   totalChunks: number
@@ -201,6 +215,21 @@ export async function getNativeAudiobookStatus(
   })
 }
 
+
+export async function prepareNativeAudiobookPlayback(
+  documentUrl: string,
+  chunks: TtsChunk[],
+  options: KokoroTtsOptions,
+): Promise<NativeAudiobookPlayback> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookPlayback>('tts_prepare_native_audiobook_playback', {
+    request: {
+      audiobookId: createAudiobookId(documentUrl, options),
+      chunks,
+    },
+  })
+}
 
 export async function getNativeSavedAudiobookChunk(
   documentUrl: string,
