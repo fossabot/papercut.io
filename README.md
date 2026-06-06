@@ -1,6 +1,6 @@
 # Papercut [![Latest release](https://img.shields.io/github/v/release/muhannadnouri/papercut.io?logo=github&color=6366f1)](https://github.com/muhannadnouri/papercut.io/releases/latest) [![CI](https://github.com/muhannadnouri/papercut.io/actions/workflows/ci.yml/badge.svg)](https://github.com/muhannadnouri/papercut.io/actions/workflows/ci.yml) [![React](https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB)](https://react.dev/) [![Tauri + Rust](https://img.shields.io/badge/Tauri_+_Rust-2.x_|_1.77+-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-**Website:** 👉 [trypapercut.netlify.app](https://trypapercut.netlify.app) 👈
+**Homepage:** 👉 [trypapercut.netlify.app](https://trypapercut.netlify.app) 👈
 
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
 
@@ -17,6 +17,9 @@ Bundled documents are indexed at build time using Pagefind, which creates a comp
 | npm   | >= 10.9.0       | 10.9.4              |
 | Rust  | >= 1.77.2       | 1.94.0              |
 | Cargo | >= 1.77.2       | 1.94.0              |
+
+<details>
+<summary><strong>Platform setup details</strong></summary>
 
 ### Install Node.js
 
@@ -131,6 +134,8 @@ Tauri on Windows needs two things beyond Node and Rust:
 
 Refer to the Tauri [Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows) for full details.
 
+</details>
+
 ## Getting Started
 
 ### Install dependencies
@@ -146,6 +151,9 @@ npm run tauri:dev
 ```
 
 This starts the Vite dev server and launches the Tauri desktop window with hot reload. Bundled-document search requires a built Pagefind index, so bundled search is only available after `npm run build`. Runtime uploaded-document search works inside the Tauri app after documents are imported.
+
+<details>
+<summary><strong>Production, release, Android, TTS, and browser builds</strong></summary>
 
 ### Production build
 
@@ -297,6 +305,8 @@ npm run build:vite
 npm run build:search-index
 ```
 
+</details>
+
 ## Adding Documents
 
 Papercut now has two document paths:
@@ -305,6 +315,9 @@ Papercut now has two document paths:
 - **User uploads** are imported from the app UI and indexed incrementally into a local SQLite FTS database. This is the scalable path for documents users add themselves, because it does not require a rebuild or a packaged Pagefind index update.
 
 The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md).
+
+<details>
+<summary><strong>Document formats and search behavior</strong></summary>
 
 ### Bundled HTML Documents
 
@@ -347,7 +360,12 @@ Search is **explicit**: the app only searches when the user clicks the **Search*
 - Uploaded-document snippets are produced by SQLite FTS and sanitized again before rendering in React. Uploaded matches are collapsed to one result card per uploaded document, using the first/best matching snippet; users can open the document and use in-document Find to move through additional matches.
 - The "No documents found" message only appears after a search has actually been submitted (via Search button or Enter), not while the user is still typing.
 
+</details>
+
 ## Flatpak Environment
+
+<details>
+<summary><strong>Flatpak development setup</strong></summary>
 
 If running VS Code or Codium from a Flatpak, source the environment helper before running development Tauri commands:
 
@@ -358,7 +376,12 @@ npm run tauri:dev
 
 This sets `PKG_CONFIG_PATH` and `PKG_CONFIG_SYSROOT_DIR` to point at the host system libraries mounted at `/run/host/`. Production desktop builds use `npm run desktop`, which delegates to the host automatically when Flatpak is detected so AppImage bundling can resolve host WebKitGTK dependencies.
 
+</details>
+
 ## Project Structure
+
+<details>
+<summary><strong>Repository layout</strong></summary>
 
 ```
 papercut.io/
@@ -389,6 +412,8 @@ papercut.io/
 ├── package.json                   # Scripts and dependencies
 └── tauri-env.sh                   # Flatpak development environment helper
 ```
+
+</details>
 
 ## License
 
