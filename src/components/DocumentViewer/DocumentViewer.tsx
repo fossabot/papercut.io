@@ -7,7 +7,6 @@ import { useTtsHighlight } from '../../tts/hooks/useTtsHighlight'
 
 interface TtsHighlightOptions {
   enabled: boolean
-  currentText: string
   currentChunkIndex: number | null
   chunkTexts: string[]
 }
@@ -51,7 +50,6 @@ export function DocumentViewer({
 
   useTtsHighlight(iframeRef, ttsHighlight ?? {
     enabled: false,
-    currentText: '',
     currentChunkIndex: null,
     chunkTexts: [],
   })
