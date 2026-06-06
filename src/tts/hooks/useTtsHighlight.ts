@@ -90,14 +90,15 @@ function highlightTtsChunk(
   alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
 ): { iframe: HTMLIFrameElement; range: Range } | null {
   const doc = iframe?.contentDocument
-  if (!doc || !iframe) return null
+  const view = doc?.defaultView
+  if (!doc || !view || !iframe) return null
 
   ensureTtsHighlightStyles(doc)
 
   let cache = alignmentCacheRef.current
   if (!isUsableAlignmentCache(cache, doc, chunkTexts, chunkIndex)) {
     clearTtsHighlight(doc, cache)
-    cache = buildAlignmentCache(doc, chunkTexts)
+    cache = buildAlignmentCache(doc, view, chunkTexts)
     alignmentCacheRef.current = cache
   }
 
@@ -109,11 +110,15 @@ function highlightTtsChunk(
   if (!range) return null
 
   cache.highlight.add(range)
-  doc.defaultView!.CSS.highlights.set(TTS_HIGHLIGHT_NAME, cache.highlight)
+  view.CSS.highlights.set(TTS_HIGHLIGHT_NAME, cache.highlight)
   return { iframe, range }
 }
 
-function buildAlignmentCache(doc: Document, chunkTexts: string[]): AlignmentCache {
+function buildAlignmentCache(
+  doc: Document,
+  view: Window & typeof globalThis,
+  chunkTexts: string[],
+): AlignmentCache {
   const { text, map } = buildReadableDomTextMap(doc)
   const alignments = new Map<number, ChunkAlignment>()
   let searchStart = 0
@@ -136,7 +141,7 @@ function buildAlignmentCache(doc: Document, chunkTexts: string[]): AlignmentCach
     chunkTexts,
     map,
     alignments,
-    highlight: new doc.defaultView!.Highlight(),
+    highlight: new view.Highlight(),
   }
 }
 
@@ -155,10 +160,18 @@ function isUsableAlignmentCache(
 }
 
 function clearTtsHighlight(doc: Document, cache: AlignmentCache | null): void {
-  const registeredHighlight = doc.defaultView!.CSS.highlights.get(TTS_HIGHLIGHT_NAME)
-  registeredHighlight?.clear()
   cache?.highlight.clear()
-  doc.defaultView!.CSS.highlights.delete(TTS_HIGHLIGHT_NAME)
+
+  clearTtsHighlightRegistry(cache?.doc)
+  if (cache?.doc !== doc) clearTtsHighlightRegistry(doc)
+}
+
+function clearTtsHighlightRegistry(doc: Document | undefined): void {
+  const registry = doc?.defaultView?.CSS.highlights
+  if (!registry) return
+
+  registry.get(TTS_HIGHLIGHT_NAME)?.clear()
+  registry.delete(TTS_HIGHLIGHT_NAME)
 }
 
 function ensureTtsHighlightStyles(doc: Document): void {
