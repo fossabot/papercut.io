@@ -21,6 +21,19 @@ interface QueuedAudio {
   url: string
 }
 
+interface LoadedAudio {
+  index: number
+  chunkId: string
+  text: string
+  wav: ArrayBuffer
+}
+
+interface PreloadTarget {
+  anchorIndex: number
+  jobId: number
+  navigationIntent: number
+}
+
 export interface TtsChunkSummary {
   index: number
   chunkId: string
@@ -36,11 +49,13 @@ export interface TtsPlayerState {
   chunksTotal: number
   currentText: string
   currentChunkIndex: number | null
+  pendingChunkIndex: number | null
   currentChunkId: string | null
   currentChunkProgress: number
   currentChunkTime: number
   currentChunkDuration: number
   chunkSummaries: TtsChunkSummary[]
+  chunkTexts: string[]
   voices: KokoroVoiceInfo[]
 }
 
@@ -52,6 +67,7 @@ const DEFAULT_VOICES = Object.entries(KOKORO_VOICES).map(([id, name]) => ({
 const EMPTY_PLAYBACK_STATE = {
   currentText: '',
   currentChunkIndex: null,
+  pendingChunkIndex: null,
   currentChunkId: null,
   currentChunkProgress: 0,
   currentChunkTime: 0,
@@ -60,6 +76,7 @@ const EMPTY_PLAYBACK_STATE = {
   TtsPlayerState,
   | 'currentText'
   | 'currentChunkIndex'
+  | 'pendingChunkIndex'
   | 'currentChunkId'
   | 'currentChunkProgress'
   | 'currentChunkTime'
@@ -75,13 +92,14 @@ export function useTtsPlayer() {
     chunksTotal: 0,
     ...EMPTY_PLAYBACK_STATE,
     chunkSummaries: [],
+    chunkTexts: [],
     voices: DEFAULT_VOICES,
   })
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioByIndexRef = useRef(new Map<number, QueuedAudio>())
   const loadedIndexesRef = useRef(new Set<number>())
-  const loadingByIndexRef = useRef(new Map<number, Promise<void>>())
+  const loadingByIndexRef = useRef(new Map<number, Promise<LoadedAudio | null>>())
   const chunksRef = useRef<TtsChunk[]>([])
   const optionsRef = useRef<KokoroTtsOptions | null>(null)
   const jobIdRef = useRef(0)
@@ -91,10 +109,13 @@ export function useTtsPlayer() {
   const pausedRef = useRef(false)
   const playingRef = useRef(false)
   const playbackAttemptRef = useRef(0)
-  const navigationRequestRef = useRef(0)
+  const navigationIntentRef = useRef(0)
   const navigationInFlightRef = useRef(false)
+  const navigationFrameRef = useRef<number | null>(null)
   const queuedTargetIndexRef = useRef<number | null>(null)
   const pendingTargetIndexRef = useRef<number | null>(null)
+  const preloadTargetRef = useRef<PreloadTarget | null>(null)
+  const preloadInFlightRef = useRef(false)
 
   const revokeAudioUrls = useCallback(() => {
     for (const item of audioByIndexRef.current.values()) {
@@ -111,6 +132,7 @@ export function useTtsPlayer() {
     navigationInFlightRef.current = false
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
+    preloadTargetRef.current = null
     setState((prev) => ({
       ...prev,
       status: 'idle',
@@ -158,6 +180,7 @@ export function useTtsPlayer() {
       chunksPlayed: index,
       currentText: item.text,
       currentChunkIndex: item.index,
+      pendingChunkIndex: null,
       currentChunkId: item.chunkId,
       currentChunkProgress: 0,
       currentChunkTime: 0,
@@ -219,55 +242,91 @@ export function useTtsPlayer() {
     }))
   }, [])
 
-  const loadChunk = useCallback(async (index: number, jobId: number): Promise<void> => {
+  const loadChunk = useCallback(async (
+    index: number,
+    jobId: number,
+    shouldAccept: () => boolean,
+  ): Promise<boolean> => {
     const chunks = chunksRef.current
     const options = optionsRef.current
-    if (audioByIndexRef.current.has(index)) return
-    if (!options || index < 0 || index >= chunks.length) return
+    if (audioByIndexRef.current.has(index)) return true
+    if (!options || index < 0 || index >= chunks.length) return false
 
-    const existing = loadingByIndexRef.current.get(index)
-    if (existing) {
-      await existing
-      return
-    }
-
-    const promise = (async () => {
+    let promise = loadingByIndexRef.current.get(index)
+    if (!promise) {
       const chunk = chunks[index]
-      setState((prev) => ({
-        ...prev,
-        status: playingRef.current ? prev.status : 'loading',
-        message: playingRef.current ? prev.message : 'Loading chunk ' + (index + 1) + '/' + chunks.length,
-      }))
-
       if (!options.documentUrl) throw new Error('Saved audiobook playback requires a document URL')
 
-      const nativeSaved = await getNativeSavedAudiobookChunk(options.documentUrl, chunk, index, options)
-      if (jobIdRef.current !== jobId) return
-
-      if (!nativeSaved) {
-        throw new Error('Saved audiobook chunk missing. Save this audiobook before playback.')
-      }
-
-      enqueueAudio({
-        index,
-        chunkId: chunk.id,
-        text: chunk.text,
-        url: URL.createObjectURL(new Blob([nativeSaved.wav], { type: 'audio/wav' })),
+      promise = getNativeSavedAudiobookChunk(options.documentUrl, chunk, index, options).then((nativeSaved) => {
+        if (!nativeSaved) return null
+        return {
+          index,
+          chunkId: chunk.id,
+          text: chunk.text,
+          wav: nativeSaved.wav,
+        }
       })
-    })().finally(() => {
-      loadingByIndexRef.current.delete(index)
-    })
+      loadingByIndexRef.current.set(index, promise)
+      const clearLoading = () => {
+        if (loadingByIndexRef.current.get(index) === promise) {
+          loadingByIndexRef.current.delete(index)
+        }
+      }
+      void promise.then(clearLoading, clearLoading)
+    }
 
-    loadingByIndexRef.current.set(index, promise)
-    await promise
+    const loaded = await promise
+    if (jobIdRef.current !== jobId || !shouldAccept()) return false
+    if (!loaded) {
+      throw new Error('Saved audiobook chunk missing. Save this audiobook before playback.')
+    }
+    if (audioByIndexRef.current.has(index)) return true
+
+    enqueueAudio({
+      index: loaded.index,
+      chunkId: loaded.chunkId,
+      text: loaded.text,
+      url: URL.createObjectURL(new Blob([loaded.wav], { type: 'audio/wav' })),
+    })
+    return true
   }, [enqueueAudio])
 
-  const preloadAround = useCallback((anchorIndex: number, jobId: number) => {
-    for (let offset = 1; offset <= 2; offset++) {
-      const index = anchorIndex + offset
-      if (index < totalChunksRef.current) void loadChunk(index, jobId)
+  const runPreloadWorker = useCallback(async () => {
+    if (preloadInFlightRef.current) return
+    preloadInFlightRef.current = true
+
+    try {
+      while (preloadTargetRef.current) {
+        const target = preloadTargetRef.current
+        preloadTargetRef.current = null
+
+        for (let offset = 1; offset <= 2; offset++) {
+          const index = target.anchorIndex + offset
+          const isCurrentTarget = () => (
+            jobIdRef.current === target.jobId &&
+            navigationIntentRef.current === target.navigationIntent
+          )
+          if (index >= totalChunksRef.current || !isCurrentTarget()) break
+          try {
+            await loadChunk(index, target.jobId, isCurrentTarget)
+          } catch {
+            break
+          }
+        }
+      }
+    } finally {
+      preloadInFlightRef.current = false
     }
   }, [loadChunk])
+
+  const preloadAround = useCallback((
+    anchorIndex: number,
+    jobId: number,
+    navigationIntent: number,
+  ) => {
+    preloadTargetRef.current = { anchorIndex, jobId, navigationIntent }
+    void runPreloadWorker()
+  }, [runPreloadWorker])
 
   const clampChunkIndex = useCallback((index: number) => Math.min(
     Math.max(index, 0),
@@ -275,13 +334,10 @@ export function useTtsPlayer() {
   ), [])
 
   // Android WebView can deliver touch skips faster than audio.pause(), src
-  // changes, and audio.play() promises settle. This queue keeps exactly one
-  // navigation worker alive and lets rapid taps update the latest target chunk.
-  const startPlaybackAt = useCallback(async (index: number) => {
-    if (totalChunksRef.current === 0) return
-    queuedTargetIndexRef.current = clampChunkIndex(index)
-
-    if (navigationInFlightRef.current) return
+  // changes, and audio.play() promises settle. Keep one foreground loader and
+  // commit a target only if it is still the newest navigation intent.
+  const runNavigationWorker = useCallback(async () => {
+    if (navigationInFlightRef.current || totalChunksRef.current === 0) return
     navigationInFlightRef.current = true
 
     try {
@@ -293,8 +349,7 @@ export function useTtsPlayer() {
         if (!audio) return
 
         const jobId = jobIdRef.current
-        const requestId = navigationRequestRef.current + 1
-        navigationRequestRef.current = requestId
+        const navigationIntent = navigationIntentRef.current
         pendingTargetIndexRef.current = targetIndex
 
         pausedRef.current = false
@@ -307,27 +362,52 @@ export function useTtsPlayer() {
           ...prev,
           status: 'loading',
           message: 'Loading chunk ' + (targetIndex + 1) + '/' + totalChunksRef.current,
-          chunksPlayed: targetIndex,
-          currentChunkIndex: targetIndex,
+          pendingChunkIndex: targetIndex,
           currentChunkProgress: 0,
           currentChunkTime: 0,
           currentChunkDuration: 0,
         }))
 
-        await loadChunk(targetIndex, jobId)
-        if (jobIdRef.current !== jobId || navigationRequestRef.current !== requestId || pausedRef.current) continue
+        const isCurrentTarget = () => (
+          jobIdRef.current === jobId &&
+          navigationIntentRef.current === navigationIntent &&
+          !pausedRef.current
+        )
+        const loaded = await loadChunk(targetIndex, jobId, isCurrentTarget)
+        if (!loaded || !isCurrentTarget()) continue
 
         pruneAudioWindow(targetIndex)
         const didStart = playIndex(targetIndex)
-        if (navigationRequestRef.current === requestId) {
+        if (navigationIntentRef.current === navigationIntent) {
           pendingTargetIndexRef.current = didStart ? null : targetIndex
         }
-        if (didStart) preloadAround(targetIndex, jobId)
+        if (didStart) preloadAround(targetIndex, jobId, navigationIntent)
       }
     } finally {
       navigationInFlightRef.current = false
     }
-  }, [clampChunkIndex, loadChunk, playIndex, preloadAround, pruneAudioWindow])
+  }, [loadChunk, playIndex, preloadAround, pruneAudioWindow])
+
+  const startPlaybackAt = useCallback((index: number) => {
+    if (totalChunksRef.current === 0) return
+    queuedTargetIndexRef.current = clampChunkIndex(index)
+    navigationIntentRef.current += 1
+    preloadTargetRef.current = null
+
+    if (navigationInFlightRef.current || navigationFrameRef.current !== null) return
+    navigationFrameRef.current = window.requestAnimationFrame(() => {
+      navigationFrameRef.current = null
+      void runNavigationWorker().catch((err: unknown) => {
+        pausedRef.current = false
+        playingRef.current = false
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        }))
+      })
+    })
+  }, [clampChunkIndex, runNavigationWorker])
 
   useEffect(() => {
     const audio = new Audio()
@@ -372,6 +452,10 @@ export function useTtsPlayer() {
       audio.removeEventListener('durationchange', updateProgress)
       audio.removeEventListener('loadedmetadata', updateProgress)
       audio.removeEventListener('ended', handleEnded)
+      if (navigationFrameRef.current !== null) {
+        window.cancelAnimationFrame(navigationFrameRef.current)
+        navigationFrameRef.current = null
+      }
       audioRef.current = null
       revokeAudioUrls()
     }
@@ -409,10 +493,14 @@ export function useTtsPlayer() {
     pausedRef.current = false
     playingRef.current = false
     playbackAttemptRef.current += 1
-    navigationRequestRef.current += 1
-    navigationInFlightRef.current = false
+    navigationIntentRef.current += 1
+    if (navigationFrameRef.current !== null) {
+      window.cancelAnimationFrame(navigationFrameRef.current)
+      navigationFrameRef.current = null
+    }
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
+    preloadTargetRef.current = null
     chunksRef.current = speakableChunks
     optionsRef.current = options
     audioRef.current?.pause()
@@ -431,25 +519,11 @@ export function useTtsPlayer() {
         chunkId: chunk.id,
         textPreview: textPreview(chunk.text),
       })),
+      chunkTexts: speakableChunks.map((chunk) => chunk.text),
       ...EMPTY_PLAYBACK_STATE,
     }))
 
-    void (async () => {
-      try {
-        if (jobIdRef.current !== nextJobId) return
-
-        await startPlaybackAt(0)
-      } catch (err) {
-        if (jobIdRef.current !== nextJobId) return
-        pausedRef.current = false
-        playingRef.current = false
-        setState((prev) => ({
-          ...prev,
-          status: 'error',
-          message: err instanceof Error ? err.message : String(err),
-        }))
-      }
-    })()
+    if (jobIdRef.current === nextJobId) startPlaybackAt(0)
   }, [revokeAudioUrls, startPlaybackAt])
 
   const pause = useCallback(() => {
@@ -491,13 +565,12 @@ export function useTtsPlayer() {
     )
 
     pausedRef.current = false
-    queuedTargetIndexRef.current = targetIndex
-    void startPlaybackAt(targetIndex)
+    startPlaybackAt(targetIndex)
   }, [startPlaybackAt])
 
   const jumpToChunk = useCallback((index: number) => {
     if (totalChunksRef.current === 0) return
-    void startPlaybackAt(index)
+    startPlaybackAt(index)
   }, [startPlaybackAt])
 
   const stop = useCallback(() => {
@@ -508,10 +581,14 @@ export function useTtsPlayer() {
     pausedRef.current = false
     playingRef.current = false
     playbackAttemptRef.current += 1
-    navigationRequestRef.current += 1
-    navigationInFlightRef.current = false
+    navigationIntentRef.current += 1
+    if (navigationFrameRef.current !== null) {
+      window.cancelAnimationFrame(navigationFrameRef.current)
+      navigationFrameRef.current = null
+    }
     queuedTargetIndexRef.current = null
     pendingTargetIndexRef.current = null
+    preloadTargetRef.current = null
     chunksRef.current = []
     optionsRef.current = null
     audioRef.current?.pause()
@@ -525,6 +602,7 @@ export function useTtsPlayer() {
       chunksPlayed: 0,
       chunksTotal: 0,
       chunkSummaries: [],
+      chunkTexts: [],
       ...EMPTY_PLAYBACK_STATE,
     }))
   }, [revokeAudioUrls])

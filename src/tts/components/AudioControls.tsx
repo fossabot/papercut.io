@@ -56,9 +56,10 @@ export function AudioControls({
   const audiobookPercent = audiobookState.totalChunks > 0
     ? Math.round((audiobookState.cachedChunks / audiobookState.totalChunks) * 100)
     : 0
-  const currentChunkNumber = ttsState.currentChunkIndex === null
+  const visibleChunkIndex = ttsState.pendingChunkIndex ?? ttsState.currentChunkIndex
+  const currentChunkNumber = visibleChunkIndex === null
     ? Math.min(ttsState.chunksPlayed + 1, ttsState.chunksTotal)
-    : ttsState.currentChunkIndex + 1
+    : visibleChunkIndex + 1
   const chunkTotal = ttsState.chunksTotal || Math.max(ttsState.chunksGenerated, ttsState.chunksPlayed)
   const chunkPercent = Math.round(ttsState.currentChunkProgress * 100)
   const showChunkMenuButton = showFloatingPlayback && ttsState.chunkSummaries.length > 1
