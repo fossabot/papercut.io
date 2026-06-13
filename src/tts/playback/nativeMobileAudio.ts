@@ -18,13 +18,23 @@ function runLifecycleOperation<T>(operation: () => Promise<T>): Promise<T> {
   return result
 }
 
-// Memoize initialization while still placing it inside command serialization.
+// Share one in-flight/successful initialization across callers, but allow a later
+// playback attempt to recover if native setup fails. The identity check prevents
+// an older rejected attempt from clearing a newer initialization after disposal.
 export function initializeNativeAudio(): Promise<NativeAudioState> {
-  initializePromise ??= runLifecycleOperation(async () => {
+  if (initializePromise) return initializePromise
+
+  const attempt = runLifecycleOperation(async () => {
     const plugin = await loadPlugin()
     return plugin.initialize()
   })
-  return initializePromise
+  initializePromise = attempt
+  void attempt.catch(() => {
+    if (initializePromise === attempt) {
+      initializePromise = null
+    }
+  })
+  return attempt
 }
 
 export async function setNativeAudioSource(payload: NativeAudioSetSourcePayload): Promise<NativeAudioState> {
