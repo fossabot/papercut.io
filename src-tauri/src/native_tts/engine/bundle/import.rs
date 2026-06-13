@@ -4,8 +4,8 @@
 //! order, copying the source HTML and each chunk WAV out of the bundle and into
 //! the app's user-uploads / audiobook-cache directories. Finally write a save
 //! manifest so the restored audiobook is indistinguishable from one generated
-//! locally. The combined single-track WAV in the bundle is intentionally skipped
-//! on import (playback uses the per-chunk files).
+//! locally. The combined single-track WAV is restored as the native playback cache,
+//! while per-chunk files remain the canonical editable/exportable audio.
 //!
 //! Rust notes: structs that `#[derive(Deserialize)]` can be built directly from
 //! JSON by `serde_json`. `#[serde(rename_all = "camelCase")]` maps the JSON's
@@ -21,9 +21,10 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
 use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION, MODEL_ID};
+use super::super::file_commit::commit_staged_file;
 use super::super::paths::{
-    audiobook_dir, chunk_path, create_native_audiobook_id, imported_upload_dir, speakable_chunks,
-    stable_hex_hash,
+    audiobook_dir, chunk_path, create_native_audiobook_id, imported_upload_dir,
+    playback_track_path, speakable_chunks, stable_hex_hash,
 };
 use super::super::save::write_manifest;
 use crate::native_tts::types::{
@@ -133,6 +134,11 @@ pub(crate) fn import_audiobook_native(
     let mut imported_chunks = 0usize;
     let mut imported_source = false;
     let mut imported_metadata = false;
+    let mut imported_track = false;
+    // Keep imported single track staged until source HTML, every canonical chunk,
+    // and new manifest validate. Failed imports cannot replace a working track.
+    let imported_track_staging = audiobook_dir.join("playback.import.wav");
+    let _ = fs::remove_file(&imported_track_staging);
 
     for entry in entries {
         // Offsets must be monotonically increasing; a backward offset means a
@@ -150,7 +156,7 @@ pub(crate) fn import_audiobook_native(
         }
 
         // Restore by role. `match` is like a switch but exhaustive; the final
-        // `_` arm skips file kinds we don't restore (e.g. the combined WAV).
+        // `_` arm skips unknown optional file kinds.
         match entry.role.as_str() {
             "sourceHtml" => {
                 copy_payload_to_path(&mut reader, &upload_dir.join("source.html"), entry.bytes)?;
@@ -177,13 +183,9 @@ pub(crate) fn import_audiobook_native(
                 copy_payload_to_path(&mut reader, &target, entry.bytes)?;
                 imported_chunks += 1;
             }
-            // Once HTML + every chunk are in, the trailing combined WAV is
-            // redundant for playback, so stop early.
-            "singleTrackWav"
-                if imported_source
-                    && imported_chunks == speakable_chunks(&manifest.chunks).len() =>
-            {
-                break;
+            "singleTrackWav" => {
+                copy_payload_to_path(&mut reader, &imported_track_staging, entry.bytes)?;
+                imported_track = true;
             }
             _ => {
                 skip_payload(&mut reader, entry.bytes)?;
@@ -220,6 +222,16 @@ pub(crate) fn import_audiobook_native(
         thread_count: None,
     };
     write_manifest(&audiobook_dir, &save_request, &speakable, 0)?;
+    // write_manifest invalidates old derived playback files. Commit staged bundle
+    // track afterward so first mobile Play can rebuild only its tiny sidecar.
+    if imported_track {
+        let track_path = playback_track_path(&audiobook_dir);
+        commit_staged_file(
+            &imported_track_staging,
+            &track_path,
+            "imported playback track",
+        )?;
+    }
 
     Ok(NativeAudiobookImportResponse {
         document_url,
@@ -339,18 +351,11 @@ fn copy_payload_to_path<R: Read>(reader: &mut R, path: &Path, bytes: u64) -> Res
             path.display()
         ));
     }
-    let _ = fs::remove_file(path);
-    fs::rename(&temp_path, path).map_err(|err| {
-        let _ = fs::remove_file(&temp_path);
-        format!(
-            "Failed to commit imported audiobook file {}: {err}",
-            path.display()
-        )
-    })
+    commit_staged_file(&temp_path, path, "imported audiobook file")
 }
 
 /// Discard `bytes` from the reader by copying them into a null sink. Used to
-/// jump over gaps and over payloads we don't restore (e.g. the combined WAV).
+/// jump over gaps and payloads for unknown optional file kinds.
 fn skip_payload<R: Read>(reader: &mut R, bytes: u64) -> Result<(), String> {
     let copied = std::io::copy(&mut reader.take(bytes), &mut std::io::sink())
         .map_err(|err| format!("Failed to skip audiobook bundle payload: {err}"))?;

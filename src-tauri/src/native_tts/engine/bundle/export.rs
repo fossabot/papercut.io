@@ -11,7 +11,7 @@
 //! taking ownership, similar to passing an object you promise not to keep.
 
 use std::fs;
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,6 +21,7 @@ use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 
 use super::super::cache::{wav_metadata, WavMetadata};
 use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION, MODEL_ID};
+use super::super::file_commit::commit_staged_file;
 use super::super::paths::{
     audiobook_dir, chunk_path, sanitize_export_basename, speakable_chunks, unique_export_work_dir,
 };
@@ -34,6 +35,7 @@ pub(crate) struct WavExportSummary {
     pub(crate) chunks: usize,
     pub(crate) audio_duration_sec: f32,
     pub(crate) wav_bytes: usize,
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     pub(crate) chunk_timings: Vec<NativeAudiobookPlaybackChunk>,
 }
 
@@ -119,13 +121,16 @@ pub(crate) fn export_audiobook_native(
 /// audio format, and a `data` chunk holding raw samples. To merge N files we
 /// reuse the first file's `fmt ` block, then write one big `data` chunk that is
 /// every input's samples back-to-back. We require all inputs to share the same
-/// format and guard the 4 GB RIFF size limit. Writes to a temp file first, then
-/// renames into place (an atomic "all or nothing" swap).
+/// format and guard the 4 GB RIFF size limit. A completed same-directory staged
+/// file replaces the destination only after every payload has been copied.
 pub(crate) fn stitch_audiobook_wav(
     dir: &Path,
     chunks: &[NativeTtsInputChunk],
     output_path: &Path,
 ) -> Result<WavExportSummary, String> {
+    if chunks.is_empty() {
+        return Err("Cannot stitch an audiobook with no chunks".into());
+    }
     // First pass: locate each chunk WAV and read just its header metadata
     // (offset + length of the `data` chunk), summing total bytes/duration.
     let mut metas: Vec<(PathBuf, WavMetadata)> = Vec::with_capacity(chunks.len());
@@ -239,14 +244,24 @@ pub(crate) fn stitch_audiobook_wav(
         .write_all(&(total_data_bytes as u32).to_le_bytes())
         .map_err(write_export_err)?;
 
-    // ...then each input's raw samples (the slice between data_offset and
-    // data_offset + data_bytes) appended in order.
+    // ...then stream each input's raw sample extent in order. Do not fs::read
+    // whole chunks here: multi-hour books must keep peak memory independent of
+    // total audiobook size and roughly bounded by std::io::copy buffers.
     for (path, metadata) in &metas {
-        let bytes = fs::read(path)
-            .map_err(|err| format!("Failed to read audiobook chunk {}: {err}", path.display()))?;
-        writer
-            .write_all(&bytes[metadata.data_offset..metadata.data_offset + metadata.data_bytes])
+        let mut input = fs::File::open(path)
+            .map_err(|err| format!("Failed to open audiobook chunk {}: {err}", path.display()))?;
+        input
+            .seek(SeekFrom::Start(metadata.data_offset as u64))
+            .map_err(|err| format!("Failed to seek audiobook chunk {}: {err}", path.display()))?;
+        let copied = std::io::copy(&mut input.take(metadata.data_bytes as u64), &mut writer)
             .map_err(write_export_err)?;
+        if copied != metadata.data_bytes as u64 {
+            let _ = fs::remove_file(&temp_path);
+            return Err(format!(
+                "Audiobook chunk {} ended before its WAV data payload",
+                path.display()
+            ));
+        }
     }
     if data_padding > 0 {
         writer.write_all(&[0]).map_err(write_export_err)?;
@@ -254,15 +269,8 @@ pub(crate) fn stitch_audiobook_wav(
     writer.flush().map_err(write_export_err)?;
     drop(writer); // Close the file (drop runs its cleanup) before renaming it.
 
-    // Atomically move the finished temp file onto the real path.
-    let _ = fs::remove_file(output_path);
-    fs::rename(&temp_path, output_path).map_err(|err| {
-        let _ = fs::remove_file(&temp_path);
-        format!(
-            "Failed to commit audiobook export {}: {err}",
-            output_path.display()
-        )
-    })?;
+    // Replace the destination only after the staged WAV is complete and closed.
+    commit_staged_file(&temp_path, output_path, "audiobook WAV")?;
 
     let wav_bytes = fs::metadata(output_path)
         .map_err(|err| format!("Failed to inspect audiobook export: {err}"))?

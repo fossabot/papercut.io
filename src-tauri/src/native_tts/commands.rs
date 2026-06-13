@@ -76,7 +76,8 @@ pub fn tts_get_native_audiobook_chunk(
     get_native_audiobook_chunk(app, request)
 }
 
-/// Prepare and cache the single local track used for background mobile playback.
+/// Prepare/reuse one seekable native track and return global chunk boundaries.
+/// Heavy file work runs off Tauri's async command thread.
 #[tauri::command]
 pub async fn tts_prepare_native_audiobook_playback(
     app: tauri::AppHandle,

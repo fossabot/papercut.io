@@ -111,6 +111,26 @@ fn chunk_identity(chunk: &NativeTtsInputChunk) -> String {
         .collect()
 }
 
+/// Stable cross-process identity for ordered speakable chunks.
+///
+/// Canonical separators and FNV-1a hashing intentionally mirror TypeScript
+/// `createChunkSourceSignature`; changing either side invalidates cache matching.
+pub(super) fn chunk_source_signature(chunks: &[NativeTtsInputChunk]) -> String {
+    let mut canonical = String::new();
+    for chunk in chunks.iter().filter(|chunk| !chunk.text.trim().is_empty()) {
+        canonical.push_str(&chunk.id);
+        canonical.push(char::from(0));
+        canonical.push_str(
+            &chunk
+                .text_hash
+                .clone()
+                .unwrap_or_else(|| stable_hex_hash(&chunk.text)),
+        );
+        canonical.push(char::from(10));
+    }
+    stable_hex_hash(&canonical)
+}
+
 /// Keep only chunks with non-blank text. Blank chunks have no audio to generate
 /// or save, so every pipeline filters through this first.
 pub(super) fn speakable_chunks(chunks: &[NativeTtsInputChunk]) -> Vec<NativeTtsInputChunk> {

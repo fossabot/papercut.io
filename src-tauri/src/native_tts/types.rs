@@ -66,11 +66,12 @@ pub(crate) struct NativeTtsInputChunk {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Query how many chunks of a document are already saved.
+/// Lightweight status identity; full chunk data lives in the persisted manifest.
 #[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
 pub(crate) struct NativeAudiobookStatusRequest {
     pub(crate) audiobook_id: String,
-    pub(crate) chunks: Vec<NativeTtsInputChunk>,
+    pub(crate) source_signature: String,
+    pub(crate) total_chunks: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -97,11 +98,11 @@ pub(crate) struct NativeAudiobookChunkRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Request to prepare one complete saved audiobook for native mobile playback.
+/// Identify saved chunks to prepare without resending 1,000+ chunk texts over IPC.
 #[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
 pub(crate) struct NativeAudiobookPlaybackRequest {
     pub(crate) audiobook_id: String,
-    pub(crate) chunks: Vec<NativeTtsInputChunk>,
+    pub(crate) source_signature: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -116,7 +117,7 @@ pub(crate) struct NativeAudiobookPlaybackChunk {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Local track URL and chunk boundaries consumed by the mobile audio plugin.
+/// Native playback source plus global chunk boundaries.
 pub(crate) struct NativeAudiobookPlaybackResponse {
     pub(crate) audio_url: String,
     pub(crate) audio_duration_sec: f64,

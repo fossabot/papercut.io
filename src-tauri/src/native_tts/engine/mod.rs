@@ -21,6 +21,7 @@
 mod bundle;
 mod cache;
 mod config;
+mod file_commit;
 mod model;
 mod paths;
 mod playback;
