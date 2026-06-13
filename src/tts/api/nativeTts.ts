@@ -49,6 +49,20 @@ export interface NativeTtsChunkResult {
   backend: string
 }
 
+export interface NativeAudiobookPlaybackChunk {
+  index: number
+  chunkId: string
+  startSec: number
+  durationSec: number
+}
+
+export interface NativeAudiobookPlayback {
+  audioUrl: string
+  audioDurationSec: number
+  wavBytes: number
+  chunks: NativeAudiobookPlaybackChunk[]
+}
+
 export interface NativeAudiobookStatus {
   cachedChunks: number
   totalChunks: number
@@ -127,6 +141,41 @@ interface NativeTtsChunkResponse {
   backend: string
 }
 
+type NativeTtsInputChunk = Pick<TtsChunk, 'id' | 'text' | 'textHash'>
+
+// Keep DOM-only source spans inside React. Native manifests/bundles intentionally
+// retain their existing id/text/hash schema and cache compatibility.
+function toNativeTtsChunk(chunk: TtsChunk): NativeTtsInputChunk {
+  return { id: chunk.id, text: chunk.text, textHash: chunk.textHash }
+}
+
+function toNativeTtsChunks(chunks: TtsChunk[]): NativeTtsInputChunk[] {
+  return chunks.map(toNativeTtsChunk)
+}
+
+// 64-bit FNV-1a over UTF-8. Rust uses the same algorithm for manifest identity.
+function stableUtf8Hash(value: string): string {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= BigInt(byte)
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
+  }
+  return hash.toString(16).padStart(16, '0')
+}
+
+// Compact ordered audiobook identity sent across IPC instead of all chunk text.
+// Delimiters and filtering must stay byte-for-byte aligned with Rust.
+function createChunkSourceSignature(chunks: TtsChunk[]): string {
+  const canonical = chunks
+    .filter((chunk) => chunk.text.trim())
+    .map((chunk) => {
+      const contentHash = chunk.textHash !== undefined ? chunk.textHash : stableUtf8Hash(chunk.text)
+      return `${chunk.id}\0${contentHash}\n`
+    })
+    .join('')
+  return stableUtf8Hash(canonical)
+}
+
 let capabilitiesPromise: Promise<NativeTtsCapabilities> | null = null
 
 export function isNativeTtsRuntime(): boolean {
@@ -196,11 +245,27 @@ export async function getNativeAudiobookStatus(
   return invoke<NativeAudiobookStatus>('tts_native_audiobook_status', {
     request: {
       audiobookId: createAudiobookId(documentUrl, options),
-      chunks,
+      sourceSignature: createChunkSourceSignature(chunks),
+      totalChunks: chunks.filter((chunk) => chunk.text.trim()).length,
     },
   })
 }
 
+
+export async function prepareNativeAudiobookPlayback(
+  documentUrl: string,
+  chunks: TtsChunk[],
+  options: KokoroTtsOptions,
+): Promise<NativeAudiobookPlayback> {
+  await requireNativeTtsCapabilities()
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeAudiobookPlayback>('tts_prepare_native_audiobook_playback', {
+    request: {
+      audiobookId: createAudiobookId(documentUrl, options),
+      sourceSignature: createChunkSourceSignature(chunks),
+    },
+  })
+}
 
 export async function getNativeSavedAudiobookChunk(
   documentUrl: string,
@@ -214,7 +279,7 @@ export async function getNativeSavedAudiobookChunk(
     const response = await invoke<NativeTtsChunkResponse>('tts_get_native_audiobook_chunk', {
       request: {
         audiobookId: createAudiobookId(documentUrl, options),
-        chunk,
+        chunk: toNativeTtsChunk(chunk),
         index,
       },
     })
@@ -241,7 +306,7 @@ export async function saveNativeAudiobook(
       audiobookId: createAudiobookId(input.documentUrl, input.options),
       documentUrl: input.documentUrl,
       title: input.title,
-      chunks: input.chunks,
+      chunks: toNativeTtsChunks(input.chunks),
       voice: input.options.voice,
       speed: input.options.speed,
       threadCount: input.options.threadCount,
@@ -272,7 +337,7 @@ export async function exportNativeAudiobook(
       documentUrl: input.documentUrl,
       title: input.title,
       sourceHtml: input.sourceHtml,
-      chunks: input.chunks,
+      chunks: toNativeTtsChunks(input.chunks),
       voice: input.options.voice,
       speed: input.options.speed,
       dtype: input.options.dtype ?? 'native',

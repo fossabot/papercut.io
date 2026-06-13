@@ -20,6 +20,7 @@ use sherpa_onnx::{
 };
 
 use super::cache::wav_info;
+use super::file_commit::commit_staged_file;
 use super::paths::{audio_duration_sec, resolve_model_dir};
 use crate::native_tts::platform::resolve_thread_count;
 
@@ -111,14 +112,7 @@ pub(super) fn synthesize_to_file(
         let _ = fs::remove_file(&temp_path);
         return Err(format!("Generated invalid WAV {}", temp_path.display()));
     };
-    let _ = fs::remove_file(output_path);
-    fs::rename(&temp_path, output_path).map_err(|err| {
-        let _ = fs::remove_file(&temp_path);
-        format!(
-            "Failed to commit generated WAV {}: {err}",
-            output_path.display()
-        )
-    })?;
+    commit_staged_file(&temp_path, output_path, "generated WAV")?;
 
     Ok(FileSynthesisResult {
         generate_ms: started.elapsed().as_millis(),

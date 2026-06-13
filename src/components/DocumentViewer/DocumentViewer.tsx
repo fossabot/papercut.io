@@ -4,11 +4,12 @@ import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
 import { useFindInPage } from '../../hooks/useFindInPage'
 import { useTtsHighlight } from '../../tts/hooks/useTtsHighlight'
+import type { TtsChunk } from '../../tts/types'
 
 interface TtsHighlightOptions {
   enabled: boolean
   currentChunkIndex: number | null
-  chunkTexts: string[]
+  chunks: TtsChunk[]
 }
 
 interface DocumentViewerProps {
@@ -51,7 +52,7 @@ export function DocumentViewer({
   useTtsHighlight(iframeRef, ttsHighlight ?? {
     enabled: false,
     currentChunkIndex: null,
-    chunkTexts: [],
+    chunks: [],
   })
 
   useEffect(() => {

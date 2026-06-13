@@ -90,6 +90,15 @@ pub(super) fn chunk_path(dir: &Path, index: usize, chunk: &NativeTtsInputChunk) 
     ))
 }
 
+/// Cached single-track audio and timing metadata used by native mobile playback.
+pub(super) fn playback_track_path(dir: &Path) -> PathBuf {
+    dir.join("playback.wav")
+}
+
+pub(super) fn playback_metadata_path(dir: &Path) -> PathBuf {
+    dir.join("playback.json")
+}
+
 /// Short (16-char) content fingerprint for a chunk: the frontend-supplied text
 /// hash if present, otherwise a hash of the text itself.
 fn chunk_identity(chunk: &NativeTtsInputChunk) -> String {
@@ -100,6 +109,26 @@ fn chunk_identity(chunk: &NativeTtsInputChunk) -> String {
         .chars()
         .take(16)
         .collect()
+}
+
+/// Stable cross-process identity for ordered speakable chunks.
+///
+/// Canonical separators and FNV-1a hashing intentionally mirror TypeScript
+/// `createChunkSourceSignature`; changing either side invalidates cache matching.
+pub(super) fn chunk_source_signature(chunks: &[NativeTtsInputChunk]) -> String {
+    let mut canonical = String::new();
+    for chunk in chunks.iter().filter(|chunk| !chunk.text.trim().is_empty()) {
+        canonical.push_str(&chunk.id);
+        canonical.push(char::from(0));
+        canonical.push_str(
+            &chunk
+                .text_hash
+                .clone()
+                .unwrap_or_else(|| stable_hex_hash(&chunk.text)),
+        );
+        canonical.push(char::from(10));
+    }
+    stable_hex_hash(&canonical)
 }
 
 /// Keep only chunks with non-blank text. Blank chunks have no audio to generate

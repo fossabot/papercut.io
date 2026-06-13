@@ -1,6 +1,7 @@
+import { memo } from 'react'
 import type { ViewerProps } from './types'
 
-export function HtmlViewer({ content, iframeRef, onLoad }: ViewerProps) {
+export const HtmlViewer = memo(function HtmlViewer({ content, iframeRef, onLoad }: ViewerProps) {
   return (
     <iframe
       ref={iframeRef}
@@ -11,4 +12,4 @@ export function HtmlViewer({ content, iframeRef, onLoad }: ViewerProps) {
       onLoad={onLoad}
     />
   )
-}
+})

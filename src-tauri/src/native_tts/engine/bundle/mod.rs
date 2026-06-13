@@ -17,6 +17,7 @@
 //! - [`manage`]: read an imported document's source HTML and delete saved audio.
 
 mod export;
+pub(crate) use export::stitch_audiobook_wav;
 mod import;
 mod manage;
 

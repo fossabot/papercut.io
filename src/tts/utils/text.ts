@@ -6,6 +6,7 @@ import {
   type ReadableSegment,
   type ReadableSegmentKind,
 } from '../alignment/readableSegments'
+import type { TtsChunkSourceSpan } from '../types'
 
 export interface SpeechChunkProfile {
   maxChunkLength: number
@@ -15,6 +16,12 @@ export interface SpeechChunkProfile {
 interface SpeechChunkCandidate {
   text: string
   kind: ReadableSegmentKind
+  sourceSpan?: TtsChunkSourceSpan
+}
+
+export interface SpeechChunk {
+  text: string
+  sourceSpan?: TtsChunkSourceSpan
 }
 
 // Playback-sized chunks keep skip/highlight interactions responsive.
@@ -55,9 +62,12 @@ export function chunkAudiobookSaveText(text: string): string[] {
 }
 
 // Builds save-time audiobook chunks from HTML segments so headings, paragraphs,
-// and lists stay aligned with the viewer highlight map.
-export function chunkAudiobookSaveHtml(html: string): string[] {
-  return chunkReadableSegments(extractReadableSegmentsFromHtml(html), AUDIOBOOK_SAVE_CHUNK_PROFILE)
+// and lists stay aligned with the viewer highlight index.
+export function chunkAudiobookSaveHtmlWithSpans(html: string): SpeechChunk[] {
+  return chunkReadableSegmentsWithSpans(
+    extractReadableSegmentsFromHtml(html),
+    AUDIOBOOK_SAVE_CHUNK_PROFILE,
+  )
 }
 
 // Shared chunking entry point for format adapters. EPUB/PDF should emit
@@ -66,13 +76,22 @@ export function chunkReadableSegments(
   segments: ReadableSegment[],
   profile: SpeechChunkProfile = PLAYBACK_CHUNK_PROFILE,
 ): string[] {
+  return chunkReadableSegmentsWithSpans(segments, profile).map((chunk) => chunk.text)
+}
+
+// Produce same narration text as plain chunking while retaining runtime-only
+// coordinates into normalized readable segments for O(active-chunk) highlighting.
+export function chunkReadableSegmentsWithSpans(
+  segments: ReadableSegment[],
+  profile: SpeechChunkProfile = PLAYBACK_CHUNK_PROFILE,
+): SpeechChunk[] {
   const chunks: SpeechChunkCandidate[] = []
 
-  for (const segment of segments) {
-    appendSegmentChunks(segment, chunks, profile)
+  for (let index = 0; index < segments.length; index++) {
+    appendSegmentChunks(segments[index], index, chunks, profile)
   }
 
-  return mergeShortChunks(chunks, profile).map((chunk) => chunk.text)
+  return mergeShortChunks(chunks, profile).map(({ text, sourceSpan }) => ({ text, sourceSpan }))
 }
 
 // Merges tiny adjacent chunks only when their segment kinds are compatible; this
@@ -91,6 +110,7 @@ function mergeShortChunks(chunks: SpeechChunkCandidate[], profile: SpeechChunkPr
       merged[merged.length - 1] = {
         ...previous,
         text: previous.text + ' ' + chunk.text,
+        sourceSpan: mergeSourceSpans(previous.sourceSpan, chunk.sourceSpan),
       }
     } else {
       merged.push(chunk)
@@ -101,14 +121,35 @@ function mergeShortChunks(chunks: SpeechChunkCandidate[], profile: SpeechChunkPr
 }
 
 // Splits one readable segment into sentence-sized TTS requests while preserving
-// the segment kind for later merge decisions.
+// the segment kind and normalized source offsets for later highlight alignment.
 function appendSegmentChunks(
   segment: ReadableSegment,
+  segmentIndex: number,
   chunks: SpeechChunkCandidate[],
   profile: SpeechChunkProfile,
 ): void {
   const paragraph = normalizeSegmentText(segment.text)
   if (!paragraph) return
+  let sourceSearchOffset = 0
+
+  const flushSegmentChunk = (text: string) => {
+    const normalized = normalizeSegmentText(text)
+    if (!normalized) return
+
+    // Search forward from prior emitted chunk. This disambiguates repeated sentences
+    // without a document-wide text search and preserves deterministic offsets.
+    const startOffset = paragraph.indexOf(normalized, sourceSearchOffset)
+    const sourceSpan = startOffset >= 0
+      ? {
+        startSegmentIndex: segmentIndex,
+        startOffset,
+        endSegmentIndex: segmentIndex,
+        endOffset: startOffset + normalized.length,
+      }
+      : undefined
+    if (sourceSpan) sourceSearchOffset = sourceSpan.endOffset
+    flushChunk(chunks, normalized, segment.kind, sourceSpan)
+  }
 
   const sentences = paragraph
     .match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g)
@@ -118,22 +159,22 @@ function appendSegmentChunks(
   let current = ''
   for (const sentence of sentences) {
     if (sentence.length > profile.maxChunkLength) {
-      flushChunk(chunks, current, segment.kind)
+      flushSegmentChunk(current)
       current = ''
-      splitLongSentence(sentence, profile).forEach((part) => flushChunk(chunks, part, segment.kind))
+      splitLongSentence(sentence, profile).forEach(flushSegmentChunk)
       continue
     }
 
     const next = current ? current + ' ' + sentence : sentence
     if (next.length > profile.maxChunkLength) {
-      if (current) flushChunk(chunks, current, segment.kind)
+      if (current) flushSegmentChunk(current)
       current = sentence
     } else {
       current = next
     }
   }
 
-  flushChunk(chunks, current, segment.kind)
+  flushSegmentChunk(current)
 }
 
 function splitLongSentence(sentence: string, profile: SpeechChunkProfile): string[] {
@@ -166,11 +207,15 @@ function splitLongSentence(sentence: string, profile: SpeechChunkProfile): strin
   return chunks
 }
 
-// Normalizes the final chunk text at the boundary where it becomes cache-keyed
-// audiobook input.
-function flushChunk(chunks: SpeechChunkCandidate[], text: string, kind: ReadableSegmentKind): void {
+// Normalizes final chunk text where it becomes cache-keyed audiobook input.
+function flushChunk(
+  chunks: SpeechChunkCandidate[],
+  text: string,
+  kind: ReadableSegmentKind,
+  sourceSpan?: TtsChunkSourceSpan,
+): void {
   const normalized = normalizeSegmentText(text)
-  if (normalized) chunks.push({ text: normalized, kind })
+  if (normalized) chunks.push({ text: normalized, kind, sourceSpan })
 }
 
 // Encodes the UX rule for structural boundaries: headings stand alone, and list
@@ -179,4 +224,19 @@ function canMergeChunks(previous: ReadableSegmentKind, next: ReadableSegmentKind
   if (previous === 'heading' || next === 'heading') return false
   if (previous === 'listItem' || next === 'listItem') return previous === next
   return true
+}
+
+// Merging adjacent chunks expands one continuous source interval. Missing spans
+// propagate as undefined so highlighter fails visibly instead of guessing.
+function mergeSourceSpans(
+  previous: TtsChunkSourceSpan | undefined,
+  next: TtsChunkSourceSpan | undefined,
+): TtsChunkSourceSpan | undefined {
+  if (!previous || !next) return undefined
+  return {
+    startSegmentIndex: previous.startSegmentIndex,
+    startOffset: previous.startOffset,
+    endSegmentIndex: next.endSegmentIndex,
+    endOffset: next.endOffset,
+  }
 }

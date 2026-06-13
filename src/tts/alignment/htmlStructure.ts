@@ -51,27 +51,49 @@ export function isReadableHtmlBlock(element: Element): boolean {
   return READABLE_BLOCK_TAGS.has(element.tagName)
 }
 
-// Finds nested readable blocks below a candidate container so callers can treat
-// only true leaf blocks as text owners.
-export function hasReadableHtmlBlockDescendant(
-  element: Element,
-  hasReadableText: (text: string) => boolean,
-): boolean {
-  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node) {
-      if (node === element) return NodeFilter.FILTER_SKIP
+// Finds readable leaf blocks in document order with one DOM traversal. Returning
+// leaf owners keeps wrapper text from being narrated or highlighted twice.
+export function collectReadableHtmlBlocks(root: Element | null): Element[] {
+  if (!root) return []
 
-      const candidate = node as Element
-      if (candidate.matches(HTML_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT
-      if (!isReadableHtmlBlock(candidate)) return NodeFilter.FILTER_SKIP
+  const blocks: Element[] = []
+  collectReadableSubtree(root, blocks)
+  return blocks
+}
 
-      return hasReadableText(candidate.textContent ?? '')
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP
-    },
-  })
+interface ReadableSubtree {
+  hasText: boolean
+  hasReadableBlock: boolean
+}
 
-  return Boolean(walker.nextNode())
+// Post-order traversal returns whether descendants already own readable text. A
+// readable wrapper becomes a segment only when no nested readable block owns it.
+function collectReadableSubtree(element: Element, blocks: Element[]): ReadableSubtree {
+  if (element.matches(HTML_SKIP_SELECTOR)) {
+    return { hasText: false, hasReadableBlock: false }
+  }
+
+  let hasText = false
+  let hasReadableDescendant = false
+  for (const child of Array.from(element.childNodes)) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      if (/\S/.test(child.textContent ?? '')) hasText = true
+      continue
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue
+
+    const result = collectReadableSubtree(child as Element, blocks)
+    if (result.hasText) hasText = true
+    if (result.hasReadableBlock) hasReadableDescendant = true
+  }
+
+  const isReadable = hasText && isReadableHtmlBlock(element)
+  if (isReadable && !hasReadableDescendant) blocks.push(element)
+
+  return {
+    hasText,
+    hasReadableBlock: isReadable || hasReadableDescendant,
+  }
 }
 
 // Reduces HTML-specific tags into format-neutral segment kinds used by chunking.

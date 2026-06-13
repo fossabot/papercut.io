@@ -51,10 +51,18 @@ export function resolveKokoroDtype(options: Pick<KokoroTtsOptions, 'dtype'>): Ko
   return options.dtype ?? KOKORO_MODEL_DTYPE
 }
 
+export interface TtsChunkSourceSpan {
+  startSegmentIndex: number
+  startOffset: number
+  endSegmentIndex: number
+  endOffset: number
+}
+
 export interface TtsChunk {
   id: string
   text: string
   textHash?: string
+  sourceSpan?: TtsChunkSourceSpan
 }
 
 export interface KokoroVoiceInfo {

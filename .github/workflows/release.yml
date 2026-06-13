@@ -56,6 +56,9 @@ jobs:
           file
           libssl-dev
           libxdo-dev
+          patchelf
+          gstreamer1.0-plugins-base
+          gstreamer1.0-plugins-good
           APT
 
       - name: Setup Node.js
@@ -79,6 +82,10 @@ jobs:
 
       - name: Build Tauri app
         run: npm run desktop
+
+      - name: Verify AppImage media bundle
+        if: matrix.platform == 'linux'
+        run: npm run verify:appimage-media
 
       - name: Upload Linux bundles
         if: matrix.platform == 'linux'

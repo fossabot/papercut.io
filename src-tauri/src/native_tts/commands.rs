@@ -12,9 +12,10 @@ use super::state::NativeTtsState;
 use super::types::{
     NativeAudiobookChunkRequest, NativeAudiobookDeleteRequest, NativeAudiobookDeleteResponse,
     NativeAudiobookExportRequest, NativeAudiobookExportResponse, NativeAudiobookImportResponse,
-    NativeAudiobookSaveRequest, NativeAudiobookSaveResponse, NativeAudiobookStatusRequest,
-    NativeAudiobookStatusResponse, NativeImportedAudiobookSourceRequest, NativeTtsCapabilities,
-    NativeTtsChunkResponse, NativeTtsModelInstallResponse, NativeTtsModelStatus,
+    NativeAudiobookPlaybackRequest, NativeAudiobookPlaybackResponse, NativeAudiobookSaveRequest,
+    NativeAudiobookSaveResponse, NativeAudiobookStatusRequest, NativeAudiobookStatusResponse,
+    NativeImportedAudiobookSourceRequest, NativeTtsCapabilities, NativeTtsChunkResponse,
+    NativeTtsModelInstallResponse, NativeTtsModelStatus,
 };
 
 #[cfg(feature = "native-tts-core")]
@@ -22,7 +23,7 @@ use super::engine::{
     cancel_audiobook_save, delete_audiobook_native, export_audiobook_native,
     get_imported_audiobook_source, get_native_audiobook_chunk, import_audiobook_native,
     install_model, model_status, native_audiobook_status, native_capabilities,
-    save_audiobook_native,
+    prepare_native_audiobook_playback, save_audiobook_native,
 };
 
 #[cfg(not(feature = "native-tts-core"))]
@@ -30,7 +31,7 @@ use super::stub::{
     cancel_audiobook_save, delete_audiobook_native, export_audiobook_native,
     get_imported_audiobook_source, get_native_audiobook_chunk, import_audiobook_native,
     install_model, model_status, native_audiobook_status, native_capabilities,
-    save_audiobook_native,
+    prepare_native_audiobook_playback, save_audiobook_native,
 };
 
 /// Is native TTS usable on this build/device, and is the voice model installed?
@@ -73,6 +74,18 @@ pub fn tts_get_native_audiobook_chunk(
     request: NativeAudiobookChunkRequest,
 ) -> Result<NativeTtsChunkResponse, String> {
     get_native_audiobook_chunk(app, request)
+}
+
+/// Prepare/reuse one seekable native track and return global chunk boundaries.
+/// Heavy file work runs off Tauri's async command thread.
+#[tauri::command]
+pub async fn tts_prepare_native_audiobook_playback(
+    app: tauri::AppHandle,
+    request: NativeAudiobookPlaybackRequest,
+) -> Result<NativeAudiobookPlaybackResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || prepare_native_audiobook_playback(app, request))
+        .await
+        .map_err(|err| format!("Native audiobook playback preparation failed: {err}"))?
 }
 
 /// Start (or resume) a full-audiobook save; streams progress events as it runs.

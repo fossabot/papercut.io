@@ -65,13 +65,13 @@ Tauri requires the following system libraries. Refer to the Tauri [documentation
 **Debian-based (Ubuntu,Mint etc.):**
 
 ```bash
-sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential curl wget file libssl-dev libxdo-dev
+sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential curl wget file libssl-dev libxdo-dev patchelf gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 ```
 
 **Arch-based (CachyOS, Manjaro, etc.):**
 
 ```bash
-sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool patchelf gst-plugins-base gst-plugins-good
 ```
 
 ### Android Prerequisites
@@ -81,7 +81,7 @@ Required to build the Android APK:
 | Tool        | Minimum Version |
 |-------------|-----------------|
 | Java (JDK)  | 17              |
-| Android SDK | API 24+         |
+| Android SDK | API 26+         |
 | Android NDK | 29.0.13846066   |
 
 **Install Java 17:**
@@ -175,7 +175,7 @@ The built binary is output to `src-tauri/target/release/app` (`app.exe` on Windo
 - **Linux:** `.deb`, `.rpm`, and `.AppImage`
 - **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/` when building on Windows
 
-`npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
+`npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. The AppImage also bundles the GStreamer media framework used by WebKitGTK for audiobook playback; local Linux builders therefore need the GStreamer base and good plugin packages listed above. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
 
 Install the generated Debian package with a dependency-aware command so WebKitGTK and GTK are installed if needed:
 
@@ -185,7 +185,7 @@ sudo apt install ./src-tauri/target/release/bundle/deb/Papercut_1.0.0_amd64.deb
 
 If you previously used `sudo dpkg -i ...` and the app did not launch, run `sudo apt -f install` once to finish installing missing dependencies, then reinstall the newly generated `.deb`.
 
-**AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`.
+**AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. If the build succeeds but `npm run verify:appimage-media` reports missing files, install the GStreamer base and good plugin packages above and rebuild. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`. Tauri's AppImage media bundling is fully supported on Ubuntu build systems, and Papercut builds and verifies its Linux release artifacts on Ubuntu 24.04 CI.
 
 ### Version bump checklist
 
@@ -243,7 +243,7 @@ Then build the APK. The wrapper prepares/uses the local JDK and sets `JAVA_HOME`
 npm run android:apk
 ```
 
-Use `npm run android:apk:native-tts` when building the Android APK with native audiobook generation/playback.
+Use `npm run android:apk:native-tts` when building the Android APK with native audiobook generation and background playback. Native playback uses Android Media3/ExoPlayer through the official, exactly pinned `tauri-plugin-native-audio` 1.0.5 packages; API 26 is the minimum supported Android version.
 
 Audiobooks are not pre-rendered into the APK. Users save full audiobooks on demand from the document UI, and generated audio is stored as local app user data.
 
@@ -277,11 +277,11 @@ Desktop and Android use the same model archive. Only the native libraries are pl
 
 The process is documented in [docs/kokoro-tts.md](docs/kokoro-tts.md). Desktop scripts compile the `native-tts-shared` feature so speech generation runs through Tauri commands backed by sherpa-onnx without the high-memory static link step. For Android native TTS, run `npm run prepare:jdk`, `npm run prepare:sherpa-android-libs`, and then `npm run android:apk:native-tts`; the wrapper sets `JAVA_HOME` and `SHERPA_ONNX_LIB_DIR` automatically for arm64 builds and does not package model files into the APK.
 
-Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Generated audio is user data, not part of the app bundle.
+Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Desktop playback keeps a bounded chunk window. Mobile playback prepares or reuses one cached `playback.wav` with chunk-boundary metadata and hands that local track to the official native plugin, so playback and media controls continue while the screen is locked. Imported `.papercut-audiobook` bundles restore their included single track when available; otherwise the track is derived from saved chunks without regenerating speech. Delete Audiobook removes the derived track with the rest of the audiobook directory. Generated audio is user data, not part of the app bundle.
 
 Build helper scripts under `scripts/` are build orchestration, not a replacement for npm, Cargo, or Android SDK Manager. npm owns frontend tooling, Cargo owns Rust dependencies, and Android SDK Manager owns SDK/NDK installs. The scripts bridge the gaps: project paths, version constants, child-process execution, archive extraction, checked downloads, Android JDK/sherpa staging, Linux shared-library bundling, and Flatpak host-build delegation. OS-specific helpers live under `scripts/lib/android/` and `scripts/lib/linux/`.
 
-The audio UI supports saved-only playback, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
+The audio UI supports saved-only playback, Android background and lock-screen media controls, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
 
 ### Browser build and preview
 

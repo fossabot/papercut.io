@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "desktop": "node scripts/build-desktop.js",
     "desktop:static": "node scripts/build-desktop.js --static",
+    "verify:appimage-media": "node scripts/verify-appimage-media.js",
     "android:apk": "node scripts/build-android.js",
     "android:apk:native-tts": "node scripts/build-android.js --native-tts",
     "prepare:jdk": "node scripts/prepare-local-jdk.js",
@@ -25,7 +26,8 @@
   },
   "dependencies": {
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tauri-plugin-native-audio-api": "1.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

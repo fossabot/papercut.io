@@ -42,7 +42,10 @@ jobs:
             wget \
             file \
             libssl-dev \
-            libxdo-dev
+            libxdo-dev \
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -72,6 +75,10 @@ jobs:
 
       - name: Build Tauri app
         run: npm run desktop
+
+      - name: Verify AppImage media bundle
+        if: matrix.platform == 'linux'
+        run: npm run verify:appimage-media
 
       - name: Upload .deb artifact (Linux)
         if: matrix.platform == 'linux'

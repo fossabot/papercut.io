@@ -32,6 +32,7 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-native-audio = "=1.0.5"
 base64 = { version = "0.22", optional = true }
 sha2 = { version = "0.10", optional = true }
 tar = { version = "0.4", optional = true }

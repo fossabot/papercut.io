@@ -10,9 +10,10 @@ use super::state::NativeTtsState;
 use super::types::{
     NativeAudiobookChunkRequest, NativeAudiobookDeleteRequest, NativeAudiobookDeleteResponse,
     NativeAudiobookExportRequest, NativeAudiobookExportResponse, NativeAudiobookImportResponse,
-    NativeAudiobookSaveRequest, NativeAudiobookSaveResponse, NativeAudiobookStatusRequest,
-    NativeAudiobookStatusResponse, NativeImportedAudiobookSourceRequest, NativeTtsCapabilities,
-    NativeTtsChunkResponse, NativeTtsModelInstallResponse, NativeTtsModelStatus,
+    NativeAudiobookPlaybackRequest, NativeAudiobookPlaybackResponse, NativeAudiobookSaveRequest,
+    NativeAudiobookSaveResponse, NativeAudiobookStatusRequest, NativeAudiobookStatusResponse,
+    NativeImportedAudiobookSourceRequest, NativeTtsCapabilities, NativeTtsChunkResponse,
+    NativeTtsModelInstallResponse, NativeTtsModelStatus,
 };
 
 const NOT_COMPILED: &str =
@@ -65,6 +66,13 @@ pub(super) fn get_native_audiobook_chunk(
     _app: tauri::AppHandle,
     _request: NativeAudiobookChunkRequest,
 ) -> Result<NativeTtsChunkResponse, String> {
+    Err(NOT_COMPILED.into())
+}
+
+pub(super) fn prepare_native_audiobook_playback(
+    _app: tauri::AppHandle,
+    _request: NativeAudiobookPlaybackRequest,
+) -> Result<NativeAudiobookPlaybackResponse, String> {
     Err(NOT_COMPILED.into())
 }
 

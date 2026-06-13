@@ -1,4 +1,4 @@
-import { HTML_SKIP_SELECTOR, hasReadableHtmlBlockDescendant, htmlSegmentKind, isReadableHtmlBlock } from './htmlStructure'
+import { HTML_SKIP_SELECTOR, collectReadableHtmlBlocks, htmlSegmentKind } from './htmlStructure'
 
 export type ReadableSegmentKind = 'heading' | 'paragraph' | 'listItem' | 'block' | 'inline'
 
@@ -45,33 +45,15 @@ export function normalizeSegmentText(text: string): string {
 function extractReadableSegmentsFromElement(root: Element | null): ReadableSegment[] {
   if (!root) return []
 
-  const segments: ReadableSegment[] = []
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node) {
-      const element = node as Element
-      if (element.matches(HTML_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT
-      if (!isReadableHtmlBlock(element)) return NodeFilter.FILTER_SKIP
-      if (hasReadableBlockChild(element)) return NodeFilter.FILTER_SKIP
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
-
-  let node: Node | null
-  while ((node = walker.nextNode())) {
-    const element = node as Element
-    const text = normalizeSegmentText(element.textContent ?? '')
-    if (!text) continue
-    segments.push({ text, kind: htmlSegmentKind(element) })
-  }
+  const segments = collectReadableHtmlBlocks(root)
+    .map((element) => ({
+      text: normalizeSegmentText(element.textContent ?? ''),
+      kind: htmlSegmentKind(element),
+    }))
+    .filter((segment) => segment.text)
 
   if (segments.length > 0) return segments
 
   const text = normalizeSegmentText(root.textContent ?? '')
   return text ? [{ text, kind: 'block' }] : []
-}
-
-// Treats nested readable blocks as ownership boundaries; the parent is structure,
-// not a second narration segment.
-function hasReadableBlockChild(element: Element): boolean {
-  return hasReadableHtmlBlockDescendant(element, (text) => Boolean(normalizeSegmentText(text)))
 }
