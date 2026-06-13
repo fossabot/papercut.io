@@ -3,6 +3,11 @@
     "beforeBundleCommand": "node scripts/copy-sherpa-linux-libs.js"
   },
   "bundle": {
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
     "resources": {
       "tts/runtime/linux-x64-shared-libs/": ""
     }

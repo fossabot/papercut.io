@@ -8,6 +8,7 @@ export function prepareLinuxDesktopBuild({ isStatic }) {
     delegateToHost(isStatic)
   }
 
+  ensurePatchelf()
   ensureLinuxSharedResourceDir()
 }
 
@@ -50,6 +51,15 @@ npm run ${npmScript}
   console.log("[desktop-build] Flatpak environment detected; running the desktop build on the host OS so linuxdeploy can resolve WebKitGTK.")
   const result = runSync("flatpak-spawn", ["--host", "bash", "-lc", command])
   exitFromResult(result, "[desktop-build] Failed to start host build: ")
+}
+
+// Tauri's GStreamer AppImage plugin patches each bundled plugin's runtime path.
+function ensurePatchelf() {
+  const result = runSync("patchelf", ["--version"], { stdio: "ignore" })
+  if (!result.error && result.status === 0) return
+
+  console.error("[desktop-build] patchelf is required to bundle AppImage audio. Install the documented Linux build dependencies and retry.")
+  process.exit(1)
 }
 
 // Linux config always declares the shared-lib resource dir, even for static builds.
