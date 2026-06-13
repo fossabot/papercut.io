@@ -88,6 +88,7 @@ export interface NativeAudiobookSaveProgress {
   wavBytes?: number | null
   totalAudioDurationSec: number
   totalWavBytes: number
+  appliedThreadCount: number
   backend: string
 }
 
@@ -101,6 +102,7 @@ export interface NativeAudiobookSaveResult {
   generateMs: number
   audioDurationSec: number
   wavBytes: number
+  appliedThreadCount: number
   backend: string
 }
 

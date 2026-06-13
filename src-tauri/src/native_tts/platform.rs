@@ -16,14 +16,14 @@ pub(crate) fn default_thread_count() -> i32 {
     }
 }
 
-/// Upper bound on threads we are willing to hand ONNX Runtime.
+/// Maximum detected logical CPU parallelism available to ONNX Runtime.
 pub(crate) fn max_thread_count() -> i32 {
     std::thread::available_parallelism()
-        .map(|count| count.get().clamp(1, 4) as i32)
+        .map(|count| i32::try_from(count.get()).unwrap_or(i32::MAX).max(1))
         .unwrap_or(2)
 }
 
-/// Clamp a caller-requested thread count into the platform-safe range,
+/// Clamp a caller-requested thread count into the detected CPU range,
 /// falling back to the platform default when unset or non-positive.
 pub(crate) fn resolve_thread_count(thread_count: Option<i32>) -> i32 {
     thread_count

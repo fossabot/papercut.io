@@ -229,6 +229,7 @@ pub(crate) struct NativeAudiobookSaveProgress {
     pub(crate) wav_bytes: Option<usize>,
     pub(crate) total_audio_duration_sec: f32,
     pub(crate) total_wav_bytes: usize,
+    pub(crate) applied_thread_count: i32,
     pub(crate) backend: String,
 }
 
@@ -245,6 +246,7 @@ pub(crate) struct NativeAudiobookSaveResponse {
     pub(crate) generate_ms: u128,
     pub(crate) audio_duration_sec: f32,
     pub(crate) wav_bytes: usize,
+    pub(crate) applied_thread_count: i32,
     pub(crate) backend: String,
 }
 

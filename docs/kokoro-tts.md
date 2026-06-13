@@ -132,7 +132,7 @@ The document header exposes one consolidated audio control surface:
 - Save generates and persists the full audiobook for the current HTML document.
 - Saved appears when the full audiobook exists locally for the selected voice and speed.
 - Download voice model installs the pinned Kokoro model once into app data.
-- Threads controls the native ONNX Runtime thread count for benchmarking save/playback throughput on the current device.
+- Threads controls the native ONNX Runtime thread count for benchmarking save throughput on the current device. Options extend to the logical CPU parallelism detected by Rust, each app session starts with the conservative native platform default (1 on Android, up to 4 on desktop), and the UI reports the backend-confirmed count applied to the active or most recent save. Selecting more than 4 threads shows a warning because extra parallelism can increase memory use, heat, battery drain, and thermal throttling without guaranteeing faster synthesis.
 
 The home screen Audiobooks panel shows active or resumable saves with progress bars, completed saved audiobooks, export/delete actions, saved duration, saved percent, stored size, and the voice/speed metadata for each item. Completed saved audiobooks are shown regardless of the currently selected voice; opening one switches the UI to that record's voice and speed before viewing the document. The document list/search results can still be filtered to documents with saved audio for the current voice/speed selection.
 
@@ -152,7 +152,7 @@ The in-app TTS diagnostics panel is the primary way to monitor desktop and mobil
 - `[tts-highlight] slow chunk range built`
 - `[tts-highlight] chunk range unavailable`
 
-Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
+Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
 
 Interpretation guide:
 

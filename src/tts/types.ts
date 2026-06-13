@@ -3,7 +3,6 @@ export const KOKORO_AUDIO_CACHE_VERSION = 'native-save-v4-segmented'
 export const KOKORO_MODEL_DTYPE = 'native'
 export const KOKORO_DEFAULT_VOICE = 'af_heart'
 export const KOKORO_DEFAULT_SPEED = 1
-export const KOKORO_DEFAULT_THREAD_COUNT = 1
 
 export const KOKORO_VOICES = {
   af_heart: 'Heart',

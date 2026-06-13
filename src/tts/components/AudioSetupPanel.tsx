@@ -1,7 +1,12 @@
 import type { NativeTtsModelInstallProgress, NativeTtsModelStatus } from '../api/nativeTts'
 import type { KokoroVoice, KokoroVoiceInfo } from '../types'
 
+const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
+
 export interface AudioSetupPanelProps {
+  appliedThreadCount: number | null
+  defaultThreadCount: number
+  maxThreadCount: number
   modelInstallProgress: NativeTtsModelInstallProgress | null
   modelStatus: NativeTtsModelStatus | null
   onInstallModel: () => void
@@ -15,6 +20,9 @@ export interface AudioSetupPanelProps {
 }
 
 export function AudioSetupPanel({
+  appliedThreadCount,
+  defaultThreadCount,
+  maxThreadCount,
   modelInstallProgress,
   modelStatus,
   onInstallModel,
@@ -33,6 +41,8 @@ export function AudioSetupPanel({
   )
   const modelPercent = modelInstallProgress?.percent ?? 0
   const modelSize = formatModelSize(modelStatus?.archiveBytes ?? modelInstallProgress?.totalBytes ?? 0)
+  const threadOptions = Array.from({ length: maxThreadCount }, (_, index) => index + 1)
+  const showHighThreadWarning = threadCount > HIGH_THREAD_COUNT_WARNING_THRESHOLD
 
   return (
     <div className="audio-setup-panel">
@@ -76,11 +86,21 @@ export function AudioSetupPanel({
             onChange={(event) => onThreadCountChange(Number(event.target.value))}
             title="Native TTS threads"
           >
-            <option value={1}>1 thread</option>
-            <option value={2}>2 threads</option>
-            <option value={3}>3 threads</option>
-            <option value={4}>4 threads</option>
+            {threadOptions.map((count) => (
+              <option key={count} value={count}>
+                {count} {count === 1 ? 'thread' : 'threads'}
+              </option>
+            ))}
           </select>
+          <span className="audio-thread-meta">
+            Default {defaultThreadCount}, detected max {maxThreadCount}
+            {appliedThreadCount !== null ? `, save applied ${appliedThreadCount}` : ''}
+          </span>
+          {showHighThreadWarning && (
+            <span className="audio-thread-warning" role="alert">
+              High thread counts can increase memory use, heat, battery drain, and thermal throttling. More threads may be slower.
+            </span>
+          )}
         </label>
       </div>
 

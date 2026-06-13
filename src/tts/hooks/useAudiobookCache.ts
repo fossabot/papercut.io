@@ -24,6 +24,7 @@ export interface AudiobookCacheState {
   complete: boolean
   audioDurationSec: number
   wavBytes: number
+  appliedThreadCount: number | null
 }
 
 const INITIAL_STATE: AudiobookCacheState = {
@@ -34,6 +35,7 @@ const INITIAL_STATE: AudiobookCacheState = {
   complete: false,
   audioDurationSec: 0,
   wavBytes: 0,
+  appliedThreadCount: null,
 }
 // Used in two modes: a lightweight status checker for the open document, and
 // a long-running native save job that writes every missing chunk directly to
@@ -65,6 +67,7 @@ export function useAudiobookCache() {
       complete: false,
       audioDurationSec: 0,
       wavBytes: 0,
+      appliedThreadCount: null,
     }))
 
     void (async () => {
@@ -80,6 +83,7 @@ export function useAudiobookCache() {
           complete: status.complete,
           audioDurationSec: status.audioDurationSec,
           wavBytes: status.wavBytes,
+          appliedThreadCount: null,
         })
       } catch (err) {
         if (checkIdRef.current !== checkId) return
@@ -91,6 +95,7 @@ export function useAudiobookCache() {
           complete: false,
           audioDurationSec: 0,
           wavBytes: 0,
+          appliedThreadCount: null,
         })
       }
     })()
@@ -115,6 +120,7 @@ export function useAudiobookCache() {
       complete: false,
       audioDurationSec: 0,
       wavBytes: 0,
+      appliedThreadCount: null,
     })
 
     void (async () => {
@@ -154,6 +160,7 @@ export function useAudiobookCache() {
           backend: result.backend,
           dir: result.dir,
           threadCount: options.threadCount,
+          appliedThreadCount: result.appliedThreadCount,
         })
 
         setState({
@@ -164,6 +171,7 @@ export function useAudiobookCache() {
           complete: result.complete,
           audioDurationSec: result.audioDurationSec,
           wavBytes: result.wavBytes,
+          appliedThreadCount: result.appliedThreadCount,
         })
       } catch (err) {
         if (jobIdRef.current !== jobId) return
@@ -181,6 +189,7 @@ export function useAudiobookCache() {
           complete: false,
           audioDurationSec: 0,
           wavBytes: 0,
+          appliedThreadCount: null,
         })
       } finally {
         unlisten?.()
@@ -228,6 +237,7 @@ export function useAudiobookCache() {
         backend: progress.backend,
         dtype: resolveKokoroDtype(options),
         threadCount: options.threadCount,
+        appliedThreadCount: progress.appliedThreadCount,
       })
     }
 
@@ -246,6 +256,7 @@ export function useAudiobookCache() {
         backend: progress.backend,
         dtype: resolveKokoroDtype(options),
         threadCount: options.threadCount,
+        appliedThreadCount: progress.appliedThreadCount,
       })
     }
 
@@ -259,6 +270,7 @@ export function useAudiobookCache() {
       ),
       audioDurationSec: progress.totalAudioDurationSec,
       wavBytes: progress.totalWavBytes,
+      appliedThreadCount: progress.appliedThreadCount,
     })
   }
 }
