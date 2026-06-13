@@ -29,7 +29,7 @@ import {
   type NativeTtsModelInstallProgress,
   type NativeTtsModelStatus,
 } from '../api/nativeTts'
-import { chunkAudiobookSaveHtml } from '../utils/text'
+import { chunkAudiobookSaveHtmlWithSpans, type SpeechChunk } from '../utils/text'
 import type { KokoroDtype, KokoroVoice, TtsChunk } from '../types'
 import { isUserUploadUrl, removeUserUpload, upsertUserUpload, type UserUploadDocument } from '../storage/UserUploads'
 import { useAudiobookCache } from './useAudiobookCache'
@@ -700,18 +700,22 @@ export function useAudiobookManager({
     ttsHighlight: {
       enabled: Boolean(ttsState.currentText),
       currentChunkIndex: ttsState.currentChunkIndex,
-      chunkTexts: ttsState.chunkTexts,
+      chunks: ttsState.chunks,
     },
   }
 }
 
+// Rebuild runtime source spans from current HTML every open. Saved audio remains
+// compatible because ids/text are unchanged and spans never cross native IPC.
 function audiobookSaveChunksFromHtml(html: string): TtsChunk[] {
-  return buildRuntimeChunks(chunkAudiobookSaveHtml(html), 'save-c')
+  return buildRuntimeChunks(chunkAudiobookSaveHtmlWithSpans(html), 'save-c')
 }
 
-function buildRuntimeChunks(texts: string[], prefix: string): TtsChunk[] {
-  return texts.map((chunk, index) => ({
+// Assign deterministic cache ids while carrying optional UI-only highlight spans.
+function buildRuntimeChunks(chunks: SpeechChunk[], prefix: string): TtsChunk[] {
+  return chunks.map((chunk, index) => ({
     id: prefix + String(index + 1).padStart(5, '0'),
-    text: chunk,
+    text: chunk.text,
+    sourceSpan: chunk.sourceSpan,
   }))
 }

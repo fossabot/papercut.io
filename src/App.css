@@ -1066,12 +1066,24 @@
 }
 
 .audio-chunk-list {
-  display: grid;
+  display: block;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+}
+
+.audio-chunk-virtual-space {
+  position: relative;
+  width: 100%;
+}
+
+.audio-chunk-window {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
 }
 
 .audio-chunk-item {

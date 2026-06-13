@@ -10,12 +10,15 @@ async function loadPlugin() {
   return import('tauri-plugin-native-audio-api')
 }
 
+// Serialize every plugin command. Platform players mutate one shared session, and
+// overlapping play/seek/pause calls can otherwise resolve out of order.
 function runLifecycleOperation<T>(operation: () => Promise<T>): Promise<T> {
   const result = lifecyclePromise.catch(() => {}).then(operation)
   lifecyclePromise = result.then(() => undefined, () => undefined)
   return result
 }
 
+// Memoize initialization while still placing it inside command serialization.
 export function initializeNativeAudio(): Promise<NativeAudioState> {
   initializePromise ??= runLifecycleOperation(async () => {
     const plugin = await loadPlugin()
@@ -32,26 +35,36 @@ export async function setNativeAudioSource(payload: NativeAudioSetSourcePayload)
   })
 }
 
-export async function playNativeAudio(): Promise<NativeAudioState> {
-  const plugin = await loadPlugin()
-  return plugin.play()
+export function playNativeAudio(): Promise<NativeAudioState> {
+  return runLifecycleOperation(async () => {
+    const plugin = await loadPlugin()
+    return plugin.play()
+  })
 }
 
-export async function pauseNativeAudio(): Promise<NativeAudioState> {
-  const plugin = await loadPlugin()
-  return plugin.pause()
+export function pauseNativeAudio(): Promise<NativeAudioState> {
+  return runLifecycleOperation(async () => {
+    const plugin = await loadPlugin()
+    return plugin.pause()
+  })
 }
 
-export async function seekNativeAudio(position: number): Promise<NativeAudioState> {
-  const plugin = await loadPlugin()
-  return plugin.seekTo(position)
+export function seekNativeAudio(position: number): Promise<NativeAudioState> {
+  return runLifecycleOperation(async () => {
+    const plugin = await loadPlugin()
+    return plugin.seekTo(position)
+  })
 }
 
-export async function getNativeAudioState(): Promise<NativeAudioState> {
-  const plugin = await loadPlugin()
-  return plugin.getState()
+export function getNativeAudioState(): Promise<NativeAudioState> {
+  return runLifecycleOperation(async () => {
+    const plugin = await loadPlugin()
+    return plugin.getState()
+  })
 }
 
+// Plugin has no non-destructive Stop API. Pause + seek(0) preserves reusable
+// source/session while giving app controls expected stopped behavior.
 export function stopNativeAudio(): Promise<void> {
   return runLifecycleOperation(async () => {
     const plugin = await loadPlugin()
@@ -60,6 +73,7 @@ export function stopNativeAudio(): Promise<void> {
   })
 }
 
+// Full disposal is teardown-only; normal Stop must preserve background session setup.
 export function disposeNativeAudio(): Promise<void> {
   initializePromise = null
   return runLifecycleOperation(async () => {
@@ -68,25 +82,4 @@ export function disposeNativeAudio(): Promise<void> {
   })
 }
 
-export async function listenNativeAudioState(
-  handler: (state: NativeAudioState) => void,
-): Promise<() => void> {
-  const plugin = await loadPlugin()
-  const registration: unknown = await plugin.addStateListener(handler)
-  if (typeof registration === 'function') return registration as () => void
-  if (isPluginListener(registration)) {
-    return () => {
-      void registration.unregister().catch(() => {})
-    }
-  }
-  throw new Error('Native audio listener registration returned an unsupported handle')
-}
-
 export type { NativeAudioState }
-
-function isPluginListener(value: unknown): value is { unregister: () => Promise<void> } {
-  return typeof value === 'object' &&
-    value !== null &&
-    'unregister' in value &&
-    typeof value.unregister === 'function'
-}

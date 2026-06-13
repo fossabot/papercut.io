@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { AudiobookCacheState } from '../hooks/useAudiobookCache'
-import type { TtsPlayerState } from '../hooks/useTtsPlayer'
+import type { TtsChunkSummary, TtsPlayerState } from '../hooks/useTtsPlayer'
 
 interface AudioControlsProps {
   audiobookState: AudiobookCacheState
@@ -46,7 +46,6 @@ export function AudioControls({
   ttsState,
 }: AudioControlsProps) {
   const [chunkMenuOpen, setChunkMenuOpen] = useState(false)
-  const currentChunkButtonRef = useRef<HTMLButtonElement | null>(null)
   const isActive = ttsState.status === 'playing' ||
     ttsState.status === 'loading'
   const isPaused = ttsState.status === 'paused'
@@ -65,10 +64,10 @@ export function AudioControls({
   const showChunkMenuButton = showFloatingPlayback && ttsState.chunkSummaries.length > 1
   const showPlaybackStatus = ttsState.status !== 'idle'
 
-  useEffect(() => {
-    if (!chunkMenuOpen) return
-    currentChunkButtonRef.current?.scrollIntoView({ block: 'center' })
-  }, [chunkMenuOpen, ttsState.currentChunkIndex])
+  const handleChunkSelect = useCallback((index: number) => {
+    setChunkMenuOpen(false)
+    onJumpToChunk(index)
+  }, [onJumpToChunk])
 
   return (
     <section className="audio-controls" aria-label="Audiobook controls">
@@ -82,34 +81,13 @@ export function AudioControls({
       </div>
 
       {showChunkMenuButton && chunkMenuOpen && (
-        <div className="audio-chunk-menu" aria-label="Audiobook chunk list">
-          <div className="audio-chunk-menu-header">
-            <span>Chapters</span>
-            <span>{ttsState.chunkSummaries.length} chunks</span>
-          </div>
-          <div className="audio-chunk-list">
-            {ttsState.chunkSummaries.map((chunk) => {
-              const isCurrent = chunk.index === ttsState.currentChunkIndex
-              const estimatedStart = estimateChunkStart(chunk.index, ttsState.chunksTotal, playbackDurationSec)
-              return (
-                <button
-                  key={chunk.chunkId}
-                  ref={isCurrent ? currentChunkButtonRef : null}
-                  className={'audio-chunk-item' + (isCurrent ? ' audio-chunk-item-current' : '')}
-                  onClick={() => {
-                    setChunkMenuOpen(false)
-                    onJumpToChunk(chunk.index)
-                  }}
-                  title={chunk.textPreview}
-                >
-                  <span className="audio-chunk-time">{estimatedStart === null ? '--:--' : formatTtsTime(estimatedStart)}</span>
-                  <span className="audio-chunk-text">{chunk.textPreview}</span>
-                  <span className="audio-chunk-number">{chunk.index + 1}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        <ChunkMenu
+          chunks={ttsState.chunkSummaries}
+          currentChunkIndex={ttsState.currentChunkIndex}
+          chunksTotal={ttsState.chunksTotal}
+          playbackDurationSec={playbackDurationSec}
+          onSelect={handleChunkSelect}
+        />
       )}
 
       {showFloatingPlayback && (
@@ -191,6 +169,88 @@ export function AudioControls({
     )
   }
 }
+
+interface ChunkMenuProps {
+  chunks: TtsChunkSummary[]
+  currentChunkIndex: number | null
+  chunksTotal: number
+  playbackDurationSec?: number
+  onSelect: (index: number) => void
+}
+
+const CHUNK_ROW_HEIGHT = 44
+const CHUNK_MENU_VISIBLE_ROWS = 12
+const CHUNK_MENU_OVERSCAN = 6
+
+const ChunkMenu = memo(function ChunkMenu({
+  chunks,
+  currentChunkIndex,
+  chunksTotal,
+  playbackDurationSec,
+  onSelect,
+}: ChunkMenuProps) {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const firstVisibleIndex = Math.max(
+    0,
+    Math.floor(scrollTop / CHUNK_ROW_HEIGHT) - CHUNK_MENU_OVERSCAN,
+  )
+  const lastVisibleIndex = Math.min(
+    chunks.length,
+    firstVisibleIndex + CHUNK_MENU_VISIBLE_ROWS + CHUNK_MENU_OVERSCAN * 2,
+  )
+  const visibleChunks = chunks.slice(firstVisibleIndex, lastVisibleIndex)
+
+  useEffect(() => {
+    if (currentChunkIndex === null || !listRef.current) return
+    const list = listRef.current
+    const nextScrollTop = Math.max(
+      0,
+      currentChunkIndex * CHUNK_ROW_HEIGHT - (list.clientHeight - CHUNK_ROW_HEIGHT) / 2,
+    )
+    list.scrollTop = nextScrollTop
+    setScrollTop(nextScrollTop)
+  }, [currentChunkIndex])
+
+  return (
+    <div className="audio-chunk-menu" aria-label="Audiobook chunk list">
+      <div className="audio-chunk-menu-header">
+        <span>Chapters</span>
+        <span>{chunks.length} chunks</span>
+      </div>
+      <div
+        ref={listRef}
+        className="audio-chunk-list"
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+      >
+        <div className="audio-chunk-virtual-space" style={{ height: chunks.length * CHUNK_ROW_HEIGHT }}>
+          <div
+            className="audio-chunk-window"
+            style={{ transform: `translateY(${firstVisibleIndex * CHUNK_ROW_HEIGHT}px)` }}
+          >
+            {visibleChunks.map((chunk) => {
+              const isCurrent = chunk.index === currentChunkIndex
+              const estimatedStart = estimateChunkStart(chunk.index, chunksTotal, playbackDurationSec)
+              return (
+                <button
+                  key={chunk.chunkId}
+                  className={'audio-chunk-item' + (isCurrent ? ' audio-chunk-item-current' : '')}
+                  style={{ height: CHUNK_ROW_HEIGHT }}
+                  onClick={() => onSelect(chunk.index)}
+                  title={chunk.textPreview}
+                >
+                  <span className="audio-chunk-time">{estimatedStart === null ? '--:--' : formatTtsTime(estimatedStart)}</span>
+                  <span className="audio-chunk-text">{chunk.textPreview}</span>
+                  <span className="audio-chunk-number">{chunk.index + 1}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+})
 
 function AudioIcon({ name }: { name: AudioIconName }) {
   return (
