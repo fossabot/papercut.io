@@ -1,6 +1,5 @@
 import {
   KOKORO_DEFAULT_SPEED,
-  KOKORO_DEFAULT_THREAD_COUNT,
   KOKORO_DEFAULT_VOICE,
   KOKORO_MODEL_DTYPE,
   KOKORO_VOICES,
@@ -17,7 +16,6 @@ export interface AudioPreferences {
   speed: number
   dtype: KokoroDtype
   audioSavedOnly: boolean
-  threadCount: number
 }
 
 export const DEFAULT_AUDIO_PREFERENCES: AudioPreferences = {
@@ -25,7 +23,6 @@ export const DEFAULT_AUDIO_PREFERENCES: AudioPreferences = {
   speed: KOKORO_DEFAULT_SPEED,
   dtype: KOKORO_MODEL_DTYPE,
   audioSavedOnly: false,
-  threadCount: KOKORO_DEFAULT_THREAD_COUNT,
 }
 
 export function getAudioPreferences(): AudioPreferences {
@@ -41,9 +38,6 @@ export function getAudioPreferences(): AudioPreferences {
       audioSavedOnly: typeof parsed.audioSavedOnly === 'boolean'
         ? parsed.audioSavedOnly
         : DEFAULT_AUDIO_PREFERENCES.audioSavedOnly,
-      threadCount: isValidThreadCount(parsed.threadCount)
-        ? parsed.threadCount
-        : DEFAULT_AUDIO_PREFERENCES.threadCount,
     }
   } catch {
     return DEFAULT_AUDIO_PREFERENCES
@@ -68,8 +62,4 @@ function isKokoroVoice(value: unknown): value is KokoroVoice {
 
 function isValidSpeed(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
-}
-
-function isValidThreadCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 4
 }

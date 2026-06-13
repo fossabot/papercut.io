@@ -144,6 +144,7 @@ fn save_audiobook_native_blocking(
     let mut total_generate_ms = 0u128;
     let mut generated_audio_duration_sec = 0f32;
     let mut generated_wav_bytes = 0usize;
+    let thread_count = resolve_thread_count(request.thread_count);
 
     // Initial "checking" progress so the UI shows the cache state immediately.
     emit_progress(
@@ -164,13 +165,13 @@ fn save_audiobook_native_blocking(
             wav_bytes: None,
             total_audio_duration_sec: scan.audio_duration_sec,
             total_wav_bytes: scan.wav_bytes,
+            applied_thread_count: thread_count,
             backend: backend.clone(),
         },
     );
 
     // Load the engine once for the whole job, then build a richer backend label
     // that includes the model dir and thread count for diagnostics.
-    let thread_count = resolve_thread_count(request.thread_count);
     let mut guard = engine_state
         .lock()
         .map_err(|_| "Native TTS engine lock poisoned".to_string())?;
@@ -202,6 +203,7 @@ fn save_audiobook_native_blocking(
                     wav_bytes: None,
                     total_audio_duration_sec: scan.audio_duration_sec,
                     total_wav_bytes: scan.wav_bytes,
+                    applied_thread_count: thread_count,
                     backend: backend.clone(),
                 },
             );
@@ -236,6 +238,7 @@ fn save_audiobook_native_blocking(
                 wav_bytes: None,
                 total_audio_duration_sec: scan.audio_duration_sec,
                 total_wav_bytes: scan.wav_bytes,
+                applied_thread_count: thread_count,
                 backend: backend.clone(),
             },
         );
@@ -275,6 +278,7 @@ fn save_audiobook_native_blocking(
                 wav_bytes: Some(result.wav_bytes),
                 total_audio_duration_sec: scan.audio_duration_sec,
                 total_wav_bytes: scan.wav_bytes,
+                applied_thread_count: thread_count,
                 backend: backend.clone(),
             },
         );
@@ -303,6 +307,7 @@ fn save_audiobook_native_blocking(
             wav_bytes: Some(generated_wav_bytes),
             total_audio_duration_sec: scan.audio_duration_sec,
             total_wav_bytes: scan.wav_bytes,
+            applied_thread_count: thread_count,
             backend: backend.clone(),
         },
     );
@@ -317,6 +322,7 @@ fn save_audiobook_native_blocking(
         generate_ms: started.elapsed().as_millis(),
         audio_duration_sec: scan.audio_duration_sec,
         wav_bytes: scan.wav_bytes,
+        applied_thread_count: thread_count,
         backend,
     })
 }

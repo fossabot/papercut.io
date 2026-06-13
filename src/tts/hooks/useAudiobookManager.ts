@@ -22,10 +22,12 @@ import { formatAudiobookExportMessage, formatStorageSize } from '../utils/format
 import {
   deleteNativeAudiobook,
   exportNativeAudiobook,
+  getNativeTtsCapabilities,
   getNativeTtsModelStatus,
   importNativeAudiobook,
   installNativeTtsModel,
   listenNativeTtsModelInstallProgress,
+  type NativeTtsCapabilities,
   type NativeTtsModelInstallProgress,
   type NativeTtsModelStatus,
 } from '../api/nativeTts'
@@ -59,7 +61,8 @@ export function useAudiobookManager({
   const initialAudioPreferences = getAudioPreferences()
   const [ttsVoice, setTtsVoice] = useState<KokoroVoice>(initialAudioPreferences.voice)
   const [ttsSpeed, setTtsSpeed] = useState(initialAudioPreferences.speed)
-  const [ttsThreadCount, setTtsThreadCount] = useState(initialAudioPreferences.threadCount)
+  const [ttsThreadCount, setTtsThreadCount] = useState(1)
+  const [ttsCapabilities, setTtsCapabilities] = useState<NativeTtsCapabilities | null>(null)
   const ttsDtype: KokoroDtype = initialAudioPreferences.dtype
   const [ttsSaveChunks, setTtsSaveChunks] = useState<TtsChunk[] | null>(null)
   const [ttsModelStatus, setTtsModelStatus] = useState<NativeTtsModelStatus | null>(null)
@@ -136,11 +139,30 @@ export function useAudiobookManager({
     }, 1200)
   }, [flushAudiobookDownloadPersist])
 
+  // Loads and normalizes native TTS capabilities for the UI, then synchronizes
+  // this session's thread selection: initialize from the platform default at
+  // startup, or preserve the current choice while clamping it to the detected max.
+  const syncTtsRuntimeSettings = useCallback(async (initializeThreadCount = false) => {
+    const capabilities = await getNativeTtsCapabilities()
+    const maxThreadCount = Math.max(1, capabilities.maxThreadCount)
+    const defaultThreadCount = Math.min(maxThreadCount, Math.max(1, capabilities.defaultThreadCount))
+    setTtsCapabilities({ ...capabilities, defaultThreadCount, maxThreadCount })
+    setTtsThreadCount((current) => initializeThreadCount
+      ? defaultThreadCount
+      : Math.min(maxThreadCount, Math.max(1, current)))
+    return capabilities
+  }, [])
+
   const refreshTtsModelStatus = useCallback(async () => {
     const status = await getNativeTtsModelStatus()
     setTtsModelStatus(status)
     return status
   }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void syncTtsRuntimeSettings(true)
+  }, [syncTtsRuntimeSettings])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -170,6 +192,7 @@ export function useAudiobookManager({
     try {
       await installNativeTtsModel()
       await refreshTtsModelStatus()
+      await syncTtsRuntimeSettings()
       setTtsModelProgress((prev) => ({
         status: 'installed',
         message: 'Offline voice model installed',
@@ -188,7 +211,7 @@ export function useAudiobookManager({
       })
       void refreshTtsModelStatus()
     }
-  }, [preloadTts, refreshTtsModelStatus, ttsModelStatus?.archiveBytes])
+  }, [preloadTts, syncTtsRuntimeSettings, refreshTtsModelStatus, ttsModelStatus?.archiveBytes])
 
   useEffect(() => {
     if (window.requestIdleCallback) {
@@ -230,10 +253,6 @@ export function useAudiobookManager({
   useEffect(() => {
     saveAudioPreferences({ speed: ttsSpeed })
   }, [ttsSpeed])
-
-  useEffect(() => {
-    saveAudioPreferences({ threadCount: ttsThreadCount })
-  }, [ttsThreadCount])
 
   useEffect(() => {
     saveAudioPreferences({ audioSavedOnly })
@@ -388,6 +407,11 @@ export function useAudiobookManager({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSavedAudiobooks(getSavedAudiobooks())
   }, [getDocumentTitle, selectedAudiobookState.audioDurationSec, selectedAudiobookState.complete, selectedAudiobookState.totalChunks, selectedAudiobookState.wavBytes, selectedDoc, ttsDtype, ttsSpeed, ttsVoice])
+
+  const handleThreadCountChange = useCallback((threadCount: number) => {
+    const maxThreadCount = ttsCapabilities?.maxThreadCount ?? 1
+    setTtsThreadCount(Math.min(maxThreadCount, Math.max(1, threadCount)))
+  }, [ttsCapabilities?.maxThreadCount])
 
   const startAudiobookSave = useCallback((input: {
     documentUrl: string
@@ -661,11 +685,14 @@ export function useAudiobookManager({
       ttsState,
     },
     audioSetupProps: {
+      appliedThreadCount: downloadAudiobookState.appliedThreadCount,
+      defaultThreadCount: ttsCapabilities?.defaultThreadCount ?? 1,
+      maxThreadCount: ttsCapabilities?.maxThreadCount ?? 1,
       modelInstallProgress: ttsModelProgress,
       modelStatus: ttsModelStatus,
       onInstallModel: handleInstallTtsModel,
       onSpeedChange: setTtsSpeed,
-      onThreadCountChange: setTtsThreadCount,
+      onThreadCountChange: handleThreadCountChange,
       onVoiceChange: setTtsVoice,
       speed: ttsSpeed,
       threadCount: ttsThreadCount,

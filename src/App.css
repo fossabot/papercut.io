@@ -965,6 +965,20 @@
   font-weight: 700;
 }
 
+.audio-thread-meta {
+  color: #9ca3af;
+  font-size: 0.62rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.audio-thread-warning {
+  color: #b45309;
+  font-size: 0.64rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
 .tts-select,
 .tts-btn {
   min-height: 2rem;
