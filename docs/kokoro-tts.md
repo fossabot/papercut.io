@@ -6,14 +6,14 @@ The design goal is still offline-first: model files live on the user's device, a
 
 ## Runtime Architecture
 
-The frontend owns document parsing, HTML narration chunking, the platform-neutral playback state consumed by controls and highlighting, saved-audiobook state, downloads, and diagnostics. Native code owns synthesis, the fast audiobook-save path, stitched-track preparation, and mobile background playback.
+The frontend owns document parsing, HTML narration chunking, the platform-neutral playback state consumed by controls and highlighting, saved-audiobook state, downloads, and diagnostics. Native code owns synthesis, the fast audiobook-save path, persisted playback indexes, and mobile background playback.
 
 The boundary is intentionally small:
 
 - `src/tts/api/nativeTts.ts` calls Tauri commands and subscribes to native model-install/save progress events.
-- `src-tauri/src/native_tts/` is the Rust backend module. Its `commands` layer exposes the Tauri commands and dispatches, via one `#[cfg]` switch, to either the `engine` submodules (real sherpa-onnx synthesis, compiled with `native-tts-core`) or a `stub` fallback when native TTS is not compiled. Inside `engine`: `model` downloads/verifies the pinned model, `synth` loads sherpa-onnx and synthesizes individual chunks, `save` runs native batch generation and saves full audiobooks directly to app data, `cache` scans saved chunks and parses WAV metadata, `playback` caches the native mobile single-track artifact and exact chunk boundaries, and `bundle` (`export`/`import`/`manage`) handles audiobook export/import and deletion. `paths`/`config` hold shared path/id/constant helpers, and OS-specific tuning (thread counts) lives in `platform`.
-- `src/tts/hooks/useTtsPlayer.ts` exposes one playback state contract to the UI. Desktop reads a bounded window of saved chunk WAVs; Android and future iOS builds map one native track timeline back to chunk-local state. It never synthesizes missing chunks live.
-- `src/tts/playback/nativeMobileAudio.ts` is the narrow adapter around pinned `tauri-plugin-native-audio` 1.0.5 APIs. It also normalizes the plugin's legacy listener cleanup declaration to Tauri 2's `PluginListener.unregister()` handle so Stop, reader close, source replacement, and teardown cannot fail during listener removal.
+- `src-tauri/src/native_tts/` is the Rust backend module. Its `commands` layer exposes the Tauri commands and dispatches, via one `#[cfg]` switch, to either the `engine` submodules (real sherpa-onnx synthesis, compiled with `native-tts-core`) or a `stub` fallback when native TTS is not compiled. Inside `engine`: `model` downloads/verifies the pinned model, `synth` loads sherpa-onnx and synthesizes individual chunks, `save` runs native batch generation and writes a durable timing index, `cache` scans saved chunks and parses WAV headers, `playback` prepares or reuses one cached mobile playback track, and `bundle` (`export`/`import`/`manage`) handles audiobook export/import and deletion. `paths`/`config` hold shared path/id/constant helpers, and OS-specific tuning (thread counts) lives in `platform`.
+- `src/tts/hooks/useTtsPlayer.ts` exposes one playback state contract to the UI. Desktop reads a bounded window of saved chunk WAVs; mobile maps one native track timeline back to chunk-local state. It never synthesizes missing chunks live.
+- `src/tts/playback/nativeMobileAudio.ts` is the narrow adapter around the official, exactly pinned `tauri-plugin-native-audio` 1.0.5 API. Papercut serializes bridge commands and owns its foreground polling cadence instead of forking or modifying the plugin.
 - `src/tts/hooks/useAudiobookCache.ts` checks native audiobook files and starts long-running native save jobs.
 - `src/tts/hooks/useAudiobookManager.ts` coordinates React audiobook state, playback actions, saved-download/import/export/delete flows, and the prop bundles consumed by the audio UI components.
 - `src/components/DocumentViewer/DocumentViewer.tsx` hosts the reader shell and exposes slots for TTS controls/diagnostics while owning Find, scroll-to-top, iframe sizing, and current-chunk highlighting.
@@ -87,7 +87,7 @@ Instead, audio is generated on demand:
 4. A single native save job generates every missing chunk in sequence and writes WAV files directly to app data.
 5. Native progress events update the React Audiobooks panel and TTS diagnostics.
 6. A localStorage registry marks the audiobook complete only when every chunk exists.
-7. On first mobile Play, Rust sequentially stitches those complete chunks into an atomic cached `playback.wav` and writes `playback.json` with precise chunk start/duration values. Later plays reuse both files.
+7. Save writes a versioned `manifest.json` containing compact chunk timing/size metadata. On first mobile Play, Rust reuses a restored bundle track when available or streams the saved chunks into an atomic cached `playback.wav`; later plays reuse that track and its `playback.json` boundaries.
 
 Save uses a conservative chunk profile that is separate from playback chunking. Playback keeps larger chunks for comfortable skip/highlight behavior, while Save uses smaller sentence-like chunks so one problematic text range is less likely to kill a long Android job and Resume has less work to retry.
 
@@ -95,29 +95,30 @@ Save uses a conservative chunk profile that is separate from playback chunking. 
 
 Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments, and treats wrapper containers as structure when they contain nested readable blocks; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
 
-The viewer highlighter requires the CSS Custom Highlight API provided by the supported desktop and Android WebViews. It builds a matching DOM text map and every chunk's ordered alignment range once per loaded document, then reuses them without wrapping or normalizing document text nodes on every chunk change. One registered `Highlight` object owns the active range; each chunk clears that object before adding its range, and shutdown clears it before removing the registry entry. Only the current chunk is highlighted, and smooth scrolling waits briefly for rapid navigation to settle so repeated skip taps do not start competing scroll animations.
+The viewer highlighter requires the CSS Custom Highlight API provided by the supported desktop and Android WebViews. Chunking retains runtime-only source spans that identify each chunk's readable segment indexes and normalized offsets without changing chunk text or ids. After iframe load, the viewer builds a one-pass index of readable leaf blocks during browser idle (with an immediate fallback if playback starts first); it does not concatenate the full document or allocate per-character node/offset arrays. Only the active chunk's boundary segments are scanned to create a DOM `Range`, and an LRU cache retains up to 128 visited ranges. One registered `Highlight` object owns the active range, and shutdown clears it before removing the registry entry. Smooth scrolling waits briefly for rapid navigation to settle so repeated skip taps do not start competing scroll animations.
 
-Playback navigation is latest-intent-wins on both backends. Backward, Forward, automatic advance, and chapter-list jumps update one target. Desktop keeps separate pending and committed indexes around its foreground chunk loader. Mobile keeps one serialized native seek worker and one queued target; repeated taps replace that queued target, so obsolete intermediate seeks do not commit audio or highlighting.
+Playback navigation is latest-intent-wins on both backends. Backward, Forward, automatic advance, and chapter-list jumps update one target. Desktop keeps separate pending and committed indexes around its foreground chunk loader. Mobile keeps one serialized native seek worker, one queued target, and one active pending target that is cleared when the seek commits or exits. Repeated taps replace the queued target, so obsolete intermediate seeks do not commit audio or highlighting. Desktop and mobile pending indexes remain separate so a completed mobile jump cannot become the base for a later Forward or Backward action.
 
-Desktop audio loading remains bounded: one foreground chunk load may run alongside one sequential speculative lookahead worker, and only a small Blob URL window is retained. Mobile does no per-tap file read, base64 decode, or Blob creation. Media3/AVPlayer streams the single local track, the timing array is `O(n)` small metadata, and active-chunk lookup uses binary search (`O(log n)`). This keeps navigation work stable for hundreds or thousands of chunks.
+Desktop audio loading remains bounded: one foreground chunk load may run alongside one sequential speculative lookahead worker, and only a small Blob URL window is retained. Mobile performs no per-tap file read, base64 decode, Blob creation, or source replacement: Media3/AVPlayer streams one local track and each chunk jump is a global seek. The timing array is `O(n)` small metadata, and active-chunk lookup uses binary search (`O(log n)`). Native command responses update React immediately; ordinary visible progress uses one non-overlapping 250 ms poll, avoiding the plugin's high-frequency event stream. The document iframe is memoized, the chapter menu virtualizes its rows, and highlight alignment is current-chunk-only. This keeps steady-state work bounded for hundreds or thousands of chunks.
 
 This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported.
 
 Native synthesis sanitizes text before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, and emoji/non-BMP symbols are dropped for the English Kokoro path. This slightly changes unusual source text, but it avoids feeding unsupported characters into native tokenization.
 
-Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Desktop uses the bounded React chunk window. Android prepares or reuses the single local track and delegates playback, notification controls, lock-screen controls, audio focus, and wake behavior to the native plugin. Native global time is converted back to the same `currentChunkIndex`, chunk-local time, and progress fields used by highlighting and the existing controls.
+Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Desktop uses the bounded React chunk window. Mobile hands one cached local track to the official native plugin and delegates playback, notification controls, lock-screen controls, audio focus, and wake behavior to the platform player. Native global time is converted back to the same `currentChunkIndex`, chunk-local time, and progress fields used by highlighting and the existing controls.
 
-These playback and highlighting rules do not change narration text, chunk ids, cache keys, chunk WAV filenames, or the exported audiobook format, so they do not require an audiobook cache-version bump. The derived `playback.wav` and `playback.json` are invalidated whenever Save or Import commits a manifest. A desktop-generated `.papercut-audiobook` remains portable: mobile import restores its source HTML and chunk WAVs, then prepares a device-local native track from those chunks. No native file path or plugin-specific state is stored in the bundle.
+While the WebView is hidden or the screen is locked, the native player and media session remain the playback source of truth and continue without React. Papercut stops foreground polling while hidden. On return it reads the current native state once, updates chunk refs and highlighting, and restarts one generation-fenced, non-overlapping poll. Mobile controls wait for that foreground synchronization before acting.
+
+These playback and highlighting rules do not change narration text, chunk ids, cache keys, chunk WAV filenames, or the exported audiobook format, so they do not require an audiobook cache-version bump. Highlight source spans are rebuilt from source HTML whenever a document opens and are removed at the Tauri IPC boundary; existing saved audio and imported bundles do not need regeneration. Internal native manifests use one exact current schema; older local manifest schemas are intentionally treated as incompatible and can be replaced by saving the audiobook again. This does not change bundle compatibility because every import writes a fresh current manifest from the bundle's canonical source and chunk WAVs. A desktop-generated `.papercut-audiobook` remains portable because mobile import restores its source HTML, chunk WAVs, and bundled single track when present. Bundles contain no device path or plugin-specific state; if a track is absent, mobile derives it from the restored chunks.
 
 ### Native Mobile Playback Constraints
 
-- First play is `O(n)` in saved audio size because Rust validates and sequentially copies every chunk into one WAV. The UI reports **Preparing background playback** during this one-time step; later plays reuse the cache.
-- Runtime playback does not load the whole audiobook into JavaScript memory. The native player streams the local file, while React retains only chunk text/boundaries and normal UI state.
-- The combined file approximately duplicates the chunk audio on disk. It is intentionally retained across exits and removed with Delete Audiobook. Stop, reader close, book switch, and natural end pause and reset the long-lived native media session; final component/app teardown releases it. All paths remove Papercut listeners and UI state without deleting the reusable track cache.
-- Plugin 1.0.5 does not expose a non-destructive Stop or clear-source command. Papercut therefore implements runtime Stop as pause plus seek-to-zero. On Android, the paused system media card may remain available until Media3 retires the inactive service or the app tears down the session.
-- Standard RIFF/WAV has a 4 GB file limit. Books whose combined PCM data exceeds that limit fail preparation with a clear error; compressed or segmented native sources are a future path for exceptionally long books.
-- `tauri-plugin-native-audio` is pinned to 1.0.5 because it is a young community plugin. Android uses its Media3 `MediaSessionService` and requests notification permission during initialization on Android 13+.
-- The frontend path recognizes iOS and the plugin uses AVPlayer/Now Playing controls. When the Tauri Apple project is added, the app target must enable Background Modes -> Audio. Papercut's currently supported native TTS/import build remains desktop and Android, so iOS packaging and native audiobook availability still require separate enablement and device CI.
+- First mobile play is `O(n)` in saved audio bytes when no valid cached or imported track exists: Rust streams chunk payloads into an atomic `playback.wav`. Later plays reuse it. Imported `.papercut-audiobook` bundles normally restore their included single track and only need lightweight metadata validation.
+- Runtime playback does not load the whole audiobook into JavaScript memory. The native player streams the local track while React retains chunk text, timing boundaries, and normal UI state.
+- The cached track approximately duplicates chunk audio on disk and uses the standard RIFF/WAV 4 GB size field. The stitcher streams data rather than loading the full book into memory; compressed native playback can be evaluated separately if books approach that format limit.
+- Official plugin 1.0.5 does not expose a non-destructive Stop or clear-source command. Papercut implements runtime Stop as pause plus seek-to-zero. On Android, the paused system media card may remain available until Media3 retires the inactive service or the app tears down the session.
+- Papercut pins the official Rust crate and JavaScript package to 1.0.5. App-owned Rust prepares the track and chunk boundaries; app-owned TypeScript handles command serialization, latest-target seek coalescing, global-time mapping, and the 250 ms visible polling cadence. No plugin source is vendored or patched.
+- The frontend path recognizes iOS and the plugin uses AVPlayer/Now Playing controls. The same single-track contract applies on Android and iOS; when the Tauri Apple project is added, the app target must enable Background Modes -> Audio. Papercut's currently supported native TTS/import build remains desktop and Android, so iOS packaging and native audiobook availability still require separate enablement and device CI.
 
 ## Audio UI
 
@@ -145,8 +146,13 @@ The in-app TTS diagnostics panel is the primary way to monitor desktop and mobil
 - `[tts-save] native chunk`
 - `[tts-save] completed`
 - `[tts-save] failed`
+- `[tts-playback] native preparation completed`
+- `[tts-playback] native source loaded`
+- `[tts-highlight] DOM segment index built`
+- `[tts-highlight] slow chunk range built`
+- `[tts-highlight] chunk range unavailable`
 
-Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, and `dir`.
+Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
 
 Interpretation guide:
 
@@ -155,6 +161,8 @@ Interpretation guide:
 - If a higher `threadCount` improves `realTimeFactor`, keep it for that device; if it crashes, heats up, or throttles during long saves, return to 1 thread on Android.
 - If Resume crashes at the same point, inspect the last `[tts-save] native chunk start` entry. The `chunkNumber`, `chunkId`, and `textPreview` identify the text range being passed to native synthesis when the process died.
 - Repeated cache misses usually mean the document, chunk text, voice, speed, model id, or audiobook cache version changed.
+- A high `[tts-highlight] DOM segment index built` time means iframe DOM traversal is still expensive; normal work scales with DOM nodes, not audiobook characters.
+- `[tts-highlight] slow chunk range built` usually identifies one unusually large readable block. `[tts-highlight] chunk range unavailable` means runtime source spans and iframe structure disagree and includes a reason field.
 
 ## Version-Control Practice
 
@@ -190,7 +198,7 @@ The next valuable work is native execution depth, not more browser fallback tuni
 - Add deeper cancellation support inside sherpa generation itself so Cancel can interrupt a long current chunk, not only stop before the next chunk.
 - Return saved WAV chunks as raw Tauri IPC bytes from an async command instead of base64-encoding them in Rust and decoding/copying them in JavaScript.
 - Add resumable/range-aware model downloads if interrupted downloads become common on mobile networks.
-- Evaluate a compressed or segmented native playback format if real-world audiobooks approach the 4 GB RIFF/WAV limit.
+- Evaluate compressed export audio if users need a portable single track beyond the standard 4 GB RIFF/WAV limit.
 - Extend saved-audiobook support to PDFs with page-aware manifests and text-layer positions.
 - Explore native GPU/NNAPI/CoreML/DirectML provider support only after the CPU native path is measured on target devices.
 
@@ -198,4 +206,5 @@ The next valuable work is native execution depth, not more browser fallback tuni
 
 - sherpa-onnx Android build docs: https://k2-fsa.github.io/sherpa/onnx/android/build-sherpa-onnx.html
 - sherpa-onnx Rust crate docs: https://docs.rs/sherpa-onnx
+- Tauri command IPC: https://v2.tauri.app/develop/calling-rust/
 - native audio plugin: https://github.com/uvarov-frontend/tauri-plugin-native-audio
