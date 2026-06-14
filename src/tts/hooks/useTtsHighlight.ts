@@ -208,7 +208,7 @@ function getOrBuildSegmentIndex(
   const index = buildReadableDomSegmentIndex(doc)
   cacheRef.current = { doc, index }
   logTtsDiagnostic('[tts-highlight] DOM segment index built', {
-    segments: index.elements.length,
+    segments: index.segments.length,
     elapsedMs: Math.round(performance.now() - started),
   })
   return index
@@ -246,6 +246,7 @@ function getChunkRange(cache: AlignmentCache, chunkIndex: number): Range | null 
     return null
   }
 
+  logHighlightRangeBuilt(cache, chunkIndex, range, performance.now() - started)
   cache.ranges.set(chunkIndex, range)
   if (cache.ranges.size > MAX_CACHED_RANGES) {
     const oldestIndex = cache.ranges.keys().next().value
@@ -259,6 +260,47 @@ function getChunkRange(cache: AlignmentCache, chunkIndex: number): Range | null 
     })
   }
   return range
+}
+
+// Diagnostics compare the chunk text to the actual DOM Range text. If they
+// match but the visible highlight looks wrong, the issue is likely platform
+// rendering/scrolling. If they differ, source-span mapping is the culprit.
+function logHighlightRangeBuilt(cache: AlignmentCache, chunkIndex: number, range: Range, elapsedMs: number): void {
+  const chunk = cache.chunks[chunkIndex]
+  const sourceSpan = chunk?.sourceSpan
+  const chunkText = normalizeDiagnosticText(chunk?.text ?? '')
+  const rangeText = normalizeDiagnosticText(range.toString())
+  const rect = range.getBoundingClientRect()
+  const matches = chunkText === rangeText
+
+  logTtsDiagnostic(matches ? '[tts-highlight] chunk range built' : '[tts-highlight] chunk range mismatch', {
+    chunkIndex,
+    chunkId: chunk?.id ?? '',
+    matches,
+    chunkPreview: previewDiagnosticText(chunkText),
+    rangePreview: previewDiagnosticText(rangeText),
+    chunkLength: chunkText.length,
+    rangeLength: rangeText.length,
+    sourceSpan: sourceSpan
+      ? `${sourceSpan.startSegmentIndex}:${sourceSpan.startOffset}-${sourceSpan.endSegmentIndex}:${sourceSpan.endOffset}`
+      : '',
+    segments: cache.segmentIndex.segments.length,
+    elapsedMs: Math.round(elapsedMs),
+    rectTop: Math.round(rect.top),
+    rectHeight: Math.round(rect.height),
+    documentLang: cache.doc.documentElement.lang || '',
+    documentDir: cache.doc.documentElement.dir || cache.doc.body?.dir || '',
+    cssHighlights: Boolean(cache.doc.defaultView?.CSS.highlights),
+    userAgent: navigator.userAgent,
+  }, matches ? 'info' : 'warn')
+}
+
+function normalizeDiagnosticText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function previewDiagnosticText(text: string): string {
+  return text.length <= 160 ? text : text.slice(0, 157).trimEnd() + '...'
 }
 
 // Detached range endpoints indicate iframe navigation/mutation; rebuild cache then.

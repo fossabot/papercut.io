@@ -45,55 +45,77 @@ const READABLE_BLOCK_TAGS = new Set([
 
 export const HTML_SKIP_SELECTOR = 'script, style, noscript, svg'
 
+const INLINE_FOOTNOTE_REFERENCE_RE = /^\[\d+[a-z]?\*?\]$/i
+
+export interface ReadableHtmlSegment {
+  owner: Element
+  textNodes: Text[]
+}
+
 // Centralizes the HTML block vocabulary so extraction and highlighting agree on
 // where readable boundaries exist.
 export function isReadableHtmlBlock(element: Element): boolean {
   return READABLE_BLOCK_TAGS.has(element.tagName)
 }
 
-// Finds readable leaf blocks in document order with one DOM traversal. Returning
-// leaf owners keeps wrapper text from being narrated or highlighted twice.
-export function collectReadableHtmlBlocks(root: Element | null): Element[] {
+// Assign each text node to its nearest readable block. Consecutive runs keep
+// wrapper-owned text around child blocks without duplicating child content.
+export function collectReadableHtmlSegments(root: Element | null): ReadableHtmlSegment[] {
   if (!root) return []
 
-  const blocks: Element[] = []
-  collectReadableSubtree(root, blocks)
-  return blocks
-}
+  const segments: ReadableHtmlSegment[] = []
+  const fallbackTextNodes: Text[] = []
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement
+      if (!parent || parent.closest(HTML_SKIP_SELECTOR) || isInlineFootnoteReferenceText(parent)) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
 
-interface ReadableSubtree {
-  hasText: boolean
-  hasReadableBlock: boolean
-}
+  let current: Node | null
+  while ((current = walker.nextNode())) {
+    const textNode = current as Text
+    fallbackTextNodes.push(textNode)
+    const owner = findNearestReadableOwner(textNode.parentElement, root)
+    if (!owner) continue
 
-// Post-order traversal returns whether descendants already own readable text. A
-// readable wrapper becomes a segment only when no nested readable block owns it.
-function collectReadableSubtree(element: Element, blocks: Element[]): ReadableSubtree {
-  if (element.matches(HTML_SKIP_SELECTOR)) {
-    return { hasText: false, hasReadableBlock: false }
-  }
-
-  let hasText = false
-  let hasReadableDescendant = false
-  for (const child of Array.from(element.childNodes)) {
-    if (child.nodeType === Node.TEXT_NODE) {
-      if (/\S/.test(child.textContent ?? '')) hasText = true
-      continue
+    const previous = segments[segments.length - 1]
+    if (previous?.owner === owner) {
+      previous.textNodes.push(textNode)
+    } else {
+      segments.push({ owner, textNodes: [textNode] })
     }
-    if (child.nodeType !== Node.ELEMENT_NODE) continue
-
-    const result = collectReadableSubtree(child as Element, blocks)
-    if (result.hasText) hasText = true
-    if (result.hasReadableBlock) hasReadableDescendant = true
   }
 
-  const isReadable = hasText && isReadableHtmlBlock(element)
-  if (isReadable && !hasReadableDescendant) blocks.push(element)
+  const readableSegments = segments.filter((segment) =>
+    segment.textNodes.some((node) => /\S/.test(node.data))
+  )
+  if (readableSegments.length > 0) return readableSegments
 
-  return {
-    hasText,
-    hasReadableBlock: isReadable || hasReadableDescendant,
+  return fallbackTextNodes.some((node) => /\S/.test(node.data))
+    ? [{ owner: root, textNodes: fallbackTextNodes }]
+    : []
+}
+
+function isInlineFootnoteReferenceText(element: Element): boolean {
+  const anchor = element.closest('a')
+  if (!anchor) return false
+
+  const label = anchor.textContent?.replace(/\s+/g, '') ?? ''
+  return INLINE_FOOTNOTE_REFERENCE_RE.test(label)
+}
+
+function findNearestReadableOwner(element: Element | null, root: Element): Element | null {
+  let current = element
+  while (current) {
+    if (isReadableHtmlBlock(current)) return current
+    if (current === root) return null
+    current = current.parentElement
   }
+  return null
 }
 
 // Reduces HTML-specific tags into format-neutral segment kinds used by chunking.

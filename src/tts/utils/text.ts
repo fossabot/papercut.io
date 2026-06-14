@@ -152,7 +152,7 @@ function appendSegmentChunks(
   }
 
   const sentences = paragraph
-    .match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g)
+    .match(/[^.!?؟]+[.!?؟]+["')\]]*|[^.!?؟]+$/g)
     ?.map((sentence) => sentence.trim())
     .filter(Boolean) ?? [paragraph]
 
@@ -178,10 +178,9 @@ function appendSegmentChunks(
 }
 
 function splitLongSentence(sentence: string, profile: SpeechChunkProfile): string[] {
-  // Fall back to clause boundaries for unusually long sentences that would make
-  // one Kokoro request slow and hard to interrupt.
+  // Fall back to Latin/Arabic clause boundaries, then hard-wrap long clauses.
   const parts = sentence
-    .split(/([,;:]\s+)/)
+    .split(/([,;:،؛]\s*)/)
     .reduce<string[]>((acc, part, idx, source) => {
       if (idx % 2 === 0) {
         acc.push(part + (source[idx + 1] ?? ''))
@@ -191,9 +190,10 @@ function splitLongSentence(sentence: string, profile: SpeechChunkProfile): strin
     .map((part) => part.trim())
     .filter(Boolean)
 
+  const boundedParts = parts.flatMap((part) => splitAtWordBoundaries(part, profile.maxChunkLength))
   const chunks: string[] = []
   let current = ''
-  for (const part of parts) {
+  for (const part of boundedParts) {
     const next = current ? current + ' ' + part : part
     if (next.length > profile.maxChunkLength && current) {
       chunks.push(current)
@@ -204,6 +204,21 @@ function splitLongSentence(sentence: string, profile: SpeechChunkProfile): strin
   }
 
   if (current) chunks.push(current)
+  return chunks
+}
+
+function splitAtWordBoundaries(text: string, maxLength: number): string[] {
+  const chunks: string[] = []
+  let remaining = text.trim()
+
+  while (remaining.length > maxLength) {
+    let splitAt = remaining.lastIndexOf(' ', maxLength)
+    if (splitAt <= 0) splitAt = maxLength
+    chunks.push(remaining.slice(0, splitAt).trim())
+    remaining = remaining.slice(splitAt).trim()
+  }
+
+  if (remaining) chunks.push(remaining)
   return chunks
 }
 
