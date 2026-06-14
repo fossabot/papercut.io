@@ -24,11 +24,13 @@ use tauri::Emitter;
 use super::cache::{scan_audiobook, wav_info, wav_metadata};
 use super::config::{AUDIOBOOK_MANIFEST_VERSION, SAVE_PROGRESS_EVENT};
 use super::file_commit::commit_staged_file;
+use super::models::{model_definition, DEFAULT_MODEL_ID};
 use super::paths::{
     audiobook_dir, chunk_path, chunk_source_signature, playback_metadata_path, playback_track_path,
     speakable_chunks,
 };
-use super::synth::{ensure_engine, synthesize_to_file, text_preview, SherpaKokoroEngine};
+use super::preprocess::TextPreprocessor;
+use super::synth::{ensure_engine, synthesize_to_file, text_preview, SherpaTtsEngine};
 use crate::native_tts::platform::resolve_thread_count;
 use crate::native_tts::state::NativeTtsState;
 use crate::native_tts::types::{
@@ -47,6 +49,10 @@ pub(super) struct NativeAudiobookManifest {
     pub(super) version: u8,
     pub(super) document_url: String,
     pub(super) title: String,
+    #[serde(default = "default_model_id")]
+    pub(super) model_id: String,
+    #[serde(default = "default_text_preprocessor")]
+    pub(super) text_preprocessor: String,
     pub(super) voice: String,
     pub(super) speed: f32,
     pub(super) thread_count: i32,
@@ -64,6 +70,16 @@ struct NativeAudiobookManifestHeader {
 }
 
 const PLAYBACK_TIMING_TOLERANCE_SEC: f64 = 0.05;
+
+/// Preserve manifests written before model selection existed by treating them as Kokoro.
+fn default_model_id() -> String {
+    DEFAULT_MODEL_ID.into()
+}
+
+/// Preserve pre-diacritization manifests by treating absent metadata as original text.
+fn default_text_preprocessor() -> String {
+    "none".into()
+}
 
 /// Tauri command backend: start (or resume) saving the full audiobook.
 ///
@@ -113,7 +129,7 @@ pub(crate) fn cancel_audiobook_save(
 /// event. Returns aggregate totals for the whole audiobook.
 fn save_audiobook_native_blocking(
     app: tauri::AppHandle,
-    engine_state: Arc<Mutex<Option<SherpaKokoroEngine>>>,
+    engine_state: Arc<Mutex<Option<SherpaTtsEngine>>>,
     cancelled_jobs: Arc<Mutex<HashSet<String>>>,
     request: NativeAudiobookSaveRequest,
 ) -> Result<NativeAudiobookSaveResponse, String> {
@@ -122,6 +138,13 @@ fn save_audiobook_native_blocking(
     let total_chunks = chunks.len();
     if total_chunks == 0 {
         return Err("No speakable audiobook chunks to save".into());
+    }
+    let model = model_definition(&request.model_id)?;
+    if !model.supports_text_preprocessor(&request.text_preprocessor) {
+        return Err(format!(
+            "Text preprocessor {:?} is not supported by model {}",
+            request.text_preprocessor, model.display_name
+        ));
     }
     let dir = audiobook_dir(&app, &request.audiobook_id)?;
     let chunks_dir = dir.join("chunks");
@@ -137,7 +160,7 @@ fn save_audiobook_native_blocking(
     write_pending_manifest(&dir, &request, &chunks)?;
 
     // Scan with prune=true so invalid leftovers are removed and regenerated.
-    let backend = "sherpa-onnx-kokoro".to_string();
+    let backend = "sherpa-onnx".to_string();
     let mut scan = scan_audiobook(&dir, &chunks, true);
     let mut cached_chunks = scan.cached_chunks;
     let mut generated_chunks = 0usize;
@@ -175,12 +198,16 @@ fn save_audiobook_native_blocking(
     let mut guard = engine_state
         .lock()
         .map_err(|_| "Native TTS engine lock poisoned".to_string())?;
-    let engine = ensure_engine(&app, &mut guard, Some(thread_count))?;
+    let engine = ensure_engine(&app, &mut guard, &request.model_id, Some(thread_count))?;
     let backend = format!(
-        "sherpa-onnx-kokoro:{}:threads={}",
+        "{}:{}:{}:threads={}",
+        engine.model.backend_name(),
+        engine.model.id,
         engine.model_dir.display(),
         engine.num_threads
     );
+    let text_preprocessor = TextPreprocessor::create(engine.model, &request.text_preprocessor)?;
+    let backend = format!("{backend}:preprocessor={}", text_preprocessor.id());
 
     for (index, chunk) in chunks.iter().enumerate() {
         // Cooperative cancellation: bail out cleanly between chunks if asked.
@@ -244,9 +271,18 @@ fn save_audiobook_native_blocking(
         );
 
         // Synthesize this chunk to its file and fold its stats into the totals.
+        let synthesis_text = text_preprocessor.process(&chunk.text)?;
+        log::debug!(
+            "Prepared synthesis text: preprocessor={}, source_chars={}, synthesis_chars={}, source_preview={:?}, synthesis_preview={:?}",
+            text_preprocessor.id(),
+            chunk.text.chars().count(),
+            synthesis_text.chars().count(),
+            text_preview(&chunk.text),
+            text_preview(&synthesis_text),
+        );
         let result = synthesize_to_file(
             engine,
-            &chunk.text,
+            &synthesis_text,
             &request.voice,
             request.speed,
             &output_path,
@@ -344,6 +380,8 @@ pub(super) fn write_pending_manifest(
         version: AUDIOBOOK_MANIFEST_VERSION,
         document_url: request.document_url.clone(),
         title: request.title.clone(),
+        model_id: request.model_id.clone(),
+        text_preprocessor: request.text_preprocessor.clone(),
         voice: request.voice.clone(),
         speed: request.speed,
         thread_count: request.thread_count.unwrap_or(0),
@@ -384,6 +422,8 @@ pub(super) fn write_manifest(
         version: AUDIOBOOK_MANIFEST_VERSION,
         document_url: request.document_url.clone(),
         title: request.title.clone(),
+        model_id: request.model_id.clone(),
+        text_preprocessor: request.text_preprocessor.clone(),
         voice: request.voice.clone(),
         speed: request.speed,
         thread_count,
@@ -635,6 +675,28 @@ mod tests {
     }
 
     #[test]
+    fn legacy_manifest_without_model_id_defaults_to_kokoro() {
+        let manifest: NativeAudiobookManifest = serde_json::from_value(serde_json::json!({
+            "version": AUDIOBOOK_MANIFEST_VERSION,
+            "documentUrl": "/legacy.html",
+            "title": "Legacy",
+            "voice": "af_heart",
+            "speed": 1.0,
+            "threadCount": 1,
+            "chunks": [],
+            "generatedAtMs": 0,
+            "sourceSignature": "legacy",
+            "audioDurationSec": 0.0,
+            "wavBytes": 0,
+            "playbackChunks": []
+        }))
+        .expect("deserialize legacy manifest");
+
+        assert_eq!(manifest.model_id, DEFAULT_MODEL_ID);
+        assert_eq!(manifest.text_preprocessor, "none");
+    }
+
+    #[test]
     fn new_save_writes_current_pending_and_complete_manifests() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -648,6 +710,8 @@ mod tests {
             audiobook_id: "test-audiobook".into(),
             document_url: "/test.html".into(),
             title: "Test".into(),
+            model_id: DEFAULT_MODEL_ID.into(),
+            text_preprocessor: "none".into(),
             chunks: chunks.clone(),
             voice: "af_heart".into(),
             speed: 1.0,

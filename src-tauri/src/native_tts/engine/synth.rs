@@ -1,6 +1,6 @@
-//! The sherpa-onnx Kokoro engine and single-chunk synthesis.
+//! Generic sherpa-onnx engine loading and single-chunk synthesis.
 //!
-//! Owns the loaded [`SherpaKokoroEngine`] (rebuilt when the requested thread
+//! Owns the loaded [`SherpaTtsEngine`] (rebuilt when the requested thread
 //! count changes), the text sanitization applied before native tokenization,
 //! and the saved-audiobook synthesis sink: [`synthesize_to_file`], which writes
 //! validated WAV chunks atomically into the audiobook cache.
@@ -16,19 +16,21 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use sherpa_onnx::{
     GeneratedAudio, GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
-    OfflineTtsModelConfig,
+    OfflineTtsModelConfig, OfflineTtsVitsModelConfig,
 };
 
 use super::cache::wav_info;
 use super::file_commit::commit_staged_file;
+use super::models::{model_definition, ModelDefinition, SherpaModelFamily};
 use super::paths::{audio_duration_sec, resolve_model_dir};
 use crate::native_tts::platform::resolve_thread_count;
 
-/// A loaded sherpa-onnx Kokoro model plus the settings it was built with. Kept
+/// A loaded sherpa-onnx model plus the settings it was built with. Kept
 /// alive in shared state and reused across syntheses; rebuilt only when the
 /// requested thread count differs (see [`ensure_engine`]).
-pub(crate) struct SherpaKokoroEngine {
+pub(crate) struct SherpaTtsEngine {
     pub(super) tts: OfflineTts,
+    pub(super) model: &'static ModelDefinition,
     pub(super) model_dir: std::path::PathBuf,
     pub(super) num_threads: i32,
 }
@@ -42,24 +44,27 @@ pub(super) struct FileSynthesisResult {
 
 /// Return a ready engine from the shared slot, (re)building it if absent or if
 /// the thread count changed. `guard` is the locked `Option<engine>`; the
-/// returned `&SherpaKokoroEngine` borrows from it for the rest of the call.
+/// returned `&SherpaTtsEngine` borrows from it for the rest of the call.
 pub(super) fn ensure_engine<'a>(
     app: &tauri::AppHandle,
-    guard: &'a mut Option<SherpaKokoroEngine>,
+    guard: &'a mut Option<SherpaTtsEngine>,
+    model_id: &str,
     thread_count: Option<i32>,
-) -> Result<&'a SherpaKokoroEngine, String> {
+) -> Result<&'a SherpaTtsEngine, String> {
+    let model = model_definition(model_id)?;
     let requested_threads = resolve_thread_count(thread_count);
     // Rebuild only when there's no engine yet, or the desired thread count
     // differs from the loaded one (changing threads needs a fresh engine).
     let should_create = guard
         .as_ref()
-        .map(|engine| engine.num_threads != requested_threads)
+        .map(|engine| engine.num_threads != requested_threads || engine.model.id != model.id)
         .unwrap_or(true);
 
     if should_create {
-        let model_dir = resolve_model_dir(app)?;
-        *guard = Some(SherpaKokoroEngine {
-            tts: create_engine(&model_dir, requested_threads)?,
+        let model_dir = resolve_model_dir(app, model)?;
+        *guard = Some(SherpaTtsEngine {
+            tts: create_engine(model, &model_dir, requested_threads)?,
+            model,
             model_dir,
             num_threads: requested_threads,
         });
@@ -74,7 +79,7 @@ pub(super) fn ensure_engine<'a>(
 /// file, validates it parses as WAV, then atomically renames into place so a
 /// crash mid-write never leaves a corrupt chunk in the cache.
 pub(super) fn synthesize_to_file(
-    engine: &SherpaKokoroEngine,
+    engine: &SherpaTtsEngine,
     text: &str,
     voice: &str,
     speed: f32,
@@ -125,7 +130,7 @@ pub(super) fn synthesize_to_file(
 /// voice name to a speaker id, sanitizes the text, and asks the engine to
 /// generate. Errors if the text is empty after sanitization or generation fails.
 fn generate_audio(
-    engine: &SherpaKokoroEngine,
+    engine: &SherpaTtsEngine,
     text: &str,
     voice: &str,
     speed: f32,
@@ -137,7 +142,7 @@ fn generate_audio(
     };
     let generation = GenerationConfig {
         speed,
-        sid: voice_to_speaker_id(voice),
+        sid: engine.model.speaker_id(voice)?,
         ..Default::default()
     };
 
@@ -153,7 +158,7 @@ fn generate_audio(
         .ok_or_else(|| "sherpa-onnx failed to synthesize audio".to_string())
 }
 
-/// Clean text for the English Kokoro/espeak path before tokenization: normalize
+/// Clean Unicode text before model-specific tokenization: normalize
 /// smart quotes/dashes/ellipses to ASCII, fold all whitespace to single spaces,
 /// drop zero-width and control characters, and drop non-BMP symbols (emoji) that
 /// can trip native tokenization.
@@ -191,7 +196,7 @@ fn sanitize_tts_text(text: &str) -> String {
             continue;
         }
 
-        // The English Kokoro/espeak path is most reliable with BMP text.
+        // Native espeak-backed paths are most reliable with BMP text.
         // Emoji and other non-BMP symbols can trip native tokenization, so
         // drop them before handing text to sherpa-onnx.
         if mapped.is_control() || mapped as u32 > 0xFFFF {
@@ -202,7 +207,197 @@ fn sanitize_tts_text(text: &str) -> String {
         previous_was_space = false;
     }
 
-    cleaned.trim().to_string()
+    normalize_year_like_numbers(cleaned.trim())
+}
+
+/// Expand standalone four-digit years into the phrasing eSpeak/Kokoro usually
+/// needs for natural historical dates: `1984` becomes `nineteen eighty four`.
+/// This intentionally runs only on the synthesis copy, leaving source chunks,
+/// highlighting, search, bundle metadata, and cache identity unchanged.
+fn normalize_year_like_numbers(text: &str) -> String {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut normalized = String::with_capacity(text.len());
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if !ch.is_ascii_digit() {
+            normalized.push(ch);
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        while index < chars.len() && chars[index].is_ascii_digit() {
+            index += 1;
+        }
+        let token = chars[start..index].iter().collect::<String>();
+        let previous = start.checked_sub(1).map(|value| chars[value]);
+        let next = chars.get(index).copied();
+        let year_words = (token.len() == 4 && is_year_boundary(previous) && is_year_boundary(next))
+            .then(|| token.parse::<u16>().ok().and_then(year_to_words))
+            .flatten();
+
+        if let Some(words) = year_words {
+            normalized.push_str(&words);
+        } else {
+            normalized.push_str(&token);
+        }
+    }
+
+    normalized
+}
+
+fn is_year_boundary(ch: Option<char>) -> bool {
+    ch.map(|value| !value.is_ascii_alphanumeric())
+        .unwrap_or(true)
+}
+
+fn year_to_words(year: u16) -> Option<String> {
+    if !(1000..=2099).contains(&year) {
+        return None;
+    }
+
+    if year == 1000 {
+        return Some("one thousand".into());
+    }
+    if year < 1010 {
+        return Some(format!("one thousand {}", below_hundred_words(year % 100)?));
+    }
+    if year < 2000 {
+        let century = year / 100;
+        let remainder = year % 100;
+        return Some(if remainder == 0 {
+            format!("{} hundred", below_hundred_words(century)?)
+        } else if remainder < 10 {
+            format!(
+                "{} oh {}",
+                below_hundred_words(century)?,
+                below_hundred_words(remainder)?
+            )
+        } else {
+            format!(
+                "{} {}",
+                below_hundred_words(century)?,
+                below_hundred_words(remainder)?
+            )
+        });
+    }
+
+    let remainder = year - 2000;
+    Some(if remainder == 0 {
+        "two thousand".into()
+    } else if remainder < 10 {
+        format!("two thousand {}", below_hundred_words(remainder)?)
+    } else {
+        format!("twenty {}", below_hundred_words(remainder)?)
+    })
+}
+
+fn below_hundred_words(value: u16) -> Option<&'static str> {
+    match value {
+        0 => Some("zero"),
+        1 => Some("one"),
+        2 => Some("two"),
+        3 => Some("three"),
+        4 => Some("four"),
+        5 => Some("five"),
+        6 => Some("six"),
+        7 => Some("seven"),
+        8 => Some("eight"),
+        9 => Some("nine"),
+        10 => Some("ten"),
+        11 => Some("eleven"),
+        12 => Some("twelve"),
+        13 => Some("thirteen"),
+        14 => Some("fourteen"),
+        15 => Some("fifteen"),
+        16 => Some("sixteen"),
+        17 => Some("seventeen"),
+        18 => Some("eighteen"),
+        19 => Some("nineteen"),
+        20 => Some("twenty"),
+        21 => Some("twenty one"),
+        22 => Some("twenty two"),
+        23 => Some("twenty three"),
+        24 => Some("twenty four"),
+        25 => Some("twenty five"),
+        26 => Some("twenty six"),
+        27 => Some("twenty seven"),
+        28 => Some("twenty eight"),
+        29 => Some("twenty nine"),
+        30 => Some("thirty"),
+        31 => Some("thirty one"),
+        32 => Some("thirty two"),
+        33 => Some("thirty three"),
+        34 => Some("thirty four"),
+        35 => Some("thirty five"),
+        36 => Some("thirty six"),
+        37 => Some("thirty seven"),
+        38 => Some("thirty eight"),
+        39 => Some("thirty nine"),
+        40 => Some("forty"),
+        41 => Some("forty one"),
+        42 => Some("forty two"),
+        43 => Some("forty three"),
+        44 => Some("forty four"),
+        45 => Some("forty five"),
+        46 => Some("forty six"),
+        47 => Some("forty seven"),
+        48 => Some("forty eight"),
+        49 => Some("forty nine"),
+        50 => Some("fifty"),
+        51 => Some("fifty one"),
+        52 => Some("fifty two"),
+        53 => Some("fifty three"),
+        54 => Some("fifty four"),
+        55 => Some("fifty five"),
+        56 => Some("fifty six"),
+        57 => Some("fifty seven"),
+        58 => Some("fifty eight"),
+        59 => Some("fifty nine"),
+        60 => Some("sixty"),
+        61 => Some("sixty one"),
+        62 => Some("sixty two"),
+        63 => Some("sixty three"),
+        64 => Some("sixty four"),
+        65 => Some("sixty five"),
+        66 => Some("sixty six"),
+        67 => Some("sixty seven"),
+        68 => Some("sixty eight"),
+        69 => Some("sixty nine"),
+        70 => Some("seventy"),
+        71 => Some("seventy one"),
+        72 => Some("seventy two"),
+        73 => Some("seventy three"),
+        74 => Some("seventy four"),
+        75 => Some("seventy five"),
+        76 => Some("seventy six"),
+        77 => Some("seventy seven"),
+        78 => Some("seventy eight"),
+        79 => Some("seventy nine"),
+        80 => Some("eighty"),
+        81 => Some("eighty one"),
+        82 => Some("eighty two"),
+        83 => Some("eighty three"),
+        84 => Some("eighty four"),
+        85 => Some("eighty five"),
+        86 => Some("eighty six"),
+        87 => Some("eighty seven"),
+        88 => Some("eighty eight"),
+        89 => Some("eighty nine"),
+        90 => Some("ninety"),
+        91 => Some("ninety one"),
+        92 => Some("ninety two"),
+        93 => Some("ninety three"),
+        94 => Some("ninety four"),
+        95 => Some("ninety five"),
+        96 => Some("ninety six"),
+        97 => Some("ninety seven"),
+        98 => Some("ninety eight"),
+        99 => Some("ninety nine"),
+        _ => None,
+    }
 }
 
 /// Build a short, sanitized preview (≤140 chars, "..." if truncated) of a
@@ -216,81 +411,87 @@ pub(super) fn text_preview(text: &str) -> String {
     preview
 }
 
-/// Construct the sherpa-onnx Kokoro engine from the model files in `model_dir`,
-/// wiring up model/voices/tokens/espeak-data paths and the optional lexicons,
-/// pinned to the CPU provider and the given thread count.
-fn create_engine(model_dir: &Path, thread_count: i32) -> Result<OfflineTts, String> {
-    // Include whichever lexicon files are present, joined by commas.
-    let lexicon = [
-        model_dir.join("lexicon-us-en.txt"),
-        model_dir.join("lexicon-zh.txt"),
-    ]
-    .iter()
-    .filter(|path| path.is_file())
-    .map(|path| path.display().to_string())
-    .collect::<Vec<_>>()
-    .join(",");
-
-    // `..Default::default()` fills every field we don't set with its default —
-    // like spreading defaults under an object literal.
-    let config = OfflineTtsConfig {
-        model: OfflineTtsModelConfig {
-            kokoro: OfflineTtsKokoroModelConfig {
-                model: Some(model_dir.join("model.onnx").display().to_string()),
-                voices: Some(model_dir.join("voices.bin").display().to_string()),
-                tokens: Some(model_dir.join("tokens.txt").display().to_string()),
-                data_dir: Some(model_dir.join("espeak-ng-data").display().to_string()),
-                lexicon: if lexicon.is_empty() {
-                    None
-                } else {
-                    Some(lexicon)
-                },
-                lang: Some("en-us".into()),
-                ..Default::default()
-            },
-            num_threads: thread_count,
-            provider: Some("cpu".into()),
-            ..Default::default()
-        },
-        max_num_sentences: 1,
+/// Construct one sherpa-onnx engine from catalog metadata.
+fn create_engine(
+    model: &ModelDefinition,
+    model_dir: &Path,
+    thread_count: i32,
+) -> Result<OfflineTts, String> {
+    let mut model_config = OfflineTtsModelConfig {
+        num_threads: thread_count,
+        provider: Some("cpu".into()),
         ..Default::default()
     };
 
-    OfflineTts::create(&config).ok_or_else(|| "Failed to create sherpa-onnx Kokoro engine".into())
+    match model.family {
+        SherpaModelFamily::Kokoro => {
+            let lexicon = [
+                model_dir.join("lexicon-us-en.txt"),
+                model_dir.join("lexicon-zh.txt"),
+            ]
+            .iter()
+            .filter(|path| path.is_file())
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+            model_config.kokoro = OfflineTtsKokoroModelConfig {
+                model: Some(model_dir.join(model.model_file).display().to_string()),
+                voices: Some(model_dir.join("voices.bin").display().to_string()),
+                tokens: Some(model_dir.join("tokens.txt").display().to_string()),
+                data_dir: Some(model_dir.join("espeak-ng-data").display().to_string()),
+                lexicon: (!lexicon.is_empty()).then_some(lexicon),
+                lang: Some("en-us".into()),
+                ..Default::default()
+            };
+        }
+        SherpaModelFamily::Vits => {
+            model_config.vits = OfflineTtsVitsModelConfig {
+                model: Some(model_dir.join(model.model_file).display().to_string()),
+                tokens: Some(model_dir.join("tokens.txt").display().to_string()),
+                data_dir: Some(model_dir.join("espeak-ng-data").display().to_string()),
+                ..Default::default()
+            };
+        }
+    }
+
+    let config = OfflineTtsConfig {
+        model: model_config,
+        max_num_sentences: 1,
+        ..Default::default()
+    };
+    OfflineTts::create(&config)
+        .ok_or_else(|| format!("Failed to create {} engine", model.display_name))
 }
 
-/// Map a Kokoro voice name to its numeric speaker id in the multi-lang model.
-/// Unknown voices fall back to id 3 (`af_heart`). `match` here is an exhaustive
-/// switch over the known voice strings.
-fn voice_to_speaker_id(voice: &str) -> i32 {
-    match voice {
-        "af_alloy" => 0,
-        "af_aoede" => 1,
-        "af_bella" => 2,
-        "af_heart" => 3,
-        "af_jessica" => 4,
-        "af_kore" => 5,
-        "af_nicole" => 6,
-        "af_nova" => 7,
-        "af_river" => 8,
-        "af_sarah" => 9,
-        "af_sky" => 10,
-        "am_echo" => 12,
-        "am_eric" => 13,
-        "am_fenrir" => 14,
-        "am_liam" => 15,
-        "am_michael" => 16,
-        "am_onyx" => 17,
-        "am_puck" => 18,
-        "am_santa" => 19,
-        "bf_alice" => 20,
-        "bf_emma" => 21,
-        "bf_isabella" => 22,
-        "bf_lily" => 23,
-        "bm_daniel" => 24,
-        "bm_fable" => 25,
-        "bm_george" => 26,
-        "bm_lewis" => 27,
-        _ => 3,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthesis_sanitizer_expands_standalone_years() {
+        assert_eq!(
+            sanitize_tts_text("Written in 1984."),
+            "Written in nineteen eighty four."
+        );
+        assert_eq!(
+            sanitize_tts_text("First published: 1898"),
+            "First published: eighteen ninety eight"
+        );
+        assert_eq!(
+            sanitize_tts_text("Updated in 2026"),
+            "Updated in twenty twenty six"
+        );
+    }
+
+    #[test]
+    fn synthesis_sanitizer_leaves_non_year_numbers_alone() {
+        assert_eq!(
+            sanitize_tts_text("See pp. 123-124 and item A1984."),
+            "See pp. 123-124 and item A1984."
+        );
+        assert_eq!(
+            sanitize_tts_text("The code 9876 is not a supported year."),
+            "The code 9876 is not a supported year."
+        );
     }
 }
