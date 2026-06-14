@@ -1,5 +1,5 @@
 import type { NativeTtsModelInstallProgress, NativeTtsModelStatus } from '../api/nativeTts'
-import type { KokoroVoice, KokoroVoiceInfo } from '../types'
+import type { TextPreprocessorInfo, TtsModelInfo, TtsVoice, TtsVoiceInfo } from '../types'
 
 const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
 
@@ -7,29 +7,41 @@ export interface AudioSetupPanelProps {
   appliedThreadCount: number | null
   defaultThreadCount: number
   maxThreadCount: number
+  modelId: string
+  models: TtsModelInfo[]
   modelInstallProgress: NativeTtsModelInstallProgress | null
   modelStatus: NativeTtsModelStatus | null
   onInstallModel: () => void
+  onModelChange: (modelId: string) => void
   onSpeedChange: (speed: number) => void
+  onTextPreprocessorChange: (textPreprocessor: string) => void
   onThreadCountChange: (threadCount: number) => void
-  onVoiceChange: (voice: KokoroVoice) => void
+  onVoiceChange: (voice: TtsVoice) => void
   speed: number
+  textPreprocessor: string
+  textPreprocessors: TextPreprocessorInfo[]
   threadCount: number
-  voice: KokoroVoice
-  voices: KokoroVoiceInfo[]
+  voice: TtsVoice
+  voices: TtsVoiceInfo[]
 }
 
 export function AudioSetupPanel({
   appliedThreadCount,
   defaultThreadCount,
   maxThreadCount,
+  modelId,
+  models,
   modelInstallProgress,
   modelStatus,
   onInstallModel,
+  onModelChange,
   onSpeedChange,
+  onTextPreprocessorChange,
   onThreadCountChange,
   onVoiceChange,
   speed,
+  textPreprocessor,
+  textPreprocessors,
   threadCount,
   voice,
   voices,
@@ -48,11 +60,27 @@ export function AudioSetupPanel({
     <div className="audio-setup-panel">
       <div className="audio-settings-grid">
         <label className="audio-field">
+          <span>Model</span>
+          <select
+            className="tts-select"
+            value={modelId}
+            onChange={(event) => onModelChange(event.target.value)}
+            title="Speech model"
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.languageLabel + ' - ' + model.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="audio-field">
           <span>Voice</span>
           <select
             className="tts-select"
             value={voice}
-            onChange={(event) => onVoiceChange(event.target.value as KokoroVoice)}
+            onChange={(event) => onVoiceChange(event.target.value as TtsVoice)}
             title="Voice"
           >
             {voices.map((item) => (
@@ -62,6 +90,27 @@ export function AudioSetupPanel({
             ))}
           </select>
         </label>
+
+        {textPreprocessors.length > 1 && (
+          <label className="audio-field">
+            <span>Text processing</span>
+            <select
+              className="tts-select"
+              value={textPreprocessor}
+              onChange={(event) => onTextPreprocessorChange(event.target.value)}
+              title="Optional language preprocessing before speech synthesis"
+            >
+              {textPreprocessors.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+            <span className="audio-thread-meta">
+              {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
+            </span>
+          </label>
+        )}
 
         <label className="audio-field">
           <span>Speed</span>
@@ -109,13 +158,13 @@ export function AudioSetupPanel({
           className="tts-btn tts-save-btn"
           onClick={onInstallModel}
           disabled={Boolean(modelStatus?.installed) || modelInstalling}
-          title={modelStatus?.installed ? 'Offline voice model is installed' : 'Download the pinned sherpa-onnx Kokoro model for offline TTS'}
+          title={modelStatus?.installed ? 'Offline voice model is installed' : 'Download selected offline voice model'}
         >
           <DownloadIcon />
           <span>{modelStatus?.installed ? 'Voice model installed' : modelInstalling ? 'Downloading Model...' : 'Download Voice Model'}</span>
         </button>
         <div className="audio-model-source" title={modelStatus?.sourceUrl}>
-          <span>{'Source: ' + (modelStatus?.sourceLabel ?? 'k2-fsa/sherpa-onnx Kokoro multi-lang v1.0')}</span>
+          <span>{'Source: ' + (modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS')}</span>
           <span>{modelSize ? modelSize + ' archive from k2-fsa/sherpa-onnx GitHub release' : 'Official k2-fsa/sherpa-onnx GitHub release asset'}</span>
         </div>
         {(modelInstallProgress || modelInstalling) && (

@@ -1,27 +1,31 @@
+import { FALLBACK_TTS_MODELS, getTtsModel, resolveModelTextPreprocessor } from '../models'
 import {
-  KOKORO_DEFAULT_SPEED,
-  KOKORO_DEFAULT_VOICE,
-  KOKORO_MODEL_DTYPE,
-  KOKORO_VOICES,
-  type KokoroDtype,
-  type KokoroVoice,
+  DEFAULT_TTS_MODEL_ID,
+  DEFAULT_TTS_SPEED,
+  NATIVE_TTS_DTYPE,
+  TEXT_PREPROCESSOR_NONE,
+  type TtsDtype,
+  type TtsModelId,
+  type TtsVoice,
 } from '../types'
 
-// Durable UI preferences for the offline audio experience. These are separate
-// from generated audio so clearing the cache does not reset user choices.
 const STORAGE_KEY = 'papercut.audioPreferences.v1'
 
 export interface AudioPreferences {
-  voice: KokoroVoice
+  modelId: TtsModelId
+  voice: TtsVoice
   speed: number
-  dtype: KokoroDtype
+  dtype: TtsDtype
+  textPreprocessor: string
   audioSavedOnly: boolean
 }
 
 export const DEFAULT_AUDIO_PREFERENCES: AudioPreferences = {
-  voice: KOKORO_DEFAULT_VOICE,
-  speed: KOKORO_DEFAULT_SPEED,
-  dtype: KOKORO_MODEL_DTYPE,
+  modelId: DEFAULT_TTS_MODEL_ID,
+  voice: getTtsModel(FALLBACK_TTS_MODELS, DEFAULT_TTS_MODEL_ID).defaultVoice,
+  speed: DEFAULT_TTS_SPEED,
+  dtype: NATIVE_TTS_DTYPE,
+  textPreprocessor: TEXT_PREPROCESSOR_NONE,
   audioSavedOnly: false,
 }
 
@@ -31,10 +35,19 @@ export function getAudioPreferences(): AudioPreferences {
     if (!raw) return DEFAULT_AUDIO_PREFERENCES
 
     const parsed = JSON.parse(raw) as Partial<AudioPreferences>
+    const model = getTtsModel(
+      FALLBACK_TTS_MODELS,
+      typeof parsed.modelId === 'string' ? parsed.modelId : DEFAULT_TTS_MODEL_ID,
+    )
+    const voice = typeof parsed.voice === 'string' && model.voices.some((item) => item.id === parsed.voice)
+      ? parsed.voice
+      : model.defaultVoice
     return {
-      voice: isKokoroVoice(parsed.voice) ? parsed.voice : DEFAULT_AUDIO_PREFERENCES.voice,
+      modelId: model.id,
+      voice,
       speed: isValidSpeed(parsed.speed) ? parsed.speed : DEFAULT_AUDIO_PREFERENCES.speed,
-      dtype: parsed.dtype === KOKORO_MODEL_DTYPE ? parsed.dtype : DEFAULT_AUDIO_PREFERENCES.dtype,
+      dtype: parsed.dtype === NATIVE_TTS_DTYPE ? parsed.dtype : DEFAULT_AUDIO_PREFERENCES.dtype,
+      textPreprocessor: resolveModelTextPreprocessor(model, parsed.textPreprocessor),
       audioSavedOnly: typeof parsed.audioSavedOnly === 'boolean'
         ? parsed.audioSavedOnly
         : DEFAULT_AUDIO_PREFERENCES.audioSavedOnly,
@@ -46,18 +59,13 @@ export function getAudioPreferences(): AudioPreferences {
 
 export function saveAudioPreferences(preferences: Partial<AudioPreferences>): void {
   try {
-    const next = {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
       ...getAudioPreferences(),
       ...preferences,
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    }))
   } catch {
-    // Preferences are nice-to-have; audio generation should still work if storage is unavailable.
+    // Preferences are optional; audio generation still works without storage.
   }
-}
-
-function isKokoroVoice(value: unknown): value is KokoroVoice {
-  return typeof value === 'string' && value in KOKORO_VOICES
 }
 
 function isValidSpeed(value: unknown): value is number {

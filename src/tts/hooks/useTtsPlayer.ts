@@ -18,12 +18,7 @@ import {
   stopNativeAudio,
   type NativeAudioState,
 } from '../playback/nativeMobileAudio'
-import {
-  KOKORO_VOICES,
-  type KokoroTtsOptions,
-  type KokoroVoiceInfo,
-  type TtsChunk,
-} from '../types'
+import type { TtsOptions, TtsChunk } from '../types'
 
 type TtsStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'error'
 
@@ -69,13 +64,7 @@ export interface TtsPlayerState {
   currentChunkDuration: number
   chunkSummaries: TtsChunkSummary[]
   chunks: TtsChunk[]
-  voices: KokoroVoiceInfo[]
 }
-
-const DEFAULT_VOICES = Object.entries(KOKORO_VOICES).map(([id, name]) => ({
-  id,
-  name,
-})) as KokoroVoiceInfo[]
 
 const MOBILE_PROGRESS_UPDATE_MS = 250
 
@@ -108,7 +97,6 @@ export function useTtsPlayer() {
     ...EMPTY_PLAYBACK_STATE,
     chunkSummaries: [],
     chunks: [],
-    voices: DEFAULT_VOICES,
   })
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -116,7 +104,7 @@ export function useTtsPlayer() {
   const loadedIndexesRef = useRef(new Set<number>())
   const loadingByIndexRef = useRef(new Map<number, Promise<LoadedAudio | null>>())
   const chunksRef = useRef<TtsChunk[]>([])
-  const optionsRef = useRef<KokoroTtsOptions | null>(null)
+  const optionsRef = useRef<TtsOptions | null>(null)
   const jobIdRef = useRef(0)
   const nextPlayIndexRef = useRef(0)
   const currentPlayingIndexRef = useRef<number | null>(null)
@@ -761,7 +749,7 @@ export function useTtsPlayer() {
   // playback while React polls and maps global time back to chunks.
   const startNativePlayback = useCallback(async (
     chunks: TtsChunk[],
-    options: KokoroTtsOptions,
+    options: TtsOptions,
     jobId: number,
   ) => {
     if (!options.documentUrl) {
@@ -802,7 +790,7 @@ export function useTtsPlayer() {
     await syncMobileForegroundState()
   }, [syncMobileForegroundState, updateNativePlaybackState])
 
-  const speak = useCallback((chunks: TtsChunk[], options: KokoroTtsOptions) => {
+  const speak = useCallback((chunks: TtsChunk[], options: TtsOptions) => {
     const speakableChunks = chunks.filter((chunk) => chunk.text.trim())
     if (speakableChunks.length === 0) return
 

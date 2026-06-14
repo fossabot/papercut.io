@@ -1,9 +1,11 @@
 import {
-  KOKORO_AUDIO_CACHE_VERSION,
-  KOKORO_MODEL_DTYPE,
-  KOKORO_MODEL_ID,
-  resolveKokoroDtype,
-  type KokoroTtsOptions,
+  TTS_AUDIO_CACHE_VERSION,
+  NATIVE_TTS_DTYPE,
+  DEFAULT_TTS_MODEL_ID,
+  resolveTtsDtype,
+  resolveTextPreprocessor,
+  type TtsOptions,
+  TEXT_PREPROCESSOR_NONE,
 } from '../types'
 
 // This registry stores completed-audiobook metadata only. Generated WAV
@@ -17,6 +19,7 @@ export interface SavedAudiobookRecord {
   voice: string
   speed: number
   modelId: string
+  textPreprocessor: string
   cacheVersion?: string
   dtype: string
   savedAt: number
@@ -25,18 +28,21 @@ export interface SavedAudiobookRecord {
   wavBytes?: number
 }
 
-export function createAudiobookId(documentUrl: string, options: KokoroTtsOptions): string {
-  const dtype = resolveKokoroDtype(options)
+export function createAudiobookId(documentUrl: string, options: TtsOptions): string {
+  const dtype = resolveTtsDtype(options)
+  const textPreprocessor = resolveTextPreprocessor(options)
   // Include model identity and playback options so saved-audio records invalidate
-  // when the Kokoro model, dtype, voice, speed, or source document changes.
-  return [
-    KOKORO_MODEL_ID,
-    KOKORO_AUDIO_CACHE_VERSION,
+  // when the selected model, dtype, voice, speed, or source document changes.
+  const parts = [
+    options.modelId,
+    TTS_AUDIO_CACHE_VERSION,
     dtype,
     options.voice,
     options.speed.toFixed(2),
-    normalizeDocumentUrl(documentUrl),
-  ].join('|')
+  ]
+  if (textPreprocessor !== TEXT_PREPROCESSOR_NONE) parts.push(textPreprocessor)
+  parts.push(normalizeDocumentUrl(documentUrl))
+  return parts.join('|')
 }
 
 export function getSavedAudiobooks(): SavedAudiobookRecord[] {
@@ -47,29 +53,33 @@ export function getSavedAudiobooks(): SavedAudiobookRecord[] {
     return Array.isArray(parsed)
       ? parsed.filter(isSavedAudiobookRecord).map((record) => ({
         ...record,
-        modelId: record.modelId || KOKORO_MODEL_ID,
+        modelId: record.modelId || DEFAULT_TTS_MODEL_ID,
         cacheVersion: record.cacheVersion || 'legacy',
-        dtype: record.dtype || KOKORO_MODEL_DTYPE,
+        dtype: record.dtype || NATIVE_TTS_DTYPE,
+        textPreprocessor: record.textPreprocessor ?? TEXT_PREPROCESSOR_NONE,
       }))
-      .filter((record) => record.cacheVersion === KOKORO_AUDIO_CACHE_VERSION)
+      .filter((record) => record.cacheVersion === TTS_AUDIO_CACHE_VERSION)
       : []
   } catch {
     return []
   }
 }
 
-export function markAudiobookSaved(record: Omit<SavedAudiobookRecord, 'id' | 'modelId' | 'savedAt'>): SavedAudiobookRecord {
-  const dtype = record.dtype || KOKORO_MODEL_DTYPE
+export function markAudiobookSaved(record: Omit<SavedAudiobookRecord, 'id' | 'savedAt'>): SavedAudiobookRecord {
+  const dtype = record.dtype || NATIVE_TTS_DTYPE
   const saved: SavedAudiobookRecord = {
     ...record,
     id: createAudiobookId(record.documentUrl, {
-      voice: record.voice as KokoroTtsOptions['voice'],
+      modelId: record.modelId,
+      voice: record.voice as TtsOptions['voice'],
       speed: record.speed,
-      dtype: dtype as KokoroTtsOptions['dtype'],
+      dtype: dtype as TtsOptions['dtype'],
+      textPreprocessor: record.textPreprocessor,
     }),
-    modelId: KOKORO_MODEL_ID,
-    cacheVersion: KOKORO_AUDIO_CACHE_VERSION,
+    modelId: record.modelId,
+    cacheVersion: TTS_AUDIO_CACHE_VERSION,
     dtype,
+    textPreprocessor: record.textPreprocessor ?? TEXT_PREPROCESSOR_NONE,
     savedAt: Date.now(),
   }
 
@@ -84,7 +94,7 @@ export function removeSavedAudiobook(id: string): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
 }
 
-export function hasSavedAudiobook(documentUrl: string, options: KokoroTtsOptions): boolean {
+export function hasSavedAudiobook(documentUrl: string, options: TtsOptions): boolean {
   const id = createAudiobookId(documentUrl, options)
   return getSavedAudiobooks().some((item) => item.id === id)
 }
@@ -105,7 +115,9 @@ function isSavedAudiobookRecord(value: unknown): value is SavedAudiobookRecord {
     typeof record.title === 'string' &&
     typeof record.voice === 'string' &&
     typeof record.speed === 'number' &&
+    (typeof record.modelId === 'string' || record.modelId === undefined) &&
     (typeof record.cacheVersion === 'string' || record.cacheVersion === undefined) &&
+    (typeof record.textPreprocessor === 'string' || record.textPreprocessor === undefined) &&
     typeof record.savedAt === 'number' &&
     typeof record.chunks === 'number' &&
     (typeof record.audioDurationSec === 'number' || record.audioDurationSec === undefined) &&

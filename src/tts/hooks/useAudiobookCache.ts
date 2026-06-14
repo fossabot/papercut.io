@@ -9,8 +9,8 @@ import {
 } from '../api/nativeTts'
 import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
 import {
-  resolveKokoroDtype,
-  type KokoroTtsOptions,
+  resolveTtsDtype,
+  type TtsOptions,
   type TtsChunk,
 } from '../types'
 
@@ -54,7 +54,7 @@ export function useAudiobookCache() {
     setState(INITIAL_STATE)
   }, [])
 
-  const check = useCallback((chunks: TtsChunk[], options: KokoroTtsOptions) => {
+  const check = useCallback((chunks: TtsChunk[], options: TtsOptions) => {
     const checkId = checkIdRef.current + 1
     checkIdRef.current = checkId
     const totalChunks = chunks.filter((chunk) => chunk.text.trim()).length
@@ -101,7 +101,7 @@ export function useAudiobookCache() {
     })()
   }, [])
 
-  const save = useCallback((chunks: TtsChunk[], options: KokoroTtsOptions) => {
+  const save = useCallback((chunks: TtsChunk[], options: TtsOptions) => {
     const speakableChunks = chunks.filter((chunk) => chunk.text.trim())
     if (speakableChunks.length === 0) return
 
@@ -154,7 +154,7 @@ export function useAudiobookCache() {
           audioDurationSec: Number(result.audioDurationSec.toFixed(2)),
           wavBytes: result.wavBytes,
           realTimeFactor: Number(realTimeFactor(result.generateMs, result.audioDurationSec).toFixed(2)),
-          dtype: resolveKokoroDtype(options),
+          dtype: resolveTtsDtype(options),
           actualDevice: 'native',
           preferredDevice: 'native',
           backend: result.backend,
@@ -177,7 +177,7 @@ export function useAudiobookCache() {
         if (jobIdRef.current !== jobId) return
         logTtsDiagnostic('[tts-save] failed', {
           totalMs: Math.round(performance.now() - saveStartedAtRef.current),
-          dtype: resolveKokoroDtype(options),
+          dtype: resolveTtsDtype(options),
           threadCount: options.threadCount,
           error: err instanceof Error ? err.message : String(err),
         }, 'error')
@@ -219,7 +219,7 @@ export function useAudiobookCache() {
     reset,
   }
 
-  function handleNativeProgress(progress: NativeAudiobookSaveProgress, options: KokoroTtsOptions): void {
+  function handleNativeProgress(progress: NativeAudiobookSaveProgress, options: TtsOptions): void {
     const status: AudiobookSaveStatus = progress.status === 'saved'
       ? 'saved'
       : progress.status === 'checking'
@@ -235,7 +235,7 @@ export function useAudiobookCache() {
         cachedChunks: progress.cachedChunks,
         totalChunks: progress.totalChunks,
         backend: progress.backend,
-        dtype: resolveKokoroDtype(options),
+        dtype: resolveTtsDtype(options),
         threadCount: options.threadCount,
         appliedThreadCount: progress.appliedThreadCount,
       })
@@ -254,7 +254,7 @@ export function useAudiobookCache() {
           : 0,
         wavBytes: progress.wavBytes,
         backend: progress.backend,
-        dtype: resolveKokoroDtype(options),
+        dtype: resolveTtsDtype(options),
         threadCount: options.threadCount,
         appliedThreadCount: progress.appliedThreadCount,
       })

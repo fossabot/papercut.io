@@ -1,5 +1,6 @@
 import { createAudiobookId } from '../storage/AudiobookLibrary'
-import type { KokoroTtsOptions, TtsChunk } from '../types'
+import { resolveTextPreprocessor, type TtsModelInfo, type TtsOptions, type TtsChunk } from '../types'
+import { FALLBACK_TTS_MODELS } from '../models'
 
 const SAVE_PROGRESS_EVENT = 'tts-native-save-progress'
 const MODEL_INSTALL_PROGRESS_EVENT = 'tts-model-install-progress'
@@ -12,9 +13,11 @@ export interface NativeTtsCapabilities {
   platform: string
   defaultThreadCount: number
   maxThreadCount: number
+  models: TtsModelInfo[]
 }
 
 export interface NativeTtsModelStatus {
+  modelId: string
   installed: boolean
   installing: boolean
   modelDir?: string | null
@@ -27,6 +30,7 @@ export interface NativeTtsModelStatus {
 }
 
 export interface NativeTtsModelInstallProgress {
+  modelId: string
   status: 'starting' | 'downloading' | 'extracting' | 'installed' | string
   message: string
   downloadedBytes: number
@@ -35,6 +39,7 @@ export interface NativeTtsModelInstallProgress {
 }
 
 export interface NativeTtsModelInstallResult {
+  modelId: string
   modelDir: string
   bytes: number
 }
@@ -116,8 +121,23 @@ export interface NativeAudiobookExportResult {
   wavBytes: number
 }
 
+export interface NativeImportedAudiobookMetadata {
+  documentUrl: string
+  modelId: string
+  textPreprocessor: string
+  title: string
+  voice: string
+  speed: number
+  dtype: string
+  chunks: TtsChunk[]
+  audioDurationSec: number
+  wavBytes: number
+}
+
 export interface NativeAudiobookImportResult {
   documentUrl: string
+  modelId: string
+  textPreprocessor: string
   title: string
   voice: string
   speed: number
@@ -148,7 +168,8 @@ type NativeTtsInputChunk = Pick<TtsChunk, 'id' | 'text' | 'textHash'>
 // Keep DOM-only source spans inside React. Native manifests/bundles intentionally
 // retain their existing id/text/hash schema and cache compatibility.
 function toNativeTtsChunk(chunk: TtsChunk): NativeTtsInputChunk {
-  return { id: chunk.id, text: chunk.text, textHash: chunk.textHash }
+  const textHash = typeof chunk.textHash === 'string' ? chunk.textHash : undefined
+  return { id: chunk.id, text: chunk.text, textHash }
 }
 
 function toNativeTtsChunks(chunks: TtsChunk[]): NativeTtsInputChunk[] {
@@ -171,7 +192,8 @@ function createChunkSourceSignature(chunks: TtsChunk[]): string {
   const canonical = chunks
     .filter((chunk) => chunk.text.trim())
     .map((chunk) => {
-      const contentHash = chunk.textHash !== undefined ? chunk.textHash : stableUtf8Hash(chunk.text)
+      // Rust Option<String> values from imported metadata arrive as null, not undefined.
+      const contentHash = typeof chunk.textHash === 'string' ? chunk.textHash : stableUtf8Hash(chunk.text)
       return `${chunk.id}\0${contentHash}\n`
     })
     .join('')
@@ -203,14 +225,15 @@ export async function requireNativeTtsCapabilities(): Promise<NativeTtsCapabilit
   return capabilities
 }
 
-export async function getNativeTtsModelStatus(): Promise<NativeTtsModelStatus> {
+export async function getNativeTtsModelStatus(modelId: string): Promise<NativeTtsModelStatus> {
   if (!isNativeTtsRuntime()) {
     return {
+      modelId,
       installed: false,
       installing: false,
       modelDir: null,
       sourceUrl: '',
-      sourceLabel: 'k2-fsa/sherpa-onnx Kokoro',
+      sourceLabel: 'sherpa-onnx offline TTS',
       archiveBytes: 0,
       installedBytes: 0,
       sha256: '',
@@ -218,12 +241,12 @@ export async function getNativeTtsModelStatus(): Promise<NativeTtsModelStatus> {
     }
   }
   const invoke = await loadTauriInvoke()
-  return invoke<NativeTtsModelStatus>('tts_model_status')
+  return invoke<NativeTtsModelStatus>('tts_model_status', { modelId })
 }
 
-export async function installNativeTtsModel(): Promise<NativeTtsModelInstallResult> {
+export async function installNativeTtsModel(modelId: string): Promise<NativeTtsModelInstallResult> {
   const invoke = await loadTauriInvoke()
-  const result = await invoke<NativeTtsModelInstallResult>('tts_install_model')
+  const result = await invoke<NativeTtsModelInstallResult>('tts_install_model', { modelId })
   resetNativeTtsCapabilities()
   return result
 }
@@ -240,7 +263,7 @@ export async function listenNativeTtsModelInstallProgress(
 export async function getNativeAudiobookStatus(
   documentUrl: string,
   chunks: TtsChunk[],
-  options: KokoroTtsOptions,
+  options: TtsOptions,
 ): Promise<NativeAudiobookStatus> {
   await requireNativeTtsCapabilities()
   const invoke = await loadTauriInvoke()
@@ -257,7 +280,7 @@ export async function getNativeAudiobookStatus(
 export async function prepareNativeAudiobookPlayback(
   documentUrl: string,
   chunks: TtsChunk[],
-  options: KokoroTtsOptions,
+  options: TtsOptions,
 ): Promise<NativeAudiobookPlayback> {
   await requireNativeTtsCapabilities()
   const invoke = await loadTauriInvoke()
@@ -273,7 +296,7 @@ export async function getNativeSavedAudiobookChunk(
   documentUrl: string,
   chunk: TtsChunk,
   index: number,
-  options: KokoroTtsOptions,
+  options: TtsOptions,
 ): Promise<NativeTtsChunkResult | null> {
   if (!isNativeTtsRuntime()) return null
   const invoke = await loadTauriInvoke()
@@ -297,7 +320,7 @@ export async function saveNativeAudiobook(
     documentUrl: string
     title: string
     chunks: TtsChunk[]
-    options: KokoroTtsOptions
+    options: TtsOptions
   },
 ): Promise<NativeAudiobookSaveResult> {
   await requireNativeTtsCapabilities()
@@ -309,6 +332,8 @@ export async function saveNativeAudiobook(
       documentUrl: input.documentUrl,
       title: input.title,
       chunks: toNativeTtsChunks(input.chunks),
+      modelId: input.options.modelId,
+      textPreprocessor: resolveTextPreprocessor(input.options),
       voice: input.options.voice,
       speed: input.options.speed,
       threadCount: input.options.threadCount,
@@ -328,7 +353,7 @@ export async function exportNativeAudiobook(
     title: string
     sourceHtml: string
     chunks: TtsChunk[]
-    options: KokoroTtsOptions
+    options: TtsOptions
   },
 ): Promise<NativeAudiobookExportResult> {
   await requireNativeTtsCapabilities()
@@ -340,6 +365,8 @@ export async function exportNativeAudiobook(
       title: input.title,
       sourceHtml: input.sourceHtml,
       chunks: toNativeTtsChunks(input.chunks),
+      modelId: input.options.modelId,
+      textPreprocessor: resolveTextPreprocessor(input.options),
       voice: input.options.voice,
       speed: input.options.speed,
       dtype: input.options.dtype ?? 'native',
@@ -372,6 +399,13 @@ export async function getImportedAudiobookSource(documentUrl: string): Promise<s
   })
 }
 
+export async function getImportedAudiobookMetadata(documentUrl: string): Promise<NativeImportedAudiobookMetadata> {
+  const invoke = await loadTauriInvoke()
+  return invoke<NativeImportedAudiobookMetadata>('tts_get_imported_audiobook_metadata', {
+    request: { documentUrl },
+  })
+}
+
 export async function listenNativeAudiobookSaveProgress(
   handler: (progress: NativeAudiobookSaveProgress) => void,
 ): Promise<() => void> {
@@ -389,6 +423,7 @@ async function loadNativeTtsCapabilities(): Promise<NativeTtsCapabilities> {
       backend: 'native-unavailable',
       reason: 'Native sherpa-onnx TTS is only available in the desktop or Android app.',
       platform: 'browser',
+      models: FALLBACK_TTS_MODELS,
       defaultThreadCount: 1,
       maxThreadCount: 1,
     }
@@ -403,6 +438,7 @@ async function loadNativeTtsCapabilities(): Promise<NativeTtsCapabilities> {
       backend: 'native-unavailable',
       reason: err instanceof Error ? err.message : String(err),
       platform: 'unknown',
+      models: FALLBACK_TTS_MODELS,
       defaultThreadCount: 1,
       maxThreadCount: 1,
     }
