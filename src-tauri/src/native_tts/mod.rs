@@ -1,4 +1,4 @@
-//! Native sherpa-onnx Kokoro TTS feature.
+//! Native sherpa-onnx offline TTS feature.
 //!
 //! Splits the synthesis / audiobook-save backend into focused submodules so each
 //! concern can grow independently. Dependencies only point downward:
@@ -6,7 +6,7 @@
 //! ```text
 //! commands -> { engine | stub } -> { platform, types }
 //! engine: model | synth | save | cache | bundle -> { paths, config } -> types
-//! state  -> engine (SherpaKokoroEngine handle)
+//! state  -> engine (SherpaTtsEngine handle)
 //! ```
 //!
 //! - [`commands`]: the thin `#[tauri::command]` edge; dispatches to `engine` or
