@@ -23,4 +23,6 @@ mod manage;
 
 pub(crate) use export::export_audiobook_native;
 pub(crate) use import::import_audiobook_native;
-pub(crate) use manage::{delete_audiobook_native, get_imported_audiobook_source};
+pub(crate) use manage::{
+    delete_audiobook_native, get_imported_audiobook_metadata, get_imported_audiobook_source,
+};

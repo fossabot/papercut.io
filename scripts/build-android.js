@@ -45,5 +45,6 @@ async function runNativeTtsAndroidBuild(extraArgs) {
   console.log("[sherpa-android-build] target=" + rustTarget)
   await runTauriAndroidBuild(args, {
     SHERPA_ONNX_LIB_DIR: libDir,
+    ORT_LIB_LOCATION: libDir,
   })
 }

@@ -25,6 +25,7 @@ pub fn run() {
             native_tts::commands::tts_export_audiobook_native,
             native_tts::commands::tts_import_audiobook_native,
             native_tts::commands::tts_get_imported_audiobook_source,
+            native_tts::commands::tts_get_imported_audiobook_metadata,
             native_tts::commands::tts_delete_audiobook_native,
         ])
         .setup(|app| {

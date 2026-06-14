@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs"
 import { NODE_VERSION } from "../constants.js"
-import { SHERPA_LINUX_SHARED_OUT_DIR } from "../linux/constants.js"
+import { SHERPA_LINUX_SHARED_OUT_DIR, SHERPA_LINUX_SHARED_SOURCE_DIR } from "../linux/constants.js"
 import { runSync, shQuote, exitFromResult } from "../process.js"
 
 export function prepareLinuxDesktopBuild({ isStatic }) {
@@ -17,6 +17,7 @@ export function linuxDesktopEnv(baseEnv) {
   return {
     ...baseEnv,
     NO_STRIP: baseEnv.NO_STRIP ?? "1",
+    ORT_LIB_LOCATION: baseEnv.ORT_LIB_LOCATION ?? SHERPA_LINUX_SHARED_SOURCE_DIR,
   }
 }
 

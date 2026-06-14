@@ -1,0 +1,385 @@
+//! Supported offline TTS models and their sherpa-onnx loading metadata.
+
+use std::path::Path;
+
+use crate::native_tts::types::{
+    NativeTextPreprocessorInfo, NativeTtsModelInfo, NativeTtsVoiceInfo,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// sherpa-onnx configuration family used to build the correct native model block.
+pub(super) enum SherpaModelFamily {
+    Kokoro,
+    Vits,
+}
+
+pub(super) const TEXT_PREPROCESSOR_NONE: &str = "none";
+#[cfg(feature = "native-text-preprocessing")]
+pub(super) const TEXT_PREPROCESSOR_LIBTASHKEEL: &str = "libtashkeel-1.5.0";
+
+#[derive(Clone, Copy, Debug)]
+/// User-visible, versioned preprocessing capability advertised by one model.
+pub(super) struct TextPreprocessorDefinition {
+    pub(super) id: &'static str,
+    pub(super) name: &'static str,
+    pub(super) description: &'static str,
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Catalog voice mapped to the numeric speaker id expected by sherpa-onnx.
+pub(super) struct VoiceDefinition {
+    pub(super) id: &'static str,
+    pub(super) name: &'static str,
+    pub(super) speaker_id: i32,
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Complete source, validation, loading, voice, and preprocessing contract for a model.
+pub(super) struct ModelDefinition {
+    pub(super) id: &'static str,
+    pub(super) directory_name: &'static str,
+    pub(super) display_name: &'static str,
+    pub(super) family: SherpaModelFamily,
+    pub(super) language: &'static str,
+    pub(super) language_label: &'static str,
+    pub(super) source_label: &'static str,
+    pub(super) source_url: &'static str,
+    pub(super) sha256: &'static str,
+    pub(super) archive_bytes: u64,
+    pub(super) model_file: &'static str,
+    pub(super) required_files: &'static [&'static str],
+    pub(super) default_voice: &'static str,
+    pub(super) voices: &'static [VoiceDefinition],
+    pub(super) default_text_preprocessor: &'static str,
+    pub(super) text_preprocessors: &'static [TextPreprocessorDefinition],
+}
+
+impl ModelDefinition {
+    /// Return true only when every file required by this model family is installed.
+    pub(super) fn has_required_files(&self, dir: &Path) -> bool {
+        self.required_files
+            .iter()
+            .all(|path| dir.join(path).is_file())
+    }
+
+    /// Resolve a catalog voice to its native speaker id; reject cross-model voices.
+    pub(super) fn speaker_id(&self, voice_id: &str) -> Result<i32, String> {
+        self.voices
+            .iter()
+            .find(|voice| voice.id == voice_id)
+            .map(|voice| voice.speaker_id)
+            .ok_or_else(|| {
+                format!(
+                    "Voice {voice_id:?} is not supported by model {}",
+                    self.display_name
+                )
+            })
+    }
+
+    /// Validate a requested preprocessor against capabilities advertised by this model.
+    pub(super) fn supports_text_preprocessor(&self, id: &str) -> bool {
+        self.text_preprocessors.iter().any(|item| item.id == id)
+    }
+
+    /// Stable diagnostic label identifying the active sherpa model family.
+    pub(super) fn backend_name(&self) -> &'static str {
+        match self.family {
+            SherpaModelFamily::Kokoro => "sherpa-onnx-kokoro",
+            SherpaModelFamily::Vits => "sherpa-onnx-vits",
+        }
+    }
+
+    /// Project internal catalog metadata into the serializable frontend capability DTO.
+    pub(super) fn to_info(&self) -> NativeTtsModelInfo {
+        NativeTtsModelInfo {
+            id: self.id.into(),
+            name: self.display_name.into(),
+            family: match self.family {
+                SherpaModelFamily::Kokoro => "kokoro",
+                SherpaModelFamily::Vits => "vits",
+            }
+            .into(),
+            language: self.language.into(),
+            language_label: self.language_label.into(),
+            default_voice: self.default_voice.into(),
+            voices: self
+                .voices
+                .iter()
+                .map(|voice| NativeTtsVoiceInfo {
+                    id: voice.id.into(),
+                    name: voice.name.into(),
+                })
+                .collect(),
+            default_text_preprocessor: self.default_text_preprocessor.into(),
+            text_preprocessors: self
+                .text_preprocessors
+                .iter()
+                .map(|preprocessor| NativeTextPreprocessorInfo {
+                    id: preprocessor.id.into(),
+                    name: preprocessor.name.into(),
+                    description: preprocessor.description.into(),
+                })
+                .collect(),
+        }
+    }
+}
+
+const KOKORO_VOICES: &[VoiceDefinition] = &[
+    VoiceDefinition {
+        id: "af_alloy",
+        name: "Alloy",
+        speaker_id: 0,
+    },
+    VoiceDefinition {
+        id: "af_aoede",
+        name: "Aoede",
+        speaker_id: 1,
+    },
+    VoiceDefinition {
+        id: "af_bella",
+        name: "Bella",
+        speaker_id: 2,
+    },
+    VoiceDefinition {
+        id: "af_heart",
+        name: "Heart",
+        speaker_id: 3,
+    },
+    VoiceDefinition {
+        id: "af_jessica",
+        name: "Jessica",
+        speaker_id: 4,
+    },
+    VoiceDefinition {
+        id: "af_kore",
+        name: "Kore",
+        speaker_id: 5,
+    },
+    VoiceDefinition {
+        id: "af_nicole",
+        name: "Nicole",
+        speaker_id: 6,
+    },
+    VoiceDefinition {
+        id: "af_nova",
+        name: "Nova",
+        speaker_id: 7,
+    },
+    VoiceDefinition {
+        id: "af_river",
+        name: "River",
+        speaker_id: 8,
+    },
+    VoiceDefinition {
+        id: "af_sarah",
+        name: "Sarah",
+        speaker_id: 9,
+    },
+    VoiceDefinition {
+        id: "af_sky",
+        name: "Sky",
+        speaker_id: 10,
+    },
+    VoiceDefinition {
+        id: "am_echo",
+        name: "Echo",
+        speaker_id: 12,
+    },
+    VoiceDefinition {
+        id: "am_eric",
+        name: "Eric",
+        speaker_id: 13,
+    },
+    VoiceDefinition {
+        id: "am_fenrir",
+        name: "Fenrir",
+        speaker_id: 14,
+    },
+    VoiceDefinition {
+        id: "am_liam",
+        name: "Liam",
+        speaker_id: 15,
+    },
+    VoiceDefinition {
+        id: "am_michael",
+        name: "Michael",
+        speaker_id: 16,
+    },
+    VoiceDefinition {
+        id: "am_onyx",
+        name: "Onyx",
+        speaker_id: 17,
+    },
+    VoiceDefinition {
+        id: "am_puck",
+        name: "Puck",
+        speaker_id: 18,
+    },
+    VoiceDefinition {
+        id: "am_santa",
+        name: "Santa",
+        speaker_id: 19,
+    },
+    VoiceDefinition {
+        id: "bf_alice",
+        name: "Alice",
+        speaker_id: 20,
+    },
+    VoiceDefinition {
+        id: "bf_emma",
+        name: "Emma",
+        speaker_id: 21,
+    },
+    VoiceDefinition {
+        id: "bf_isabella",
+        name: "Isabella",
+        speaker_id: 22,
+    },
+    VoiceDefinition {
+        id: "bf_lily",
+        name: "Lily",
+        speaker_id: 23,
+    },
+    VoiceDefinition {
+        id: "bm_daniel",
+        name: "Daniel",
+        speaker_id: 24,
+    },
+    VoiceDefinition {
+        id: "bm_fable",
+        name: "Fable",
+        speaker_id: 25,
+    },
+    VoiceDefinition {
+        id: "bm_george",
+        name: "George",
+        speaker_id: 26,
+    },
+    VoiceDefinition {
+        id: "bm_lewis",
+        name: "Lewis",
+        speaker_id: 27,
+    },
+];
+
+const PIPER_KAREEM_VOICES: &[VoiceDefinition] = &[VoiceDefinition {
+    id: "kareem",
+    name: "Kareem",
+    speaker_id: 0,
+}];
+
+const IDENTITY_TEXT_PREPROCESSORS: &[TextPreprocessorDefinition] = &[TextPreprocessorDefinition {
+    id: TEXT_PREPROCESSOR_NONE,
+    name: "Original text",
+    description: "Synthesize source text without language preprocessing.",
+}];
+
+#[cfg(feature = "native-text-preprocessing")]
+const PIPER_TEXT_PREPROCESSORS: &[TextPreprocessorDefinition] = &[
+    TextPreprocessorDefinition {
+        id: TEXT_PREPROCESSOR_NONE,
+        name: "Original text",
+        description: "Synthesize Arabic source text without automatic diacritization.",
+    },
+    TextPreprocessorDefinition {
+        id: TEXT_PREPROCESSOR_LIBTASHKEEL,
+        name: "Automatic Arabic diacritization",
+        description: "Restore Arabic tashkeel with Libtashkeel before Piper synthesis.",
+    },
+];
+#[cfg(not(feature = "native-text-preprocessing"))]
+const PIPER_TEXT_PREPROCESSORS: &[TextPreprocessorDefinition] = IDENTITY_TEXT_PREPROCESSORS;
+
+#[cfg(feature = "native-text-preprocessing")]
+const PIPER_DEFAULT_TEXT_PREPROCESSOR: &str = TEXT_PREPROCESSOR_LIBTASHKEEL;
+#[cfg(not(feature = "native-text-preprocessing"))]
+const PIPER_DEFAULT_TEXT_PREPROCESSOR: &str = TEXT_PREPROCESSOR_NONE;
+
+const KOKORO_REQUIRED_FILES: &[&str] = &[
+    "model.onnx",
+    "voices.bin",
+    "tokens.txt",
+    "espeak-ng-data/phontab",
+    "espeak-ng-data/en_dict",
+    "lexicon-us-en.txt",
+];
+
+const PIPER_REQUIRED_FILES: &[&str] = &[
+    "ar_JO-kareem-medium.onnx",
+    "tokens.txt",
+    "espeak-ng-data/phontab",
+    "espeak-ng-data/ar_dict",
+];
+
+pub(super) const DEFAULT_MODEL_ID: &str = "sherpa-onnx/kokoro-multi-lang-v1_0";
+
+pub(super) const MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: DEFAULT_MODEL_ID,
+        directory_name: "kokoro-multi-lang-v1_0",
+        display_name: "Kokoro English v1.0",
+        family: SherpaModelFamily::Kokoro,
+        language: "en-US",
+        language_label: "English",
+        source_label: "k2-fsa/sherpa-onnx Kokoro multi-lang v1.0",
+        source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
+        sha256: "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046",
+        archive_bytes: 349_418_188,
+        model_file: "model.onnx",
+        required_files: KOKORO_REQUIRED_FILES,
+        default_voice: "af_heart",
+        voices: KOKORO_VOICES,
+        default_text_preprocessor: TEXT_PREPROCESSOR_NONE,
+        text_preprocessors: IDENTITY_TEXT_PREPROCESSORS,
+    },
+    ModelDefinition {
+        id: "sherpa-onnx/vits-piper-ar_JO-kareem-medium",
+        directory_name: "vits-piper-ar_JO-kareem-medium",
+        display_name: "Piper Kareem Medium",
+        family: SherpaModelFamily::Vits,
+        language: "ar-JO",
+        language_label: "Arabic (Jordan)",
+        source_label: "k2-fsa/sherpa-onnx Piper ar_JO Kareem medium",
+        source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ar_JO-kareem-medium.tar.bz2",
+        sha256: "9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce",
+        archive_bytes: 67_177_830,
+        model_file: "ar_JO-kareem-medium.onnx",
+        required_files: PIPER_REQUIRED_FILES,
+        default_voice: "kareem",
+        voices: PIPER_KAREEM_VOICES,
+        default_text_preprocessor: PIPER_DEFAULT_TEXT_PREPROCESSOR,
+        text_preprocessors: PIPER_TEXT_PREPROCESSORS,
+    },
+];
+
+/// Resolve the authoritative catalog entry used by install, synthesis, and import.
+pub(super) fn model_definition(model_id: &str) -> Result<&'static ModelDefinition, String> {
+    MODELS
+        .iter()
+        .find(|model| model.id == model_id)
+        .ok_or_else(|| format!("Unsupported native TTS model: {model_id}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn catalog_ids_are_unique_and_default_exists() {
+        let ids = MODELS.iter().map(|model| model.id).collect::<HashSet<_>>();
+        assert_eq!(ids.len(), MODELS.len());
+        assert_eq!(
+            model_definition(DEFAULT_MODEL_ID).unwrap().family,
+            SherpaModelFamily::Kokoro
+        );
+    }
+
+    #[test]
+    fn piper_kareem_has_one_valid_voice() {
+        let model = model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium").unwrap();
+        assert_eq!(model.family, SherpaModelFamily::Vits);
+        assert_eq!(model.speaker_id("kareem").unwrap(), 0);
+        assert!(model.speaker_id("af_heart").is_err());
+    }
+}
