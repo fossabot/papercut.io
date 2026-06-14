@@ -20,7 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 
 use super::super::cache::{wav_metadata, WavMetadata};
-use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION, MODEL_ID};
+use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION};
 use super::super::file_commit::commit_staged_file;
 use super::super::paths::{
     audiobook_dir, chunk_path, sanitize_export_basename, speakable_chunks, unique_export_work_dir,
@@ -315,7 +315,8 @@ fn write_export_sidecars(
         "voice": request.voice,
         "speed": request.speed,
         "dtype": request.dtype,
-        "modelId": MODEL_ID,
+        "modelId": request.model_id,
+        "textPreprocessor": request.text_preprocessor,
         "cacheVersion": CACHE_VERSION,
         "audiobookId": request.audiobook_id,
         "exportedAtMs": exported_at_ms,
@@ -436,7 +437,8 @@ fn write_export_bundle(
         "voice": request.voice,
         "speed": request.speed,
         "dtype": request.dtype,
-        "modelId": MODEL_ID,
+        "modelId": request.model_id,
+        "textPreprocessor": request.text_preprocessor,
         "cacheVersion": CACHE_VERSION,
         "exportedAtMs": exported_at_ms,
         "files": manifest_entries,
