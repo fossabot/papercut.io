@@ -159,6 +159,13 @@ fn save_audiobook_native_blocking(
     // discoverable without sending every chunk through later status IPC.
     write_pending_manifest(&dir, &request, &chunks)?;
 
+    // Sweep chunk WAVs left by an earlier save of now-edited source text before
+    // regenerating. Editing the source reuses the same audiobook id (its hash
+    // omits chunk content), so without this a re-save holds both the stale and
+    // new chunk sets on disk until the job finishes. Files whose names match the
+    // current chunk set are kept, so this is safe on resume.
+    prune_orphan_chunk_files(&dir, &chunks);
+
     // Scan with prune=true so invalid leftovers are removed and regenerated.
     let backend = "sherpa-onnx".to_string();
     let mut scan = scan_audiobook(&dir, &chunks, true);
@@ -320,8 +327,9 @@ fn save_audiobook_native_blocking(
         );
     }
 
-    // Drop chunk WAVs left by earlier saves of now-edited source text before the
-    // manifest is finalized, so disk use tracks the current chunk set.
+    // Final sweep before the manifest is finalized: catches stray temp files
+    // from this run's writes and any orphan that appeared since the start sweep,
+    // so disk use tracks exactly the current chunk set.
     prune_orphan_chunk_files(&dir, &chunks);
 
     // Record the manifest and clear any cancellation flag for this job. The
