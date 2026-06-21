@@ -327,108 +327,33 @@ fn year_to_words(year: u16) -> Option<String> {
     })
 }
 
-fn below_hundred_words(value: u16) -> Option<&'static str> {
+/// Spell out 0–99 by composing a ones word with an optional tens word, e.g.
+/// `84` -> `"eighty four"`. Returns `None` for anything ≥ 100. Used only to build
+/// the spoken year phrasing in [`year_to_words`].
+fn below_hundred_words(value: u16) -> Option<String> {
+    const ONES: [&str; 20] = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+        "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        "sixteen", "seventeen", "eighteen", "nineteen",
+    ];
+    // Indices 0/1 are unused: 0–19 are handled directly above, and English has no
+    // distinct tens word below twenty.
+    const TENS: [&str; 10] = [
+        "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
+        "ninety",
+    ];
+
     match value {
-        0 => Some("zero"),
-        1 => Some("one"),
-        2 => Some("two"),
-        3 => Some("three"),
-        4 => Some("four"),
-        5 => Some("five"),
-        6 => Some("six"),
-        7 => Some("seven"),
-        8 => Some("eight"),
-        9 => Some("nine"),
-        10 => Some("ten"),
-        11 => Some("eleven"),
-        12 => Some("twelve"),
-        13 => Some("thirteen"),
-        14 => Some("fourteen"),
-        15 => Some("fifteen"),
-        16 => Some("sixteen"),
-        17 => Some("seventeen"),
-        18 => Some("eighteen"),
-        19 => Some("nineteen"),
-        20 => Some("twenty"),
-        21 => Some("twenty one"),
-        22 => Some("twenty two"),
-        23 => Some("twenty three"),
-        24 => Some("twenty four"),
-        25 => Some("twenty five"),
-        26 => Some("twenty six"),
-        27 => Some("twenty seven"),
-        28 => Some("twenty eight"),
-        29 => Some("twenty nine"),
-        30 => Some("thirty"),
-        31 => Some("thirty one"),
-        32 => Some("thirty two"),
-        33 => Some("thirty three"),
-        34 => Some("thirty four"),
-        35 => Some("thirty five"),
-        36 => Some("thirty six"),
-        37 => Some("thirty seven"),
-        38 => Some("thirty eight"),
-        39 => Some("thirty nine"),
-        40 => Some("forty"),
-        41 => Some("forty one"),
-        42 => Some("forty two"),
-        43 => Some("forty three"),
-        44 => Some("forty four"),
-        45 => Some("forty five"),
-        46 => Some("forty six"),
-        47 => Some("forty seven"),
-        48 => Some("forty eight"),
-        49 => Some("forty nine"),
-        50 => Some("fifty"),
-        51 => Some("fifty one"),
-        52 => Some("fifty two"),
-        53 => Some("fifty three"),
-        54 => Some("fifty four"),
-        55 => Some("fifty five"),
-        56 => Some("fifty six"),
-        57 => Some("fifty seven"),
-        58 => Some("fifty eight"),
-        59 => Some("fifty nine"),
-        60 => Some("sixty"),
-        61 => Some("sixty one"),
-        62 => Some("sixty two"),
-        63 => Some("sixty three"),
-        64 => Some("sixty four"),
-        65 => Some("sixty five"),
-        66 => Some("sixty six"),
-        67 => Some("sixty seven"),
-        68 => Some("sixty eight"),
-        69 => Some("sixty nine"),
-        70 => Some("seventy"),
-        71 => Some("seventy one"),
-        72 => Some("seventy two"),
-        73 => Some("seventy three"),
-        74 => Some("seventy four"),
-        75 => Some("seventy five"),
-        76 => Some("seventy six"),
-        77 => Some("seventy seven"),
-        78 => Some("seventy eight"),
-        79 => Some("seventy nine"),
-        80 => Some("eighty"),
-        81 => Some("eighty one"),
-        82 => Some("eighty two"),
-        83 => Some("eighty three"),
-        84 => Some("eighty four"),
-        85 => Some("eighty five"),
-        86 => Some("eighty six"),
-        87 => Some("eighty seven"),
-        88 => Some("eighty eight"),
-        89 => Some("eighty nine"),
-        90 => Some("ninety"),
-        91 => Some("ninety one"),
-        92 => Some("ninety two"),
-        93 => Some("ninety three"),
-        94 => Some("ninety four"),
-        95 => Some("ninety five"),
-        96 => Some("ninety six"),
-        97 => Some("ninety seven"),
-        98 => Some("ninety eight"),
-        99 => Some("ninety nine"),
+        0..=19 => Some(ONES[value as usize].to_string()),
+        20..=99 => {
+            let tens = TENS[(value / 10) as usize];
+            let ones = (value % 10) as usize;
+            Some(if ones == 0 {
+                tens.to_string()
+            } else {
+                format!("{tens} {}", ONES[ones])
+            })
+        }
         _ => None,
     }
 }
