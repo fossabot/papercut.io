@@ -320,6 +320,10 @@ fn save_audiobook_native_blocking(
         );
     }
 
+    // Drop chunk WAVs left by earlier saves of now-edited source text before the
+    // manifest is finalized, so disk use tracks the current chunk set.
+    prune_orphan_chunk_files(&dir, &chunks);
+
     // Record the manifest and clear any cancellation flag for this job.
     write_manifest(&dir, &request, &chunks, thread_count)?;
     clear_cancelled(&cancelled_jobs, &request.job_id)?;
@@ -594,6 +598,37 @@ fn write_manifest_file(dir: &Path, manifest: &NativeAudiobookManifest) -> Result
     commit_staged_file(&temp_path, &path, "native audiobook manifest")
 }
 
+/// Remove chunk WAVs that no longer belong to the current chunk set.
+///
+/// Chunk filenames embed a content hash, so editing the source document and
+/// re-saving into the same audiobook id writes new filenames while the stale
+/// ones linger forever ([`scan_audiobook`] only prunes invalid WAVs at expected
+/// paths, never valid WAVs with old names). Sweep them once every current chunk
+/// is generated. Stray temp files from interrupted writes are cleaned too.
+fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
+    let expected: HashSet<std::ffi::OsString> = chunks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, chunk)| {
+            chunk_path(dir, index, chunk)
+                .file_name()
+                .map(|name| name.to_os_string())
+        })
+        .collect();
+
+    let Ok(entries) = fs::read_dir(dir.join("chunks")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        if !expected.contains(&entry.file_name()) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Invalidate derived track artifacts whenever canonical manifest/chunks change.
 /// They are rebuilt or restored on demand and must never outlive source identity.
 fn remove_legacy_playback_files(dir: &Path) {
@@ -694,6 +729,36 @@ mod tests {
 
         assert_eq!(manifest.model_id, DEFAULT_MODEL_ID);
         assert_eq!(manifest.text_preprocessor, "none");
+    }
+
+    #[test]
+    fn prune_removes_orphan_chunk_files_only() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("papercut-prune-orphans-{nonce}"));
+        let chunks = chunks();
+        fs::create_dir_all(dir.join("chunks")).expect("create chunks dir");
+
+        // Write the expected WAV for each current chunk plus a leftover from an
+        // earlier save of different source text (a different content hash).
+        for (index, chunk) in chunks.iter().enumerate() {
+            fs::write(chunk_path(&dir, index, chunk), b"wav").expect("write expected chunk");
+        }
+        let orphan = dir.join("chunks").join("00001-a-deadbeefdeadbeef.wav");
+        fs::write(&orphan, b"stale").expect("write orphan chunk");
+
+        prune_orphan_chunk_files(&dir, &chunks);
+
+        assert!(!orphan.exists(), "orphan chunk should be removed");
+        for (index, chunk) in chunks.iter().enumerate() {
+            assert!(
+                chunk_path(&dir, index, chunk).is_file(),
+                "current chunk should be kept"
+            );
+        }
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
