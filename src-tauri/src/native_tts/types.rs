@@ -306,7 +306,10 @@ pub(crate) struct NativeAudiobookSaveResponse {
     pub(crate) complete: bool,
     pub(crate) dir: String,
     pub(crate) generate_ms: u128,
-    pub(crate) audio_duration_sec: f32,
+    // Canonical total measured from WAV headers in `build_playback_index`, so the
+    // reported duration matches the persisted manifest instead of drifting from a
+    // per-chunk f32 accumulation over a long book.
+    pub(crate) audio_duration_sec: f64,
     pub(crate) wav_bytes: usize,
     pub(crate) applied_thread_count: i32,
     pub(crate) backend: String,

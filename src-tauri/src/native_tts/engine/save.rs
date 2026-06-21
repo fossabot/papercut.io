@@ -324,8 +324,11 @@ fn save_audiobook_native_blocking(
     // manifest is finalized, so disk use tracks the current chunk set.
     prune_orphan_chunk_files(&dir, &chunks);
 
-    // Record the manifest and clear any cancellation flag for this job.
-    write_manifest(&dir, &request, &chunks, thread_count)?;
+    // Record the manifest and clear any cancellation flag for this job. The
+    // returned totals are measured from WAV headers, so they are the canonical
+    // values to report instead of the per-chunk f32 running sum.
+    let (total_audio_duration_sec, total_wav_bytes) =
+        write_manifest(&dir, &request, &chunks, thread_count)?;
     clear_cancelled(&cancelled_jobs, &request.job_id)?;
 
     // Final "saved" event with whole-job totals.
@@ -345,8 +348,8 @@ fn save_audiobook_native_blocking(
             generate_ms: Some(total_generate_ms),
             audio_duration_sec: Some(generated_audio_duration_sec),
             wav_bytes: Some(generated_wav_bytes),
-            total_audio_duration_sec: scan.audio_duration_sec,
-            total_wav_bytes: scan.wav_bytes,
+            total_audio_duration_sec: total_audio_duration_sec as f32,
+            total_wav_bytes,
             applied_thread_count: thread_count,
             backend: backend.clone(),
         },
@@ -360,8 +363,8 @@ fn save_audiobook_native_blocking(
         complete: true,
         dir: dir.display().to_string(),
         generate_ms: started.elapsed().as_millis(),
-        audio_duration_sec: scan.audio_duration_sec,
-        wav_bytes: scan.wav_bytes,
+        audio_duration_sec: total_audio_duration_sec,
+        wav_bytes: total_wav_bytes,
         applied_thread_count: thread_count,
         backend,
     })
@@ -405,12 +408,14 @@ pub(super) fn write_pending_manifest(
 ///
 /// Chunk start times come from measured audio durations, not text estimates. Any
 /// prior derived track is invalidated because Save or Import changed canonical data.
+/// Returns the canonical `(audio_duration_sec, wav_bytes)` totals it persisted so
+/// callers report the manifest's measured values rather than re-deriving them.
 pub(super) fn write_manifest(
     dir: &Path,
     request: &NativeAudiobookSaveRequest,
     chunks: &[NativeTtsInputChunk],
     thread_count: i32,
-) -> Result<(), String> {
+) -> Result<(f64, usize), String> {
     let generated_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| format!("System clock error: {err}"))?
@@ -440,7 +445,7 @@ pub(super) fn write_manifest(
     };
     write_manifest_file(dir, &manifest)?;
     remove_legacy_playback_files(dir);
-    Ok(())
+    Ok((audio_duration_sec, wav_bytes))
 }
 
 /// Read a manifest only when its schema exactly matches this app version.
