@@ -146,7 +146,12 @@ fn generate_audio(
         ..Default::default()
     };
 
-    let sanitized = sanitize_tts_text(text);
+    let mut sanitized = sanitize_tts_text(text);
+    // Year/number expansion is English-only; gate it so non-English models
+    // (e.g. Arabic Piper) never get Western number words in their synthesis text.
+    if engine.model.expands_english_years() {
+        sanitized = normalize_year_like_numbers(&sanitized);
+    }
     if sanitized.trim().is_empty() {
         return Err("TTS chunk became empty after sanitization".into());
     }
@@ -161,7 +166,8 @@ fn generate_audio(
 /// Clean Unicode text before model-specific tokenization: normalize
 /// smart quotes/dashes/ellipses to ASCII, fold all whitespace to single spaces,
 /// drop zero-width and control characters, and drop non-BMP symbols (emoji) that
-/// can trip native tokenization.
+/// can trip native tokenization. Language-specific normalization (e.g. English
+/// year expansion) is applied separately by the caller, not here.
 fn sanitize_tts_text(text: &str) -> String {
     let mut cleaned = String::with_capacity(text.len());
     let mut previous_was_space = false;
@@ -207,7 +213,7 @@ fn sanitize_tts_text(text: &str) -> String {
         previous_was_space = false;
     }
 
-    normalize_year_like_numbers(cleaned.trim())
+    cleaned.trim().to_string()
 }
 
 /// Expand standalone four-digit years into the phrasing eSpeak/Kokoro usually
@@ -234,9 +240,12 @@ fn normalize_year_like_numbers(text: &str) -> String {
         let token = chars[start..index].iter().collect::<String>();
         let previous = start.checked_sub(1).map(|value| chars[value]);
         let next = chars.get(index).copied();
-        let year_words = (token.len() == 4 && is_year_boundary(previous) && is_year_boundary(next))
-            .then(|| token.parse::<u16>().ok().and_then(year_to_words))
-            .flatten();
+        let after_next = chars.get(index + 1).copied();
+        let year_words = (token.len() == 4
+            && is_prose_year_left(previous)
+            && is_prose_year_right(next, after_next))
+        .then(|| token.parse::<u16>().ok().and_then(year_to_words))
+        .flatten();
 
         if let Some(words) = year_words {
             normalized.push_str(&words);
@@ -248,9 +257,33 @@ fn normalize_year_like_numbers(text: &str) -> String {
     normalized
 }
 
-fn is_year_boundary(ch: Option<char>) -> bool {
-    ch.map(|value| !value.is_ascii_alphanumeric())
-        .unwrap_or(true)
+/// A four-digit run reads as a spoken year only when its left side looks like
+/// prose. Letters/digits (identifiers), a decimal point or currency/math symbol
+/// (a measured amount), or a hyphen (a page/number range) all suppress it.
+fn is_prose_year_left(previous: Option<char>) -> bool {
+    match previous {
+        None => true,
+        Some(ch) if ch.is_whitespace() => true,
+        Some('(') | Some('[') | Some('{') | Some('"') | Some('\'') => true,
+        _ => false,
+    }
+}
+
+/// Mirror of [`is_prose_year_left`] for the right side. A following decimal or
+/// digit-grouping comma (`1984.5`, `1984,000`) marks a number, not a year, so
+/// only whitespace or closing/sentence punctuation keeps the year reading.
+fn is_prose_year_right(next: Option<char>, after_next: Option<char>) -> bool {
+    let followed_by_digit = matches!(after_next, Some(ch) if ch.is_ascii_digit());
+    match next {
+        None => true,
+        Some(ch) if ch.is_whitespace() => true,
+        // A decimal point or thousands comma only counts as a boundary when it
+        // is not gluing the run to more digits.
+        Some('.') | Some(',') => !followed_by_digit,
+        Some(')') | Some(']') | Some('}') | Some('"') | Some('\'') | Some(';') | Some(':')
+        | Some('!') | Some('?') => true,
+        _ => false,
+    }
 }
 
 fn year_to_words(year: u16) -> Option<String> {
@@ -466,32 +499,78 @@ fn create_engine(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::models::{model_definition, DEFAULT_MODEL_ID};
 
     #[test]
-    fn synthesis_sanitizer_expands_standalone_years() {
+    fn year_expansion_rewrites_standalone_years() {
         assert_eq!(
-            sanitize_tts_text("Written in 1984."),
+            normalize_year_like_numbers("Written in 1984."),
             "Written in nineteen eighty four."
         );
         assert_eq!(
-            sanitize_tts_text("First published: 1898"),
+            normalize_year_like_numbers("First published: 1898"),
             "First published: eighteen ninety eight"
         );
         assert_eq!(
-            sanitize_tts_text("Updated in 2026"),
+            normalize_year_like_numbers("Updated in 2026"),
             "Updated in twenty twenty six"
         );
     }
 
     #[test]
-    fn synthesis_sanitizer_leaves_non_year_numbers_alone() {
+    fn year_expansion_rewrites_wrapped_and_punctuated_years() {
         assert_eq!(
-            sanitize_tts_text("See pp. 123-124 and item A1984."),
+            normalize_year_like_numbers("Released (1984) widely."),
+            "Released (nineteen eighty four) widely."
+        );
+        assert_eq!(
+            normalize_year_like_numbers("In 1984, sales rose."),
+            "In nineteen eighty four, sales rose."
+        );
+    }
+
+    #[test]
+    fn year_expansion_leaves_non_year_numbers_alone() {
+        assert_eq!(
+            normalize_year_like_numbers("See pp. 123-124 and item A1984."),
             "See pp. 123-124 and item A1984."
         );
         assert_eq!(
-            sanitize_tts_text("The code 9876 is not a supported year."),
+            normalize_year_like_numbers("The code 9876 is not a supported year."),
             "The code 9876 is not a supported year."
         );
+    }
+
+    #[test]
+    fn year_expansion_skips_quantities_and_ranges() {
+        // Decimals and digit-grouping commas are measured numbers, not years.
+        assert_eq!(
+            normalize_year_like_numbers("It cost 3.1984 per unit."),
+            "It cost 3.1984 per unit."
+        );
+        assert_eq!(
+            normalize_year_like_numbers("A 1984.50 balance and 1984,000 total."),
+            "A 1984.50 balance and 1984,000 total."
+        );
+        // Currency, percentages, and hyphen ranges all keep their digits.
+        assert_eq!(
+            normalize_year_like_numbers("Paid $1984 at 1984% over pages 1900-2000."),
+            "Paid $1984 at 1984% over pages 1900-2000."
+        );
+    }
+
+    #[test]
+    fn sanitizer_does_not_expand_years_by_itself() {
+        // Year expansion is gated per-model in `generate_audio`, never inside the
+        // shared sanitizer, so non-English models keep their original numbers.
+        assert_eq!(sanitize_tts_text("Written in 1984."), "Written in 1984.");
+    }
+
+    #[test]
+    fn only_english_models_expand_years() {
+        assert!(model_definition(DEFAULT_MODEL_ID).unwrap().expands_english_years());
+        assert!(!model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium")
+            .unwrap()
+            .expands_english_years());
     }
 }

@@ -81,6 +81,13 @@ impl ModelDefinition {
         self.text_preprocessors.iter().any(|item| item.id == id)
     }
 
+    /// English year/number normalization only helps the English eSpeak path.
+    /// Other languages (e.g. Arabic Piper) must never have Western number words
+    /// spliced into their synthesis text.
+    pub(super) fn expands_english_years(&self) -> bool {
+        matches!(self.family, SherpaModelFamily::Kokoro) && self.language.starts_with("en")
+    }
+
     /// Stable diagnostic label identifying the active sherpa model family.
     pub(super) fn backend_name(&self) -> &'static str {
         match self.family {
