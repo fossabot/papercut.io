@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Papercut</title>
     <meta name="description" content="Papercut lets you search, read, and listen offline across desktop and Android.">
+    <meta property="og:title" content="Papercut">
+    <meta property="og:description" content="Search, read, and listen to documents offline. Desktop and Android.">
+    <meta property="og:image" content="https://trypapercut.netlify.app/assets/papercut-icon.png">
+    <meta property="og:type" content="website">
+    <link rel="icon" href="assets/papercut-icon.png" sizes="128x128">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -15,9 +20,8 @@
           <span>Papercut</span>
         </a>
         <nav class="nav" aria-label="Main navigation">
-          <a href="https://github.com/muhannadnouri/papercut.io">GitHub</a>
-          <a href="https://github.com/muhannadnouri/papercut.io/releases/latest">Releases</a>
-          <a href="https://github.com/muhannadnouri/papercut.io#readme">Docs</a>
+          <a href="#features-title">Features</a>
+          <a class="nav-cta" href="#downloads-title">Download</a>
         </nav>
       </header>
 
@@ -27,13 +31,33 @@
           <h1 id="intro-title">Search, Read, Listen Offline</h1>
           <p>
             Papercut is a lightweight desktop and Android reader for local documents,
-            full-text search, and saved audiobook playback.
+            full-text search, and saved audiobook playback. No internet. No accounts.
           </p>
         </section>
 
+        <section class="features" aria-labelledby="features-title">
+          <h2 id="features-title" class="features-heading">Features</h2>
+          <div class="feature-grid">
+            <div class="feature-card">
+              <h3>Offline search</h3>
+              <p>Full-text search across every document in your library. Type and find — no internet, no accounts, no waiting. Import your own documents and they're searchable instantly.</p>
+            </div>
+            <div class="feature-card">
+              <h3>Native TTS audiobooks</h3>
+              <p>Turn any document into an audiobook with natural-sounding offline text-to-speech. English and Arabic voices available. Download a voice once, then listen anywhere — including background and lock-screen playback on Android.</p>
+            </div>
+            <div class="feature-card">
+              <h3>Bring your own documents</h3>
+              <p>Import your own HTML files and they join your library — searchable and ready to convert to audio. Delete whenever you want. Works on Windows, Linux, and Android. PDF and EPUB support coming soon.</p>
+            </div>
+          </div>
+        </section>
+
         <section class="downloads" aria-labelledby="downloads-title">
-          <div class="section-label">[1] <h2 id="downloads-title">Downloads</h2></div>
+          <div class="section-label"><h2 id="downloads-title">Downloads</h2> <span class="version-badge">v1.1.0</span></div>
           <div class="download-list">
+            <p class="download-list-intro">Pick your platform and get started.</p>
+            <div class="download-group-header">Android</div>
             <article class="download-row">
               <div>
                 <strong class="download-title">
@@ -41,17 +65,18 @@
                   <span>Android</span>
                   <span class="download-kind">(.apk)</span>
                 </strong>
-                <span>Android arm64-v8a APK with native audiobook support.</span>
+                <span>Android arm64-v8a APK with native audiobook support. Requires Android 8.0+.</span>
                 <code>Papercut_v1.1.0_android-arm64-v8a.apk · 184 MB</code>
               </div>
               <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_v1.1.0_android-arm64-v8a.apk">Download</a>
             </article>
+            <div class="download-group-header">Windows</div>
             <article class="download-row">
               <div>
                 <strong class="download-title">
                   <span class="download-icon" aria-hidden="true">⊞</span>
                   <span>Windows</span>
-                  <span class="download-kind">(.msi)</span>
+                  <span class="download-kind">(.msi)</span> <span class="recommended-badge">Recommended</span>
                 </strong>
                 <span>Windows x64 installer package.</span>
                 <code>Papercut_1.1.0_x64_en-US.msi · 13.3 MB</code>
@@ -70,6 +95,7 @@
               </div>
               <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.1.0_x64-setup.exe">Download</a>
             </article>
+            <div class="download-group-header">Linux</div>
             <article class="download-row">
               <div>
                 <strong class="download-title">
@@ -77,7 +103,7 @@
                   <span>Linux</span>
                   <span class="download-kind">(AppImage)</span>
                 </strong>
-                <span>Portable Linux build for amd64 systems.</span>
+                <span>Portable Linux build for amd64 systems. Requires WebKitGTK and GStreamer.</span>
                 <code>Papercut_1.1.0_amd64.AppImage · 85.4 MB</code>
               </div>
               <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.1.0_amd64.AppImage">Download</a>
@@ -87,9 +113,9 @@
                 <strong class="download-title">
                   <span class="download-icon" aria-hidden="true">🐧</span>
                   <span>Linux</span>
-                  <span class="download-kind">(.deb)</span>
+                  <span class="download-kind">(.deb)</span> <span class="recommended-badge">Recommended</span>
                 </strong>
-                <span>Installer for Debian-based amd64 distributions.</span>
+                <span>Installer for Debian-based amd64 distributions (Ubuntu, Mint, etc.).</span>
                 <code>Papercut_1.1.0_amd64.deb · 15.8 MB</code>
               </div>
               <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.1.0_amd64.deb">Download</a>
@@ -101,11 +127,12 @@
                   <span>Linux</span>
                   <span class="download-kind">(.rpm)</span>
                 </strong>
-                <span>Installer for RPM-based x86_64 distributions.</span>
+                <span>Installer for RPM-based x86_64 distributions (Fedora, openSUSE, etc.).</span>
                 <code>Papercut-1.1.0-1.x86_64.rpm · 15.8 MB</code>
               </div>
               <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut-1.1.0-1.x86_64.rpm">Download</a>
             </article>
+            <div class="download-group-header">Other downloads</div>
             <article class="download-row">
               <div>
                 <strong class="download-title">
@@ -144,6 +171,54 @@
             </article>
           </div>
         </section>
+
+        <section class="install-notes" aria-labelledby="install-notes-title">
+          <h2 id="install-notes-title" class="install-notes-heading">Install Notes</h2>
+          <p>Need help getting started? Here's what to expect after downloading.</p>
+          <details>
+            <summary><strong>Android</strong></summary>
+            <p>Enable <strong>Install unknown apps</strong> in Settings for your browser or file manager, then open the APK. Papercut needs no extra permissions beyond storage for saved audiobooks.</p>
+          </details>
+          <details>
+            <summary><strong>Windows</strong></summary>
+            <p>The MSI installer handles setup automatically. If you prefer the portable EXE, run it directly — no admin rights needed.</p>
+          </details>
+          <details>
+            <summary><strong>Linux</strong></summary>
+            <p><strong>Debian-based (Ubuntu, Mint):</strong> <code>sudo apt install ./Papercut_*.deb</code></p>
+            <p><strong>RPM-based (Fedora, openSUSE):</strong> <code>sudo rpm -i Papercut-*.rpm</code></p>
+            <p><strong>AppImage:</strong> make executable (<code>chmod +x</code>) and run directly. On Arch-based systems the AppImage may need <code>WEBKIT_DISABLE_COMPOSITING_MODE=1</code> — see the <a href="https://github.com/muhannadnouri/papercut.io#readme">README</a> for details.</p>
+          </details>
+        </section>
+
+        <section class="resources" aria-labelledby="more-info-title">
+          <h2 id="more-info-title" class="resources-heading">Resources</h2>
+          <p>
+            <strong>Getting started</strong> — start with the
+            <a href="https://github.com/muhannadnouri/papercut.io#readme">README</a>
+            for setup help and platform details.
+            See what's new in the
+            <a href="https://github.com/muhannadnouri/papercut.io/blob/main/RELEASE_NOTES/v1.1.0.md">release notes</a>
+            or browse
+            <a href="https://github.com/muhannadnouri/papercut.io/releases/latest">all releases</a>.
+          </p>
+          <p>
+            <strong>Contributing</strong> — build from source or contribute on
+            <a href="https://github.com/muhannadnouri/papercut.io">GitHub</a>.
+            Papercut is MIT-licensed —
+            <a href="https://github.com/muhannadnouri/papercut.io/blob/main/LICENSE.md">LICENSE.md</a>.
+          </p>
+        </section>
+
+        <footer class="site-footer">
+          <p class="footer-privacy">Free and open source. No telemetry, no accounts, nothing leaves your device.</p>
+          <p class="footer-meta">
+            Papercut &copy; 2026 &middot;
+            <a href="https://github.com/muhannadnouri/papercut.io/blob/main/LICENSE.md">MIT license</a>
+            &middot;
+            <a href="https://github.com/muhannadnouri/papercut.io">GitHub</a>
+          </p>
+        </footer>
       </main>
     </div>
   </body>

@@ -67,9 +67,25 @@ a {
   font-size: 13px;
 }
 
-.nav a:hover,
-.download-row a:hover {
+.nav a:hover {
   color: var(--accent);
+}
+
+.nav-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff !important;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.nav-cta:hover {
+  background: #4338ca !important;
+  color: #fff !important;
 }
 
 .intro {
@@ -118,10 +134,48 @@ h2 {
   font-size: 15px;
 }
 
+.version-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
+}
+
 .download-list {
   border: 1px solid var(--soft-line);
   border-radius: 6px;
   overflow: hidden;
+}
+
+.download-list-intro {
+  margin: 0;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--soft-line);
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  text-align: center;
+  background: #f9fafb;
+}
+
+.download-group-header {
+  padding: 9px 18px 7px;
+  border-bottom: 1px solid var(--soft-line);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: #f9fafb;
+}
+
+.download-group-header + .download-group-header {
+  border-top: 1px solid var(--soft-line);
 }
 
 .download-row {
@@ -161,6 +215,18 @@ h2 {
   font-weight: 500;
 }
 
+.recommended-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: #ddf4d2;
+  color: #216e39;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: middle;
+}
+
 .download-row > div > span {
   display: block;
   margin-top: 2px;
@@ -184,10 +250,161 @@ h2 {
   min-width: 96px;
   min-height: 36px;
   padding: 0 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--accent);
   border-radius: 5px;
-  background: #fff;
+  background: var(--accent);
+  color: #fff;
   font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.download-row a:hover {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #fff;
+}
+
+/* ── Features ─────────────── */
+
+.features {
+  padding: 52px 58px 32px;
+  border-bottom: 1px solid var(--line);
+}
+
+.features-heading {
+  margin: 0 0 28px;
+  font-size: 15px;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.feature-card h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.feature-card p {
+  margin: 0;
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* ── Install notes ────────── */
+
+.install-notes {
+  padding: 36px 58px 40px;
+  border-bottom: 1px solid var(--line);
+}
+
+.install-notes-heading {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.install-notes > p {
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.install-notes details {
+  margin-top: 14px;
+}
+
+.install-notes summary {
+  cursor: pointer;
+  padding: 9px 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 5px;
+  font-size: 13px;
+  background: #f9fafb;
+}
+
+.install-notes summary:hover {
+  border-color: var(--line);
+}
+
+.install-notes details p {
+  margin: 12px 14px 10px;
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.install-notes details p + p {
+  margin-top: 6px;
+}
+
+.install-notes code {
+  padding: 1px 5px;
+  border: 1px solid var(--soft-line);
+  border-radius: 3px;
+  background: var(--bg);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.install-notes a {
+  color: var(--accent);
+}
+
+/* ── More info ────────────── */
+
+.resources {
+  padding: 36px 58px 56px;
+}
+
+.resources-heading {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.resources p {
+  margin: 0;
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.55;
+}
+
+.resources a {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.resources a:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ────────────────── */
+
+.site-footer {
+  padding: 24px 58px 36px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--quiet);
+  font-size: 12px;
+}
+
+.footer-privacy {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.footer-meta {
+  margin: 0;
+}
+
+.site-footer a {
+  color: var(--quiet);
+}
+
+.site-footer a:hover {
+  color: var(--accent);
 }
 
 @media (max-width: 720px) {
@@ -198,14 +415,28 @@ h2 {
   .site-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 12px;
-    padding: 18px 22px;
+    gap: 14px;
+    padding: 16px 20px;
   }
 
   .nav {
     width: 100%;
     justify-content: space-between;
-    gap: 12px;
+    gap: 6px;
+  }
+
+  .nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  .nav-cta {
+    padding-left: 18px;
+    padding-right: 18px;
+    min-height: 44px;
   }
 
   .intro {
@@ -225,5 +456,25 @@ h2 {
 
   .download-row a {
     width: 100%;
+  }
+
+  .features {
+    padding: 36px 16px 24px;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .install-notes {
+    padding: 28px 16px 32px;
+  }
+
+  .resources {
+    padding: 28px 16px 40px;
+  }
+
+  .site-footer {
+    padding: 20px 16px 28px;
   }
 }
