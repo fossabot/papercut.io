@@ -23,16 +23,18 @@ mod cache;
 mod config;
 mod file_commit;
 mod model;
+mod models;
 mod paths;
 mod playback;
+mod preprocess;
 mod save;
 mod synth;
 
-pub(crate) use synth::SherpaKokoroEngine;
+pub(crate) use synth::SherpaTtsEngine;
 
 pub(crate) use bundle::{
-    delete_audiobook_native, export_audiobook_native, get_imported_audiobook_source,
-    import_audiobook_native,
+    delete_audiobook_native, export_audiobook_native, get_imported_audiobook_metadata,
+    get_imported_audiobook_source, import_audiobook_native,
 };
 pub(crate) use cache::{get_native_audiobook_chunk, native_audiobook_status};
 pub(crate) use model::{install_model, model_status, native_capabilities};

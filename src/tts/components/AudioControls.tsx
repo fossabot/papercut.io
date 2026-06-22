@@ -20,6 +20,7 @@ interface AudioControlsProps {
   onSkipForward: () => void
   onStop: () => void
   playbackDurationSec?: number
+  playbackNotice?: string
   ttsState: TtsPlayerState
 }
 
@@ -43,6 +44,7 @@ export function AudioControls({
   onSkipForward,
   onStop,
   playbackDurationSec,
+  playbackNotice,
   ttsState,
 }: AudioControlsProps) {
   const [chunkMenuOpen, setChunkMenuOpen] = useState(false)
@@ -124,6 +126,9 @@ export function AudioControls({
           {showPlaybackStatus && (
             <div className={'audio-floating-status tts-status-' + ttsState.status}>
               <span>{ttsState.status === 'error' ? ttsState.message : 'Chunk ' + (currentChunkNumber || 0) + '/' + chunkTotal}</span>
+              {ttsState.status !== 'error' && playbackNotice && (
+                <span>{playbackNotice}</span>
+              )}
               {ttsState.status !== 'error' && ttsState.currentChunkDuration > 0 && (
                 <span>{formatTtsTime(ttsState.currentChunkTime)} / {formatTtsTime(ttsState.currentChunkDuration)}</span>
               )}

@@ -5,7 +5,7 @@
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
 
 
-Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native Kokoro TTS.
+Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native sherpa-onnx TTS.
 
 Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
 
@@ -262,26 +262,30 @@ To sideload on an Android device, enable **Install unknown apps** in Settings an
 
 If Cargo prints `Blocking waiting for file lock on artifact directory`, another Rust/Tauri build is holding the target directory lock. Wait for the other build to finish, or stop the older terminal process and rerun the command. If no Cargo/Rust process is running, rerunning with a fresh terminal normally clears it.
 
-### Offline native Kokoro text-to-speech
+### Offline native multilingual text-to-speech
 
-Papercut uses native sherpa-onnx for Kokoro TTS in desktop builds, and includes an arm64 Android native-TTS build path backed by the official sherpa-onnx Android shared libraries. The old browser-worker fallback has been removed; browser preview still works for document/search UI, but it cannot synthesize audio.
+Papercut uses one native sherpa-onnx TTS architecture on desktop and arm64 Android. React selects a catalog model and voice; Rust downloads, verifies, loads, and caches that model through a generic engine interface. Browser preview can display the UI but cannot synthesize audio.
 
-The Kokoro model is not packaged into desktop installers or Android APKs by default. Users install it once from the Audiobook settings cog with **Download voice model**. The app downloads the pinned official sherpa-onnx release asset into Tauri app data and verifies its SHA-256 before using it:
+Supported catalog models:
 
-- Source: k2-fsa/sherpa-onnx Kokoro multi-lang v1.0
-- URL: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
-- SHA-256: `c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046`
-- Archive size: about 333 MB
+- **Kokoro English v1.0**: existing default, 27 voices, 349,418,188-byte archive.
+- **Piper Kareem Medium (`ar-JO`)**: Arabic option using sherpa VITS, one voice, 67,177,830-byte archive. SHA-256: `9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce`.
 
-Desktop and Android use the same model archive. Only the native libraries are platform-specific: desktop builds use the Rust `sherpa-onnx` dependency, while Android native TTS uses the pinned sherpa-onnx Android shared-library archive prepared by `npm run prepare:sherpa-android-libs` and verified before extraction.
+Models are not packaged in installers or APKs. The selected model is downloaded on demand from the pinned official sherpa-onnx TTS-model release, verified before extraction, and stored in Tauri app data. Desktop and Android share model archives; only native sherpa libraries differ by platform.
 
-The process is documented in [docs/kokoro-tts.md](docs/kokoro-tts.md). Desktop scripts compile the `native-tts-shared` feature so speech generation runs through Tauri commands backed by sherpa-onnx without the high-memory static link step. For Android native TTS, run `npm run prepare:jdk`, `npm run prepare:sherpa-android-libs`, and then `npm run android:apk:native-tts`; the wrapper sets `JAVA_HOME` and `SHERPA_ONNX_LIB_DIR` automatically for arm64 builds and does not package model files into the APK.
+Arabic-dominant documents automatically suggest Piper Kareem. Users can override the model selector. Arabic sentence and clause punctuation is recognized during chunking, and every synthesis request has a hard character bound to reduce native crashes on long unpunctuated text. Piper is practical and much smaller, but it should not be described as Kokoro-equivalent quality; voice naturalness must be evaluated on target Arabic material and devices. The upstream model repository is MIT-licensed, while its dataset provenance/license is not clearly stated, so redistribution should receive a license review. On-demand download reduces app distribution risk but does not replace that review.
 
-Narration metadata is generated at runtime from the document HTML, whether the document is bundled or user-imported. Full audiobook audio is generated only when a user clicks Save for an HTML document. Full Save writes WAV chunks directly to native app data; playback is only available for complete saved or imported audiobooks. Desktop playback keeps a bounded chunk window. Mobile playback prepares or reuses one cached `playback.wav` with chunk-boundary metadata and hands that local track to the official native plugin, so playback and media controls continue while the screen is locked. Imported `.papercut-audiobook` bundles restore their included single track when available; otherwise the track is derived from saved chunks without regenerating speech. Delete Audiobook removes the derived track with the rest of the audiobook directory. Generated audio is user data, not part of the app bundle.
+Arabic pronunciation remains a separate concern from HTML extraction. Piper uses eSpeak-ng phonemization, so undiacritized Arabic can still produce ambiguous or poor vowels. Shared native builds now include an optional Libtashkeel 1.5.0 preprocessing pipeline. Piper defaults to `libtashkeel-1.5.0`; users can select `none` to synthesize the original text. The 4,788,213-byte bundled diacritization model runs through the same packaged ONNX Runtime used by sherpa-onnx. Source chunks and DOM spans are never rewritten: only the synthesis copy is diacritized, so highlighting remains aligned to the original document. Libtashkeel improves contextual vowel restoration but is not an Arabic language oracle; names, case endings, dialect, and ambiguous prose still require listening tests.
 
-Build helper scripts under `scripts/` are build orchestration, not a replacement for npm, Cargo, or Android SDK Manager. npm owns frontend tooling, Cargo owns Rust dependencies, and Android SDK Manager owns SDK/NDK installs. The scripts bridge the gaps: project paths, version constants, child-process execution, archive extraction, checked downloads, Android JDK/sherpa staging, Linux shared-library bundling, and Flatpak host-build delegation. OS-specific helpers live under `scripts/lib/android/` and `scripts/lib/linux/`.
+The HTML narration adapter now preserves prose placed directly inside readable wrappers such as legacy table cells, even when those wrappers also contain nested headings or paragraphs. The supplied Arabic Lenin document uses this pattern: its first paragraph is a direct `td` text node, while the next paragraph is inside `p`. The former extractor omitted the direct text before Piper received any chunk. Bracketed inline footnote reference links such as `[1]` and `[2*]` are skipped during narration extraction and DOM highlight indexing, while the actual footnote paragraphs remain readable later in the document. Native synthesis also expands standalone four-digit historical years on the synthesis copy only, so `1984` is spoken as "nineteen eighty four" without rewriting source chunks or highlight spans.
 
-The audio UI supports saved-only playback, Android background and lock-screen media controls, chunk-based Prev/Next navigation, a burger/list chunk jump menu for long audiobooks, per-chunk progress, current-chunk highlighting, native TTS thread-count tuning, a one-time voice model download button, an in-app TTS diagnostics panel, an Audiobooks panel for active/resumable/completed saves across voices, and a Saved audio filter for documents/search results.
+Compatibility is preserved: `native-save-v4-segmented` is unchanged, Kokoro keeps its exact model ID and cache key, and old preferences, manifests, records, and bundles without preprocessing metadata default to `none`. Imported audiobook bundles use their stored chunk metadata for playback/status instead of re-chunking restored HTML, so older completed WAV audiobooks remain playable. Highlight spans for imported bundles are rebuilt lazily from restored HTML and grafted only when the rebuilt chunk ids/text exactly match the bundle chunks; playback is not blocked while that work runs. A diacritized Piper generation receives a separate audiobook ID, so it cannot silently reuse older undiacritized WAV chunks. Most books produce identical chunks. A book affected by the wrapper-text omission must be regenerated to include the newly retained prose; its corrected source signature and chunk sequence intentionally do not match the incomplete generation.
+
+See [docs/kokoro-tts.md](docs/kokoro-tts.md) for architecture, model metadata, mobile constraints, and maintenance rules.
+
+Narration chunks and generated WAV files remain native app user data. Desktop uses bounded chunk playback; Android prepares a reusable local `playback.wav` for background and lock-screen playback. Build helpers continue to orchestrate npm, Cargo, Tauri, Android SDK tooling, checked downloads, and platform library staging; they do not replace those package managers.
+
+The audio UI supports model, voice, and optional text-processing selection, saved-only playback, resumable generation, background controls, chunk navigation/highlighting, thread tuning, diagnostics, import/export/delete, and saved-audio filtering.
 
 ### Browser build and preview
 
@@ -401,7 +405,7 @@ papercut.io/
 ├── src-tauri/                     # Tauri / Rust backend
 │   ├── src/document_uploads/      # Runtime HTML upload + SQLite FTS indexing
 │   ├── src/native_tts/            # Native sherpa-onnx TTS and audiobook bundles
-│   ├── tts/model-manifest.json    # Pinned Kokoro model metadata
+│   ├── tts/model-manifest.json    # Pinned native TTS model catalog
 │   ├── tauri.conf.json            # Base Tauri config
 │   └── tauri.linux.conf.json      # Linux shared-library bundle config
 ├── scripts/                       # Desktop/Android build orchestration

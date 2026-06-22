@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { SavedAudiobookRecord } from '../storage/AudiobookLibrary'
 import type { AudiobookDownloadRecord } from '../storage/AudiobookDownloadQueue'
-import type { KokoroDtype, KokoroVoice } from '../types'
+import type { TtsDtype, TtsVoice } from '../types'
 import type { AudiobookCacheState } from '../hooks/useAudiobookCache'
 import {
   formatAudiobookVoiceMeta,
@@ -15,9 +15,11 @@ import { AudioSetupPanel, type AudioSetupPanelProps } from './AudioSetupPanel'
 interface ActiveAudiobookSave {
   title: string
   url: string
-  voice: KokoroVoice
+  modelId: string
+  textPreprocessor: string
+  voice: TtsVoice
   speed: number
-  dtype: KokoroDtype
+  dtype: TtsDtype
 }
 
 interface AudiobookExportState {
@@ -105,7 +107,7 @@ export function AudiobooksPanel({
           className={'audiobooks-setup-btn' + (setupOpen ? ' audiobooks-setup-btn-open' : '')}
           aria-expanded={setupOpen}
           aria-label={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
-          title="Audio setup"
+          title={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
           onClick={() => setSetupOpen((value) => !value)}
         >
           <span aria-hidden="true">⚙</span>
@@ -141,7 +143,7 @@ export function AudiobooksPanel({
                 <span className="audiobook-meta">{downloadState.cachedChunks}/{downloadState.totalChunks}</span>
               </div>
               <div className="audiobook-status-text">
-                {activeDownload ? formatAudiobookVoiceMeta(activeDownload.voice, activeDownload.speed, activeDownload.dtype) + ' - ' : ''}{formatDownloadSavedStatus(downloadState.audioDurationSec, activePercent, downloadState.wavBytes)}
+                {activeDownload ? formatAudiobookVoiceMeta(activeDownload.modelId, activeDownload.voice, activeDownload.speed, activeDownload.dtype, activeDownload.textPreprocessor) + ' - ' : ''}{formatDownloadSavedStatus(downloadState.audioDurationSec, activePercent, downloadState.wavBytes)}
               </div>
               <div className="audiobook-meter" aria-label={'Saving audiobook ' + activePercent + '% complete'}>
                 <span style={{ width: activePercent + '%' }} />
@@ -163,7 +165,7 @@ export function AudiobooksPanel({
                     <span className="audiobook-meta">{record.cachedChunks}/{record.totalChunks}</span>
                   </div>
                   <div className="audiobook-status-text">
-                    {formatAudiobookVoiceMeta(record.voice, record.speed, record.dtype) + ' - ' + formatDownloadSavedStatus(record.audioDurationSec, percent, record.wavBytes)}
+                    {formatAudiobookVoiceMeta(record.modelId, record.voice, record.speed, record.dtype, record.textPreprocessor) + ' - ' + formatDownloadSavedStatus(record.audioDurationSec, percent, record.wavBytes)}
                   </div>
                   <div className="audiobook-meter" aria-label={'Audiobook save ' + percent + '% complete'}>
                     <span style={{ width: percent + '%' }} />
@@ -198,7 +200,7 @@ export function AudiobooksPanel({
                   >
                     <span className="audiobook-title">{record.title}</span>
                     <span className="audiobook-meta">
-                      {formatAudiobookVoiceMeta(record.voice, record.speed, record.dtype)}
+                      {formatAudiobookVoiceMeta(record.modelId, record.voice, record.speed, record.dtype, record.textPreprocessor)}
                       {' - ' + record.chunks + ' chunks'}
                       {record.audioDurationSec ? ' - ' + formatDuration(record.audioDurationSec) : ''}
                       {storage ? ' - ' + storage : ''}

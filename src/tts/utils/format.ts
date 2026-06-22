@@ -1,4 +1,5 @@
-import { KOKORO_VOICES, type KokoroVoice } from '../types'
+import { LIBTASHKEEL_TEXT_PREPROCESSOR } from '../types'
+import { FALLBACK_TTS_MODELS, getTtsVoiceName } from '../models'
 
 import { formatStorageSize } from '../../utils/formatUtils'
 // Re-export so modules importing from '../utils/format' (AudiobooksPanel,
@@ -26,10 +27,17 @@ export function formatDuration(seconds: number): string {
 //   return Math.max(1, Math.ceil(bytes / 1024 / 1024)) + ' MB'
 // }
 
-export function formatAudiobookVoiceMeta(voice: string, speed: number, dtype: string): string {
-  const voiceName = KOKORO_VOICES[voice as KokoroVoice] ?? voice
+export function formatAudiobookVoiceMeta(
+  modelId: string,
+  voice: string,
+  speed: number,
+  dtype: string,
+  textPreprocessor?: string,
+): string {
+  const voiceName = getTtsVoiceName(FALLBACK_TTS_MODELS, modelId, voice)
   const speedLabel = Number.isFinite(speed) ? speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x' : '1x'
-  return 'Voice 🔊 ' + voiceName + ' • ⚡' + speedLabel + ' • ' + dtype
+  const processingLabel = textPreprocessor === LIBTASHKEEL_TEXT_PREPROCESSOR ? ' • Arabic tashkeel' : ''
+  return 'Voice 🔊 ' + voiceName + ' • ⚡' + speedLabel + ' • ' + dtype + processingLabel
 }
 
 export function formatDownloadSavedStatus(seconds: number | undefined, percent: number, bytes?: number): string {

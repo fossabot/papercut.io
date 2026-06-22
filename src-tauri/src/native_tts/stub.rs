@@ -12,8 +12,9 @@ use super::types::{
     NativeAudiobookExportRequest, NativeAudiobookExportResponse, NativeAudiobookImportResponse,
     NativeAudiobookPlaybackRequest, NativeAudiobookPlaybackResponse, NativeAudiobookSaveRequest,
     NativeAudiobookSaveResponse, NativeAudiobookStatusRequest, NativeAudiobookStatusResponse,
-    NativeImportedAudiobookSourceRequest, NativeTtsCapabilities, NativeTtsChunkResponse,
-    NativeTtsModelInstallResponse, NativeTtsModelStatus,
+    NativeImportedAudiobookMetadataResponse, NativeImportedAudiobookSourceRequest,
+    NativeTtsCapabilities, NativeTtsChunkResponse, NativeTtsModelInstallResponse,
+    NativeTtsModelStatus,
 };
 
 const NOT_COMPILED: &str =
@@ -28,19 +29,22 @@ pub(super) fn native_capabilities(_app: tauri::AppHandle) -> NativeTtsCapabiliti
         platform: std::env::consts::OS.into(),
         default_thread_count: 1,
         max_thread_count: 1,
+        models: Vec::new(),
     }
 }
 
 pub(super) fn model_status(
     _app: tauri::AppHandle,
     _state: tauri::State<'_, NativeTtsState>,
+    model_id: String,
 ) -> NativeTtsModelStatus {
     NativeTtsModelStatus {
+        model_id,
         installed: false,
         installing: false,
         model_dir: None,
         source_url: String::new(),
-        source_label: "sherpa-onnx Kokoro".into(),
+        source_label: "sherpa-onnx offline TTS".into(),
         archive_bytes: 0,
         installed_bytes: 0,
         sha256: String::new(),
@@ -51,6 +55,7 @@ pub(super) fn model_status(
 pub(super) async fn install_model(
     _app: tauri::AppHandle,
     _state: tauri::State<'_, NativeTtsState>,
+    _model_id: String,
 ) -> Result<NativeTtsModelInstallResponse, String> {
     Err(NOT_COMPILED.into())
 }
@@ -108,6 +113,13 @@ pub(super) fn get_imported_audiobook_source(
     _app: tauri::AppHandle,
     _request: NativeImportedAudiobookSourceRequest,
 ) -> Result<String, String> {
+    Err(NOT_COMPILED.into())
+}
+
+pub(super) fn get_imported_audiobook_metadata(
+    _app: tauri::AppHandle,
+    _request: NativeImportedAudiobookSourceRequest,
+) -> Result<NativeImportedAudiobookMetadataResponse, String> {
     Err(NOT_COMPILED.into())
 }
 

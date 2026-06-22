@@ -1,4 +1,4 @@
-import { HTML_SKIP_SELECTOR, collectReadableHtmlBlocks, htmlSegmentKind } from './htmlStructure'
+import { HTML_SKIP_SELECTOR, collectReadableHtmlSegments, htmlSegmentKind } from './htmlStructure'
 
 export type ReadableSegmentKind = 'heading' | 'paragraph' | 'listItem' | 'block' | 'inline'
 
@@ -40,15 +40,15 @@ export function normalizeSegmentText(text: string): string {
   return normalizeSpeechText(text.replace(/\s+/g, ' '))
 }
 
-// Walks only leaf readable blocks so container elements do not duplicate text
-// already represented by their child headings, paragraphs, or list items.
+// Converts ordered text-owner runs into normalized narration segments. Wrapper
+// text remains represented around nested headings, paragraphs, and list items.
 function extractReadableSegmentsFromElement(root: Element | null): ReadableSegment[] {
   if (!root) return []
 
-  const segments = collectReadableHtmlBlocks(root)
-    .map((element) => ({
-      text: normalizeSegmentText(element.textContent ?? ''),
-      kind: htmlSegmentKind(element),
+  const segments = collectReadableHtmlSegments(root)
+    .map((segment) => ({
+      text: normalizeSegmentText(segment.textNodes.map((node) => node.data).join('')),
+      kind: htmlSegmentKind(segment.owner),
     }))
     .filter((segment) => segment.text)
 

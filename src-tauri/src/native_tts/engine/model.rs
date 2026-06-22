@@ -1,6 +1,6 @@
 //! Voice-model lifecycle: download, verify, extract, status, and capabilities.
 //!
-//! The pinned Kokoro archive is downloaded into an app cache work directory,
+//! Each catalog archive is downloaded into an app cache work directory,
 //! SHA-256 verified, extracted, checked for required files, then atomically
 //! moved into app data. Progress is streamed on [`MODEL_INSTALL_PROGRESS_EVENT`].
 //! [`native_capabilities`] and [`model_status`] report install/availability to
@@ -19,13 +19,9 @@ use bzip2::read::BzDecoder;
 use sha2::{Digest, Sha256};
 use tauri::Emitter;
 
-use super::config::{
-    MODEL_ARCHIVE_BYTES, MODEL_INSTALL_PROGRESS_EVENT, MODEL_NAME, MODEL_SHA256,
-    MODEL_SOURCE_LABEL, MODEL_URL,
-};
-use super::paths::{
-    directory_size, has_required_files, installed_model_dir, model_work_dir, resolve_model_dir,
-};
+use super::config::MODEL_INSTALL_PROGRESS_EVENT;
+use super::models::{model_definition, ModelDefinition, MODELS};
+use super::paths::{directory_size, installed_model_dir, model_work_dir, resolve_model_dir};
 use crate::native_tts::platform::{default_thread_count, max_thread_count};
 use crate::native_tts::state::NativeTtsState;
 use crate::native_tts::types::{
@@ -33,63 +29,68 @@ use crate::native_tts::types::{
     NativeTtsModelStatus,
 };
 
-/// Report whether native TTS is usable right now (model present?) plus the
-/// platform name and thread defaults. Drives the frontend's availability UI.
-pub(crate) fn native_capabilities(app: tauri::AppHandle) -> NativeTtsCapabilities {
-    match resolve_model_dir(&app) {
-        Ok(model_dir) => NativeTtsCapabilities {
-            available: true,
-            backend: "sherpa-onnx-kokoro".into(),
-            reason: "ready".into(),
-            model_dir: Some(model_dir.display().to_string()),
-            platform: std::env::consts::OS.into(),
-            default_thread_count: default_thread_count(),
-            max_thread_count: max_thread_count(),
-        },
-        Err(reason) => NativeTtsCapabilities {
-            available: false,
-            backend: "native-unavailable".into(),
-            reason,
-            model_dir: None,
-            platform: std::env::consts::OS.into(),
-            default_thread_count: default_thread_count(),
-            max_thread_count: max_thread_count(),
-        },
+/// Report runtime support and the model catalog. Model installation is queried separately.
+pub(crate) fn native_capabilities(_app: tauri::AppHandle) -> NativeTtsCapabilities {
+    NativeTtsCapabilities {
+        available: true,
+        backend: "sherpa-onnx".into(),
+        reason: "ready".into(),
+        model_dir: None,
+        platform: std::env::consts::OS.into(),
+        default_thread_count: default_thread_count(),
+        max_thread_count: max_thread_count(),
+        models: MODELS.iter().map(ModelDefinition::to_info).collect(),
     }
 }
 
-/// Report install state for the voice model: installed?/installing?, on-disk
-/// size, and the pinned source metadata shown in the download UI.
+/// Report install state and source metadata for one catalog model.
 pub(crate) fn model_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, NativeTtsState>,
+    model_id: String,
 ) -> NativeTtsModelStatus {
+    let Ok(model) = model_definition(&model_id) else {
+        return NativeTtsModelStatus {
+            model_id,
+            installed: false,
+            installing: false,
+            model_dir: None,
+            source_url: String::new(),
+            source_label: "Unsupported model".into(),
+            archive_bytes: 0,
+            installed_bytes: 0,
+            sha256: String::new(),
+            message: "Unsupported native TTS model".into(),
+        };
+    };
     let installing = state
         .model_installing
         .lock()
-        .map(|guard| *guard)
+        .map(|guard| guard.contains(model.id))
         .unwrap_or(false);
-    match resolve_model_dir(&app) {
+    match resolve_model_dir(&app, model) {
         Ok(model_dir) => NativeTtsModelStatus {
+            model_id: model.id.into(),
             installed: true,
             installing,
             installed_bytes: directory_size(&model_dir).unwrap_or(0),
             model_dir: Some(model_dir.display().to_string()),
-            source_url: MODEL_URL.into(),
-            source_label: MODEL_SOURCE_LABEL.into(),
-            archive_bytes: MODEL_ARCHIVE_BYTES,
-            sha256: MODEL_SHA256.into(),
+            source_url: model.source_url.into(),
+            source_label: model.source_label.into(),
+            archive_bytes: model.archive_bytes,
+            sha256: model.sha256.into(),
             message: "Offline voice model installed".into(),
         },
         Err(_) => NativeTtsModelStatus {
+            model_id: model.id.into(),
             installed: false,
             installing,
             model_dir: None,
-            source_url: MODEL_URL.into(),
-            source_label: MODEL_SOURCE_LABEL.into(),
-            archive_bytes: MODEL_ARCHIVE_BYTES,
+            source_url: model.source_url.into(),
+            source_label: model.source_label.into(),
+            archive_bytes: model.archive_bytes,
             installed_bytes: 0,
-            sha256: MODEL_SHA256.into(),
+            sha256: model.sha256.into(),
             message: if installing {
                 "Offline voice model download in progress".into()
             } else {
@@ -99,65 +100,69 @@ pub(crate) fn model_status(
     }
 }
 
-/// Tauri command backend: install the voice model (idempotent).
+/// Install one catalog model without blocking the async runtime.
 ///
-/// Returns immediately if already installed. Otherwise sets an "installing"
-/// guard (so two installs can't run at once), runs the blocking download on a
-/// worker thread, and always clears the guard afterward — success or failure.
+/// A per-model set prevents duplicate downloads while still allowing the state
+/// shape to support independent catalog entries. The guard is always cleared.
 pub(crate) async fn install_model(
     app: tauri::AppHandle,
     state: tauri::State<'_, NativeTtsState>,
+    model_id: String,
 ) -> Result<NativeTtsModelInstallResponse, String> {
-    if let Ok(model_dir) = resolve_model_dir(&app) {
+    let model = model_definition(&model_id)?;
+    if let Ok(model_dir) = resolve_model_dir(&app, model) {
         return Ok(NativeTtsModelInstallResponse {
+            model_id: model.id.into(),
             bytes: directory_size(&model_dir).unwrap_or(0),
             model_dir: model_dir.display().to_string(),
         });
     }
 
-    // Take the "installing" flag; refuse if another install already holds it.
     let installing = state.model_installing.clone();
     {
         let mut guard = installing
             .lock()
             .map_err(|_| "Native TTS model install lock poisoned".to_string())?;
-        if *guard {
-            return Err("Offline voice model download is already in progress".into());
+        if !guard.insert(model.id.to_string()) {
+            return Err(format!(
+                "{} download is already in progress",
+                model.display_name
+            ));
         }
-        *guard = true;
     }
 
     let app_for_task = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || install_model_blocking(app_for_task))
-        .await
-        .map_err(|err| format!("Native TTS model install task failed: {err}"))
-        .and_then(|inner| inner);
+    let result =
+        tauri::async_runtime::spawn_blocking(move || install_model_blocking(app_for_task, model))
+            .await
+            .map_err(|err| format!("Native TTS model install task failed: {err}"))
+            .and_then(|inner| inner);
 
-    // Always release the flag, even if the install errored.
     if let Ok(mut guard) = installing.lock() {
-        *guard = false;
+        guard.remove(model.id);
     }
     result
 }
 
-/// The blocking install pipeline: download → verify → extract → check → move.
-///
-/// Everything happens inside a scratch work dir; only after the extracted model
-/// passes the required-files check is it atomically renamed into its final app
-/// data location, so a failed/partial download is never treated as installed.
-fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstallResponse, String> {
-    let final_dir = installed_model_dir(&app)?;
+/// Run the checked install transaction: download, hash, extract, validate, then promote.
+/// Work remains isolated until the complete model directory can be atomically moved.
+fn install_model_blocking(
+    app: tauri::AppHandle,
+    model: &ModelDefinition,
+) -> Result<NativeTtsModelInstallResponse, String> {
+    let final_dir = installed_model_dir(&app, model)?;
     emit_model_progress(
         &app,
+        model,
         "starting",
         "Preparing offline voice model download",
         0,
     );
 
-    let work_root = model_work_dir(&app)?;
-    let archive_path = work_root.join(format!("{MODEL_NAME}.tar.bz2"));
+    let work_root = model_work_dir(&app, model)?;
+    let archive_path = work_root.join(format!("{}.tar.bz2", model.directory_name));
     let extract_dir = work_root.join("extract");
-    let temp_model_dir = work_root.join(format!("{MODEL_NAME}.installing"));
+    let temp_model_dir = work_root.join(format!("{}.installing", model.directory_name));
     let _ = fs::remove_dir_all(&work_root);
     fs::create_dir_all(&work_root).map_err(|err| {
         format!(
@@ -165,17 +170,16 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
             work_root.display()
         )
     })?;
-    // From here on, any early return should delete the scratch archive/extract tree.
     let work_guard = WorkDirGuard::new(work_root.clone());
 
-    download_model_archive(&app, &archive_path)?;
-    verify_model_archive(&archive_path)?;
-
+    download_model_archive(&app, &archive_path, model)?;
+    verify_model_archive(&archive_path, model)?;
     emit_model_progress(
         &app,
+        model,
         "extracting",
         "Extracting offline voice model",
-        MODEL_ARCHIVE_BYTES,
+        model.archive_bytes,
     );
     fs::create_dir_all(&extract_dir).map_err(|err| {
         format!(
@@ -185,12 +189,11 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
     })?;
     extract_model_archive(&archive_path, &extract_dir)?;
 
-    let extracted_model_dir = extract_dir.join(MODEL_NAME);
-    if !has_required_files(&extracted_model_dir) {
+    let extracted_model_dir = extract_dir.join(model.directory_name);
+    if !model.has_required_files(&extracted_model_dir) {
         return Err("Downloaded voice model is missing required files after extraction".into());
     }
 
-    // Stage to a temp name, then swap into the final path; clears any old model.
     let _ = fs::remove_dir_all(&temp_model_dir);
     fs::rename(&extracted_model_dir, &temp_model_dir).map_err(|err| {
         format!(
@@ -198,7 +201,6 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
             temp_model_dir.display()
         )
     })?;
-
     if let Some(parent) = final_dir.parent() {
         fs::create_dir_all(parent).map_err(|err| {
             format!(
@@ -214,18 +216,19 @@ fn install_model_blocking(app: tauri::AppHandle) -> Result<NativeTtsModelInstall
             final_dir.display()
         )
     })?;
-    // The model now lives in final_dir, so the guard should not run failure cleanup.
     work_guard.disarm();
     let _ = fs::remove_dir_all(&work_root);
 
     let bytes = directory_size(&final_dir).unwrap_or(0);
     emit_model_progress(
         &app,
+        model,
         "installed",
         "Offline voice model installed",
-        MODEL_ARCHIVE_BYTES,
+        model.archive_bytes,
     );
     Ok(NativeTtsModelInstallResponse {
+        model_id: model.id.into(),
         model_dir: final_dir.display().to_string(),
         bytes,
     })
@@ -260,25 +263,35 @@ impl Drop for WorkDirGuard {
 /// Stream the pinned model archive from GitHub to `archive_path`, emitting
 /// throttled download-progress events (every ~2% and at 100%). Reads in 256 KB
 /// blocks so memory stays flat regardless of the ~333 MB total.
-fn download_model_archive(app: &tauri::AppHandle, archive_path: &Path) -> Result<(), String> {
-    emit_model_progress(
-        app,
-        "downloading",
-        "Downloading Kokoro voice model from k2-fsa/sherpa-onnx",
-        0,
-    );
+fn download_model_archive(
+    app: &tauri::AppHandle,
+    archive_path: &Path,
+    model: &ModelDefinition,
+) -> Result<(), String> {
+    let message = format!("Downloading {}", model.display_name);
+    emit_model_progress(app, model, "downloading", &message, 0);
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60 * 30))
         .user_agent("Papercut native TTS model installer")
         .build()
         .map_err(|err| format!("Failed to create model downloader: {err}"))?;
     let mut response = client
-        .get(MODEL_URL)
+        .get(model.source_url)
         .send()
-        .map_err(|err| format!("Failed to download offline voice model from {MODEL_URL}: {err}"))?
+        .map_err(|err| {
+            format!(
+                "Failed to download offline voice model from {}: {err}",
+                model.source_url
+            )
+        })?
         .error_for_status()
-        .map_err(|err| format!("Failed to download offline voice model from {MODEL_URL}: {err}"))?;
-    let total = response.content_length().unwrap_or(MODEL_ARCHIVE_BYTES);
+        .map_err(|err| {
+            format!(
+                "Failed to download offline voice model from {}: {err}",
+                model.source_url
+            )
+        })?;
+    let total = response.content_length().unwrap_or(model.archive_bytes);
     let file = fs::File::create(archive_path).map_err(|err| {
         format!(
             "Failed to create model archive {}: {err}",
@@ -307,12 +320,7 @@ fn download_model_archive(app: &tauri::AppHandle, archive_path: &Path) -> Result
         let percent = download_percent(downloaded, total);
         if percent >= last_percent.saturating_add(2) || percent == 100 {
             last_percent = percent;
-            emit_model_progress(
-                app,
-                "downloading",
-                "Downloading Kokoro voice model from k2-fsa/sherpa-onnx",
-                downloaded,
-            );
+            emit_model_progress(app, model, "downloading", &message, downloaded);
         }
     }
     writer.flush().map_err(|err| {
@@ -326,7 +334,7 @@ fn download_model_archive(app: &tauri::AppHandle, archive_path: &Path) -> Result
 
 /// Verify the downloaded archive's SHA-256 matches the pinned hash, reading in
 /// 256 KB blocks. Guards against corrupt or tampered downloads before extract.
-fn verify_model_archive(archive_path: &Path) -> Result<(), String> {
+fn verify_model_archive(archive_path: &Path, model: &ModelDefinition) -> Result<(), String> {
     let file = fs::File::open(archive_path).map_err(|err| {
         format!(
             "Failed to open model archive {}: {err}",
@@ -346,9 +354,10 @@ fn verify_model_archive(archive_path: &Path) -> Result<(), String> {
         hasher.update(&buffer[..read]);
     }
     let actual = format!("{:x}", hasher.finalize());
-    if actual != MODEL_SHA256 {
+    if actual != model.sha256 {
         return Err(format!(
-            "Downloaded voice model checksum mismatch. Expected {MODEL_SHA256}, got {actual}"
+            "Downloaded voice model checksum mismatch. Expected {}, got {actual}",
+            model.sha256
         ));
     }
     Ok(())
@@ -374,15 +383,22 @@ fn extract_model_archive(archive_path: &Path, extract_dir: &Path) -> Result<(), 
 
 /// Emit one install-progress event (status + message + byte count + percent).
 /// Best-effort: a failed emit is ignored so it can't abort the install.
-fn emit_model_progress(app: &tauri::AppHandle, status: &str, message: &str, downloaded_bytes: u64) {
+fn emit_model_progress(
+    app: &tauri::AppHandle,
+    model: &ModelDefinition,
+    status: &str,
+    message: &str,
+    downloaded_bytes: u64,
+) {
     let _ = app.emit(
         MODEL_INSTALL_PROGRESS_EVENT,
         NativeTtsModelInstallProgress {
+            model_id: model.id.into(),
             status: status.into(),
             message: message.into(),
             downloaded_bytes,
-            total_bytes: MODEL_ARCHIVE_BYTES,
-            percent: download_percent(downloaded_bytes, MODEL_ARCHIVE_BYTES),
+            total_bytes: model.archive_bytes,
+            percent: download_percent(downloaded_bytes, model.archive_bytes),
         },
     );
 }

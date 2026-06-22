@@ -1,6 +1,6 @@
-# Native Kokoro TTS with sherpa-onnx
+# Native multilingual TTS with sherpa-onnx
 
-Papercut's go-forward TTS path is native sherpa-onnx running the Kokoro model. The previous browser Web Worker / kokoro-js fallback has been removed from active playback and audiobook saving because it was too slow on Android and was limited by browser/WebView inference constraints.
+Papercut's TTS path is native sherpa-onnx with a catalog of model families. Kokoro remains the English default; Piper Kareem Medium adds Arabic (`ar-JO`) through sherpa VITS. The previous browser Web Worker / kokoro-js fallback has been removed from active playback and audiobook saving because it was too slow on Android and was limited by browser/WebView inference constraints.
 
 The design goal is still offline-first: model files live on the user's device, audiobook chunks are generated only when a user asks to save a document, and generated audio is stored as user data instead of being pre-rendered into the app bundle.
 
@@ -11,7 +11,7 @@ The frontend owns document parsing, HTML narration chunking, the platform-neutra
 The boundary is intentionally small:
 
 - `src/tts/api/nativeTts.ts` calls Tauri commands and subscribes to native model-install/save progress events.
-- `src-tauri/src/native_tts/` is the Rust backend module. Its `commands` layer exposes the Tauri commands and dispatches, via one `#[cfg]` switch, to either the `engine` submodules (real sherpa-onnx synthesis, compiled with `native-tts-core`) or a `stub` fallback when native TTS is not compiled. Inside `engine`: `model` downloads/verifies the pinned model, `synth` loads sherpa-onnx and synthesizes individual chunks, `save` runs native batch generation and writes a durable timing index, `cache` scans saved chunks and parses WAV headers, `playback` prepares or reuses one cached mobile playback track, and `bundle` (`export`/`import`/`manage`) handles audiobook export/import and deletion. `paths`/`config` hold shared path/id/constant helpers, and OS-specific tuning (thread counts) lives in `platform`.
+- `src-tauri/src/native_tts/` is the Rust backend module. Its `commands` layer exposes the Tauri commands and dispatches, via one `#[cfg]` switch, to either the `engine` submodules (real sherpa-onnx synthesis, compiled with `native-tts-core`) or a `stub` fallback when native TTS is not compiled. Inside `engine`: `models` defines catalog metadata and family-specific loading data, `model` downloads/verifies the selected model, `synth` loads sherpa-onnx and synthesizes individual chunks, `preprocess` owns optional language-aware synthesis-text transforms, `save` runs native batch generation and writes a durable timing index, `cache` scans saved chunks and parses WAV headers, `playback` prepares or reuses one cached mobile playback track, and `bundle` (`export`/`import`/`manage`) handles audiobook export/import and deletion. `paths`/`config` hold shared path/id/constant helpers, and OS-specific tuning (thread counts) lives in `platform`.
 - `src/tts/hooks/useTtsPlayer.ts` exposes one playback state contract to the UI. Desktop reads a bounded window of saved chunk WAVs; mobile maps one native track timeline back to chunk-local state. It never synthesizes missing chunks live.
 - `src/tts/playback/nativeMobileAudio.ts` is the narrow adapter around the official, exactly pinned `tauri-plugin-native-audio` 1.0.5 API. Papercut serializes bridge commands and owns its foreground polling cadence instead of forking or modifying the plugin.
 - `src/tts/hooks/useAudiobookCache.ts` checks native audiobook files and starts long-running native save jobs.
@@ -21,23 +21,59 @@ The boundary is intentionally small:
 
 This keeps expensive inference and large WAV writes out of the WebView while preserving the existing React UI, highlighting contract, portable bundle format, and offline cache metadata.
 
-## Model Download
+## Model Catalog And Download
 
-The app does not package the Kokoro model into desktop installers or Android APKs by default. Users install the voice model once from the Audiobook settings cog with **Download voice model**. The button describes what is being downloaded and names the official source.
+The app does not package voice models into desktop installers or Android APKs. The model selector uses Rust capabilities as the authoritative catalog; a matching TypeScript fallback keeps startup and browser UI deterministic. Adding a model requires catalog metadata, required-file validation, and a sherpa family loader, not a parallel save/playback implementation.
 
-Pinned model asset:
+Pinned models:
 
-- Source: k2-fsa/sherpa-onnx Kokoro multi-lang v1.0
-- URL: https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
-- SHA-256: `c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046`
-- Archive size: 349,418,188 bytes, about 333 MB
-- Manifest: `src-tauri/tts/model-manifest.json`
+| Model | Family | Language | Archive bytes | SHA-256 |
+| --- | --- | --- | ---: | --- |
+| Kokoro English v1.0 | Kokoro | `en-US` | 349,418,188 | `c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046` |
+| Piper Kareem Medium | VITS/Piper | `ar-JO` | 67,177,830 | `9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce` |
 
-Desktop and Android use this same model archive. The archive contains model/data files, not platform-specific native code. Platform-specific pieces are handled separately: desktop builds use the Rust `sherpa-onnx` dependency, and Android native TTS uses the official sherpa-onnx Android shared-library archive prepared by `npm run prepare:sherpa-android-libs`.
+Both archives come from `https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models` and are listed in `src-tauri/tts/model-manifest.json`. Rust downloads into a temporary cache directory, verifies SHA-256, extracts, validates required files, and atomically promotes the selected model into `models/sherpa-onnx/<model-directory>/`. Incomplete installs are not used.
 
-At install time, Rust downloads the archive into a temporary app cache directory, verifies the SHA-256, extracts it, checks required files, and then moves it into Tauri app data under `models/sherpa-onnx/kokoro-multi-lang-v1_0/`. If verification or extraction fails, the incomplete temp directory is not used as a model.
+Piper Kareem is about 64 MB compressed and suitable for offline Arabic, but a medium Piper voice is not expected to match Kokoro's naturalness. Treat quality as an empirical product decision. The Piper voice repository declares MIT for model files; the dataset card does not clearly state training-data licensing, so legal/provenance review is required before bundling or broadly redistributing it. Papercut currently downloads it on demand rather than embedding it.
 
-Existing saved audiobook files are not changed by this model-download change. The saved-audiobook cache key/version is separate from where the model is installed. Existing saved WAV chunks remain app user data and playback still reads them from the native audiobook cache.
+Existing saved audiobook files are unchanged. The cache version stays `native-save-v4-segmented`; Kokoro retains the same model ID, voice IDs, and audiobook identity. Legacy preferences, download records, saved records, imported uploads, native manifests, and bundles default missing model metadata to Kokoro and missing preprocessing metadata to `none`. Existing completed WAV audiobooks remain playable. Diacritized Piper saves use a distinct ID and never overwrite or reuse undiacritized audio. Documents unaffected by the wrapper-text omission keep the same narration text. An affected document must be regenerated to include the newly retained prose; the corrected source signature and chunk sequence intentionally differ from the incomplete generation.
+
+## Arabic Pronunciation And Diacritization
+
+Piper Kareem uses eSpeak-ng phonemization through sherpa-onnx. Arabic normally omits short vowels, so an undiacritized spelling can represent several pronunciations and meanings. Piper and eSpeak-ng do not provide enough contextual language understanding to resolve every ambiguity by themselves.
+
+Shared native builds now compile `libtashkeel_base = 1.5.0` as an optional preprocessing backend. The model catalog exposes preprocessing as data instead of Piper-specific UI logic:
+
+- `none`: pass source text to synthesis unchanged. This is the only Kokoro option and preserves all historical audiobook IDs.
+- `libtashkeel-1.5.0`: run the bundled 4,788,213-byte Arabic diacritization model before Piper synthesis. This is the Piper default on desktop shared builds and Android.
+
+The Rust `TextPreprocessor` boundary is deliberately small. Save retains canonical `chunk.text`, chunk IDs, source hashes, and source spans; it creates a separate synthesis string, applies Libtashkeel once per missing chunk, then passes that result through the normal sherpa text sanitizer and selected model. React only consumes model capabilities and persists the selected preprocessing ID. A future Arabic preprocessor or another language pipeline can therefore be added in the model catalog without changing audiobook orchestration.
+
+Highlighting continues to use original source text and spans. Diacritics are never inserted into the HTML, React chunk text, search index, or DOM range matching. Current highlighting is chunk-based rather than phoneme-timed, so a longer diacritized synthesis string does not shift the highlighted source range.
+
+Audiobook identity includes the versioned preprocessing ID only when it is not `none`. This has two useful properties:
+
+- Existing Kokoro and undiacritized audiobook IDs remain byte-for-byte unchanged and older generated audio stays playable.
+- Diacritized Piper audio uses a separate cache directory, saved record, queue entry, manifest, and export-bundle field, so it cannot reuse audio produced from different vocalization.
+
+Legacy local records, native manifests, imported uploads, and version-2 bundles that omit preprocessing metadata deserialize as `none`. Imported audiobook bundles replay from their stored bundle chunk metadata instead of re-chunking the restored source HTML, so older Kokoro bundles remain playable even when newer document extraction or chunk-boundary code would produce a different source signature. Highlighting is rebuilt lazily from the restored HTML after open: if the current chunker produces the same ordered chunk ids/text, Papercut grafts fresh DOM source spans onto the bundle chunks; if not, playback remains available without highlighting. The cache version remains `native-save-v4-segmented`; no global invalidation is needed.
+
+Libtashkeel uses its bundled neural model and preserves user-provided Arabic diacritics as inference hints. Papercut supplies already bounded narration chunks and calls the preprocessed input path, avoiding a second sentence-segmentation layer. The crate limit is 12,000 characters, while Papercut save chunks are capped far below that. Text containing no Arabic characters bypasses inference.
+
+Quality remains probabilistic. Automatic tashkeel should improve many vowels, but names, foreign words, dialect, syntax-dependent case endings, and genuinely ambiguous sentences can still be wrong. Piper Kareem also remains a medium single-speaker voice and should not be presented as Kokoro-equivalent naturalness. Keep the `Original text` option available for user-supplied fully vocalized text and for debugging regressions.
+
+The crate and model code are MIT/Apache-2.0 licensed. `ort-sys` is the low-level Rust FFI to ONNX Runtime, while `ort` is the safe Rust API used by Libtashkeel. Both are pinned to `2.0.0-rc.1` because that is the API version required by Libtashkeel 1.5.0. They use dynamic loading so Libtashkeel and sherpa share one packaged `libonnxruntime` instead of embedding a second runtime. `ORT_LIB_LOCATION` is build plumbing, not an application preference: desktop and Android build helpers point Cargo at the already prepared sherpa library directory so `ort-sys` can find the correct platform/ABI library. At runtime `ort::init_from` loads `libonnxruntime.so` from the app package; Android places that same file in the selected ABI's `jniLibs` directory.
+
+Potential future upgrades remain separate product choices. CATT can be evaluated as a more accurate ONNX preprocessor if mobile cost is acceptable. SILMA TTS is a future full speech-engine candidate, not a drop-in preprocessor; its current Python/PyTorch distribution is too large for the present sherpa mobile architecture.
+
+Primary references:
+
+- Libtashkeel repository: https://github.com/mush42/libtashkeel
+- Libtashkeel crate: https://crates.io/crates/libtashkeel_base
+- CATT repository and ONNX path: https://github.com/abjadai/catt
+- SILMA TTS model card: https://huggingface.co/silma-ai/silma-tts
+- Piper eSpeak-ng phonemization: https://github.com/OHF-Voice/piper1-gpl
+- sherpa-onnx Piper integration: https://k2-fsa.github.io/sherpa/onnx/tts/piper.html
 
 ## Build And Run
 
@@ -69,7 +105,7 @@ npm run prepare:sherpa-android-libs
 npm run android:apk:native-tts
 ```
 
-The explicit prepare commands are useful for setup and troubleshooting, but `npm run android:apk:native-tts` also ensures the sherpa Android libraries are present before building. The native Android wrapper sets `JAVA_HOME` and `SHERPA_ONNX_LIB_DIR` automatically for the default arm64 APK path. `npm run prepare:jdk` installs a repo-local Eclipse Temurin JDK 17 into `src-tauri/tts/runtime/jdk/temurin-17` when a system JDK is not available. The fallback JDK archive is pinned to Eclipse Temurin 17.0.19+10, and both the JDK archive and sherpa Android archive are verified with SHA-256 before extraction. Downloads are written through temporary files before being promoted to their cache path. The Android build still requires the normal Android SDK/NDK prerequisites. Native background audio raises the app minimum to Android API 26, matching the plugin's Media3 service requirement.
+The explicit prepare commands are useful for setup and troubleshooting, but `npm run android:apk:native-tts` also ensures the sherpa Android libraries are present before building. The native Android wrapper sets `JAVA_HOME`, `SHERPA_ONNX_LIB_DIR`, and `ORT_LIB_LOCATION` automatically for the default arm64 APK path. `npm run prepare:jdk` installs a repo-local Eclipse Temurin JDK 17 into `src-tauri/tts/runtime/jdk/temurin-17` when a system JDK is not available. The fallback JDK archive is pinned to Eclipse Temurin 17.0.19+10, and both the JDK archive and sherpa Android archive are verified with SHA-256 before extraction. Downloads are written through temporary files before being promoted to their cache path. The Android build still requires the normal Android SDK/NDK prerequisites. Native background audio raises the app minimum to Android API 26, matching the plugin's Media3 service requirement.
 
 The Node build scripts are orchestration around npm, Cargo, Tauri, Gradle, and SDK Manager rather than a replacement for those tools. Shared helpers in `scripts/lib/` own project paths, version constants, child-process execution, archive extraction, and checked downloads. Platform-specific helpers live in `scripts/lib/android/` for Android JDK/sherpa setup and `scripts/lib/linux/` for Linux shared-library bundling. Script entrypoints such as `prepare:sherpa-android-libs`, `android:apk:native-tts`, and `desktop` call those helpers instead of relying on import side effects or duplicated archive/spawn code. Android APK variants are handled by one top-level `scripts/build-android.js`; the native TTS npm command passes `--native-tts` to that script.
 
@@ -84,18 +120,23 @@ Instead, audio is generated on demand:
 1. The user opens an HTML document and clicks Save.
 2. The app builds deterministic narration chunks for that document.
 3. The native audiobook directory in app data is scanned for existing WAV chunks.
-4. A single native save job generates every missing chunk in sequence and writes WAV files directly to app data.
-5. Native progress events update the React Audiobooks panel and TTS diagnostics.
-6. A localStorage registry marks the audiobook complete only when every chunk exists.
-7. Save writes a versioned `manifest.json` containing compact chunk timing/size metadata. On first mobile Play, Rust reuses a restored bundle track when available or streams the saved chunks into an atomic cached `playback.wav`; later plays reuse that track and its `playback.json` boundaries.
+4. For each missing chunk, the selected text preprocessor creates synthesis text while preserving canonical source text and spans.
+5. A single native save job generates every missing chunk in sequence and writes WAV files directly to app data.
+6. Native progress events update the React Audiobooks panel and TTS diagnostics.
+7. A localStorage registry marks the audiobook complete only when every chunk exists.
+8. Save writes a versioned `manifest.json` containing compact chunk timing/size metadata. On first mobile Play, Rust reuses a restored bundle track when available or streams the saved chunks into an atomic cached `playback.wav`; later plays reuse that track and its `playback.json` boundaries.
 
-Save uses a conservative chunk profile that is separate from playback chunking. Playback keeps larger chunks for comfortable skip/highlight behavior, while Save uses smaller sentence-like chunks so one problematic text range is less likely to kill a long Android job and Resume has less work to retry.
+Save uses a conservative chunk profile that is separate from playback chunking. Sentence detection includes Arabic `؟`; clause splitting includes `،` and `؛`; a final word-boundary hard split guarantees no request exceeds the profile maximum even when punctuation is missing. Playback keeps larger chunks for comfortable skip/highlight behavior, while Save uses smaller sentence-like chunks so one problematic text range is less likely to kill a long Android job and Resume has less work to retry.
 
 ### Narration Text Alignment
 
-Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter turns headings, paragraphs, list items, and other readable blocks into ordered segments, and treats wrapper containers as structure when they contain nested readable blocks; future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
+Narration chunks are built from reusable readable-text segments instead of raw `body.textContent`. The HTML adapter assigns each text node to its nearest readable block and emits ordered owner runs. This preserves direct text owned by wrapper elements before or after nested headings and paragraphs without duplicating nested content. Legacy HTML often places prose directly inside table cells; treating every wrapper with readable descendants as structure previously dropped that prose before chunking or synthesis. Bracketed inline footnote reference anchors (`[1]`, `[2*]`, `[8a]`, etc.) are excluded from both narration extraction and the DOM segment index, but footnote paragraphs themselves stay readable in their normal location. This keeps footnote markers from becoming tiny chunks or destabilizing chunk boundary highlights.
 
-The viewer highlighter requires the CSS Custom Highlight API provided by the supported desktop and Android WebViews. Chunking retains runtime-only source spans that identify each chunk's readable segment indexes and normalized offsets without changing chunk text or ids. After iframe load, the viewer builds a one-pass index of readable leaf blocks during browser idle (with an immediate fallback if playback starts first); it does not concatenate the full document or allocate per-character node/offset arrays. Only the active chunk's boundary segments are scanned to create a DOM `Range`, and an LRU cache retains up to 128 visited ranges. One registered `Highlight` object owns the active range, and shutdown clears it before removing the registry entry. Smooth scrolling waits briefly for rapid navigation to settle so repeated skip taps do not start competing scroll animations.
+This extraction correction does not justify a global cache-version bump. Normal block-structured books retain their existing chunks and WAV reuse. Only sources that previously lost wrapper-owned text receive a different source signature and require regeneration. Existing audio files remain readable, but the old generation is incomplete by definition.
+
+Future EPUB/PDF adapters should produce the same segment shape instead of adding format-specific rules to the TTS hooks. Chunking keeps headings separate from paragraph merges so playback highlights do not disappear or span awkwardly across visual section changes.
+
+The viewer highlighter requires the CSS Custom Highlight API provided by the supported desktop and Android WebViews. Chunking retains runtime-only source spans that identify each chunk's readable segment indexes and normalized offsets without changing chunk text or ids. After iframe load, the viewer builds a one-pass index of the same readable text-owner runs during browser idle (with an immediate fallback if playback starts first); it does not concatenate the full document or allocate per-character node/offset arrays. Only the active chunk's boundary segments are scanned to create a DOM `Range`, and an LRU cache retains up to 128 visited ranges. One registered `Highlight` object owns the active range, and shutdown clears it before removing the registry entry. Smooth scrolling waits briefly for rapid navigation to settle so repeated skip taps do not start competing scroll animations.
 
 Playback navigation is latest-intent-wins on both backends. Backward, Forward, automatic advance, and chapter-list jumps update one target. Desktop keeps separate pending and committed indexes around its foreground chunk loader. Mobile keeps one serialized native seek worker, one queued target, and one active pending target that is cleared when the seek commits or exits. Repeated taps replace the queued target, so obsolete intermediate seeks do not commit audio or highlighting. Desktop and mobile pending indexes remain separate so a completed mobile jump cannot become the base for a later Forward or Backward action.
 
@@ -103,13 +144,13 @@ Desktop audio loading remains bounded: one foreground chunk load may run alongsi
 
 This changed chunk boundaries, so the native audiobook cache version is now `native-save-v4-segmented`. Older saved-audiobook records and exported bundles from previous cache versions are treated as incompatible and should be re-saved/re-exported.
 
-Native synthesis sanitizes text before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, and emoji/non-BMP symbols are dropped for the English Kokoro path. This slightly changes unusual source text, but it avoids feeding unsupported characters into native tokenization.
+After optional preprocessing, native synthesis sanitizes the synthesis copy before calling sherpa-onnx: smart punctuation is normalized, zero-width/control characters are removed, whitespace is collapsed, emoji/non-BMP symbols are dropped, and standalone four-digit years in the 1000-2099 range are expanded for more natural historical-date pronunciation (`1984` -> `nineteen eighty four`). Arabic BMP characters and punctuation are preserved for Piper tokenization. These synthesis-only changes do not rewrite source chunks, DOM spans, search text, or bundle metadata.
 
 Read playback is saved-only: the viewer Play button appears only when the current document has a complete saved audiobook for the selected voice and speed. Playback reads native saved-audiobook files and does not synthesize missing chunks live. Desktop uses the bounded React chunk window. Mobile hands one cached local track to the official native plugin and delegates playback, notification controls, lock-screen controls, audio focus, and wake behavior to the platform player. Native global time is converted back to the same `currentChunkIndex`, chunk-local time, and progress fields used by highlighting and the existing controls.
 
 While the WebView is hidden or the screen is locked, the native player and media session remain the playback source of truth and continue without React. Papercut stops foreground polling while hidden. On return it reads the current native state once, updates chunk refs and highlighting, and restarts one generation-fenced, non-overlapping poll. Mobile controls wait for that foreground synchronization before acting.
 
-These playback and highlighting rules do not change narration text, chunk ids, cache keys, chunk WAV filenames, or the exported audiobook format, so they do not require an audiobook cache-version bump. Highlight source spans are rebuilt from source HTML whenever a document opens and are removed at the Tauri IPC boundary; existing saved audio and imported bundles do not need regeneration. Internal native manifests use one exact current schema; older local manifest schemas are intentionally treated as incompatible and can be replaced by saving the audiobook again. This does not change bundle compatibility because every import writes a fresh current manifest from the bundle's canonical source and chunk WAVs. A desktop-generated `.papercut-audiobook` remains portable because mobile import restores its source HTML, chunk WAVs, and bundled single track when present. Bundles contain no device path or plugin-specific state; if a track is absent, mobile derives it from the restored chunks.
+These playback and highlighting rules do not change narration text, chunk ids, cache keys, chunk WAV filenames, or the exported audiobook format, so they do not require an audiobook cache-version bump. Highlight source spans are runtime DOM alignment data and are removed at the Tauri IPC boundary. For normal documents they are rebuilt from source HTML whenever the document opens; for imported bundles they are grafted onto the bundle's canonical chunks only after an exact rebuilt-chunk match. Existing saved audio and imported bundles do not need regeneration. Internal native manifests use one exact current schema; older local manifest schemas are intentionally treated as incompatible and can be replaced by saving the audiobook again. This does not change bundle compatibility because every import writes a fresh current manifest from the bundle's canonical source and chunk WAVs. A desktop-generated `.papercut-audiobook` remains portable because mobile import restores its source HTML, chunk WAVs, and bundled single track when present. Bundles contain no device path or plugin-specific state; if a track is absent, mobile derives it from the restored chunks.
 
 ### Native Mobile Playback Constraints
 
@@ -131,10 +172,11 @@ The document header exposes one consolidated audio control surface:
 - The burger/list button opens a mobile-friendly chunk list for long audiobooks. Rows show an estimated start timestamp when total saved duration is known and jump directly to that chunk.
 - Save generates and persists the full audiobook for the current HTML document.
 - Saved appears when the full audiobook exists locally for the selected voice and speed.
-- Download voice model installs the pinned Kokoro model once into app data.
+- Model selects the engine/language. Download voice model installs the selected pinned model into app data.
+- Text processing selects a model-supported synthesis preprocessor. Piper offers automatic Arabic diacritization or original text; Kokoro exposes original text only.
 - Threads controls the native ONNX Runtime thread count for benchmarking save throughput on the current device. Options extend to the logical CPU parallelism detected by Rust, each app session starts with the conservative native platform default (1 on Android, up to 4 on desktop), and the UI reports the backend-confirmed count applied to the active or most recent save. Selecting more than 4 threads shows a warning because extra parallelism can increase memory use, heat, battery drain, and thermal throttling without guaranteeing faster synthesis.
 
-The home screen Audiobooks panel shows active or resumable saves with progress bars, completed saved audiobooks, export/delete actions, saved duration, saved percent, stored size, and the voice/speed metadata for each item. Completed saved audiobooks are shown regardless of the currently selected voice; opening one switches the UI to that record's voice and speed before viewing the document. The document list/search results can still be filtered to documents with saved audio for the current voice/speed selection.
+The home screen Audiobooks panel shows active or resumable saves with progress bars, completed saved audiobooks, export/delete actions, saved duration, saved percent, stored size, and the model, voice, speed, and preprocessing metadata for each item. Completed saved audiobooks are shown regardless of the currently selected voice; opening one switches the UI to the model, voice, speed, and preprocessing choice stored on that record before viewing the document. The document list/search results can still be filtered to documents with saved audio for the current model, voice, speed, and preprocessing selection.
 
 ## Diagnostics
 
@@ -152,7 +194,7 @@ The in-app TTS diagnostics panel is the primary way to monitor desktop and mobil
 - `[tts-highlight] slow chunk range built`
 - `[tts-highlight] chunk range unavailable`
 
-Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
+Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, source and synthesis previews, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
 
 Interpretation guide:
 
@@ -160,7 +202,7 @@ Interpretation guide:
 - High `realTimeFactor` after warmup means synthesis is the bottleneck.
 - If a higher `threadCount` improves `realTimeFactor`, keep it for that device; if it crashes, heats up, or throttles during long saves, return to 1 thread on Android.
 - If Resume crashes at the same point, inspect the last `[tts-save] native chunk start` entry. The `chunkNumber`, `chunkId`, and `textPreview` identify the text range being passed to native synthesis when the process died.
-- Repeated cache misses usually mean the document, chunk text, voice, speed, model id, or audiobook cache version changed.
+- Repeated cache misses usually mean the document, chunk text, voice, speed, model id, text preprocessor, or audiobook cache version changed.
 - A high `[tts-highlight] DOM segment index built` time means iframe DOM traversal is still expensive; normal work scales with DOM nodes, not audiobook characters.
 - `[tts-highlight] slow chunk range built` usually identifies one unusually large readable block. `[tts-highlight] chunk range unavailable` means runtime source spans and iframe structure disagree and includes a reason field.
 

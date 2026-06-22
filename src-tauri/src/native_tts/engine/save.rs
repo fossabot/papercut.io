@@ -24,11 +24,13 @@ use tauri::Emitter;
 use super::cache::{scan_audiobook, wav_info, wav_metadata};
 use super::config::{AUDIOBOOK_MANIFEST_VERSION, SAVE_PROGRESS_EVENT};
 use super::file_commit::commit_staged_file;
+use super::models::{model_definition, DEFAULT_MODEL_ID};
 use super::paths::{
     audiobook_dir, chunk_path, chunk_source_signature, playback_metadata_path, playback_track_path,
     speakable_chunks,
 };
-use super::synth::{ensure_engine, synthesize_to_file, text_preview, SherpaKokoroEngine};
+use super::preprocess::TextPreprocessor;
+use super::synth::{ensure_engine, synthesize_to_file, text_preview, SherpaTtsEngine};
 use crate::native_tts::platform::resolve_thread_count;
 use crate::native_tts::state::NativeTtsState;
 use crate::native_tts::types::{
@@ -47,6 +49,10 @@ pub(super) struct NativeAudiobookManifest {
     pub(super) version: u8,
     pub(super) document_url: String,
     pub(super) title: String,
+    #[serde(default = "default_model_id")]
+    pub(super) model_id: String,
+    #[serde(default = "default_text_preprocessor")]
+    pub(super) text_preprocessor: String,
     pub(super) voice: String,
     pub(super) speed: f32,
     pub(super) thread_count: i32,
@@ -64,6 +70,16 @@ struct NativeAudiobookManifestHeader {
 }
 
 const PLAYBACK_TIMING_TOLERANCE_SEC: f64 = 0.05;
+
+/// Preserve manifests written before model selection existed by treating them as Kokoro.
+fn default_model_id() -> String {
+    DEFAULT_MODEL_ID.into()
+}
+
+/// Preserve pre-diacritization manifests by treating absent metadata as original text.
+fn default_text_preprocessor() -> String {
+    "none".into()
+}
 
 /// Tauri command backend: start (or resume) saving the full audiobook.
 ///
@@ -113,15 +129,25 @@ pub(crate) fn cancel_audiobook_save(
 /// event. Returns aggregate totals for the whole audiobook.
 fn save_audiobook_native_blocking(
     app: tauri::AppHandle,
-    engine_state: Arc<Mutex<Option<SherpaKokoroEngine>>>,
+    engine_state: Arc<Mutex<Option<SherpaTtsEngine>>>,
     cancelled_jobs: Arc<Mutex<HashSet<String>>>,
     request: NativeAudiobookSaveRequest,
 ) -> Result<NativeAudiobookSaveResponse, String> {
     let started = Instant::now();
+    // Wall-clock mark for the final stale-temp sweep: only `.tmp` files left
+    // untouched since before this job began are abandoned remnants safe to remove.
+    let job_started = SystemTime::now();
     let chunks = speakable_chunks(&request.chunks);
     let total_chunks = chunks.len();
     if total_chunks == 0 {
         return Err("No speakable audiobook chunks to save".into());
+    }
+    let model = model_definition(&request.model_id)?;
+    if !model.supports_text_preprocessor(&request.text_preprocessor) {
+        return Err(format!(
+            "Text preprocessor {:?} is not supported by model {}",
+            request.text_preprocessor, model.display_name
+        ));
     }
     let dir = audiobook_dir(&app, &request.audiobook_id)?;
     let chunks_dir = dir.join("chunks");
@@ -136,8 +162,15 @@ fn save_audiobook_native_blocking(
     // discoverable without sending every chunk through later status IPC.
     write_pending_manifest(&dir, &request, &chunks)?;
 
+    // Sweep chunk WAVs left by an earlier save of now-edited source text before
+    // regenerating. Editing the source reuses the same audiobook id (its hash
+    // omits chunk content), so without this a re-save holds both the stale and
+    // new chunk sets on disk until the job finishes. Files whose names match the
+    // current chunk set are kept, so this is safe on resume.
+    prune_orphan_chunk_files(&dir, &chunks);
+
     // Scan with prune=true so invalid leftovers are removed and regenerated.
-    let backend = "sherpa-onnx-kokoro".to_string();
+    let backend = "sherpa-onnx".to_string();
     let mut scan = scan_audiobook(&dir, &chunks, true);
     let mut cached_chunks = scan.cached_chunks;
     let mut generated_chunks = 0usize;
@@ -175,12 +208,16 @@ fn save_audiobook_native_blocking(
     let mut guard = engine_state
         .lock()
         .map_err(|_| "Native TTS engine lock poisoned".to_string())?;
-    let engine = ensure_engine(&app, &mut guard, Some(thread_count))?;
+    let engine = ensure_engine(&app, &mut guard, &request.model_id, Some(thread_count))?;
     let backend = format!(
-        "sherpa-onnx-kokoro:{}:threads={}",
+        "{}:{}:{}:threads={}",
+        engine.model.backend_name(),
+        engine.model.id,
         engine.model_dir.display(),
         engine.num_threads
     );
+    let text_preprocessor = TextPreprocessor::create(engine.model, &request.text_preprocessor)?;
+    let backend = format!("{backend}:preprocessor={}", text_preprocessor.id());
 
     for (index, chunk) in chunks.iter().enumerate() {
         // Cooperative cancellation: bail out cleanly between chunks if asked.
@@ -244,9 +281,18 @@ fn save_audiobook_native_blocking(
         );
 
         // Synthesize this chunk to its file and fold its stats into the totals.
+        let synthesis_text = text_preprocessor.process(&chunk.text)?;
+        log::debug!(
+            "Prepared synthesis text: preprocessor={}, source_chars={}, synthesis_chars={}, source_preview={:?}, synthesis_preview={:?}",
+            text_preprocessor.id(),
+            chunk.text.chars().count(),
+            synthesis_text.chars().count(),
+            text_preview(&chunk.text),
+            text_preview(&synthesis_text),
+        );
         let result = synthesize_to_file(
             engine,
-            &chunk.text,
+            &synthesis_text,
             &request.voice,
             request.speed,
             &output_path,
@@ -284,8 +330,17 @@ fn save_audiobook_native_blocking(
         );
     }
 
-    // Record the manifest and clear any cancellation flag for this job.
-    write_manifest(&dir, &request, &chunks, thread_count)?;
+    // Final sweep before the manifest is finalized: catches any orphan that
+    // appeared since the start sweep, so disk use tracks exactly the current
+    // chunk set. The companion sweep then removes abandoned `.tmp` remnants.
+    prune_orphan_chunk_files(&dir, &chunks);
+    prune_stale_temp_files(&dir, job_started);
+
+    // Record the manifest and clear any cancellation flag for this job. The
+    // returned totals are measured from WAV headers, so they are the canonical
+    // values to report instead of the per-chunk f32 running sum.
+    let (total_audio_duration_sec, total_wav_bytes) =
+        write_manifest(&dir, &request, &chunks, thread_count)?;
     clear_cancelled(&cancelled_jobs, &request.job_id)?;
 
     // Final "saved" event with whole-job totals.
@@ -305,8 +360,8 @@ fn save_audiobook_native_blocking(
             generate_ms: Some(total_generate_ms),
             audio_duration_sec: Some(generated_audio_duration_sec),
             wav_bytes: Some(generated_wav_bytes),
-            total_audio_duration_sec: scan.audio_duration_sec,
-            total_wav_bytes: scan.wav_bytes,
+            total_audio_duration_sec: total_audio_duration_sec as f32,
+            total_wav_bytes,
             applied_thread_count: thread_count,
             backend: backend.clone(),
         },
@@ -320,8 +375,8 @@ fn save_audiobook_native_blocking(
         complete: true,
         dir: dir.display().to_string(),
         generate_ms: started.elapsed().as_millis(),
-        audio_duration_sec: scan.audio_duration_sec,
-        wav_bytes: scan.wav_bytes,
+        audio_duration_sec: total_audio_duration_sec,
+        wav_bytes: total_wav_bytes,
         applied_thread_count: thread_count,
         backend,
     })
@@ -344,6 +399,8 @@ pub(super) fn write_pending_manifest(
         version: AUDIOBOOK_MANIFEST_VERSION,
         document_url: request.document_url.clone(),
         title: request.title.clone(),
+        model_id: request.model_id.clone(),
+        text_preprocessor: request.text_preprocessor.clone(),
         voice: request.voice.clone(),
         speed: request.speed,
         thread_count: request.thread_count.unwrap_or(0),
@@ -363,12 +420,14 @@ pub(super) fn write_pending_manifest(
 ///
 /// Chunk start times come from measured audio durations, not text estimates. Any
 /// prior derived track is invalidated because Save or Import changed canonical data.
+/// Returns the canonical `(audio_duration_sec, wav_bytes)` totals it persisted so
+/// callers report the manifest's measured values rather than re-deriving them.
 pub(super) fn write_manifest(
     dir: &Path,
     request: &NativeAudiobookSaveRequest,
     chunks: &[NativeTtsInputChunk],
     thread_count: i32,
-) -> Result<(), String> {
+) -> Result<(f64, usize), String> {
     let generated_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| format!("System clock error: {err}"))?
@@ -384,6 +443,8 @@ pub(super) fn write_manifest(
         version: AUDIOBOOK_MANIFEST_VERSION,
         document_url: request.document_url.clone(),
         title: request.title.clone(),
+        model_id: request.model_id.clone(),
+        text_preprocessor: request.text_preprocessor.clone(),
         voice: request.voice.clone(),
         speed: request.speed,
         thread_count,
@@ -396,7 +457,7 @@ pub(super) fn write_manifest(
     };
     write_manifest_file(dir, &manifest)?;
     remove_legacy_playback_files(dir);
-    Ok(())
+    Ok((audio_duration_sec, wav_bytes))
 }
 
 /// Read a manifest only when its schema exactly matches this app version.
@@ -554,6 +615,79 @@ fn write_manifest_file(dir: &Path, manifest: &NativeAudiobookManifest) -> Result
     commit_staged_file(&temp_path, &path, "native audiobook manifest")
 }
 
+/// Remove chunk WAVs that no longer belong to the current chunk set.
+///
+/// Chunk filenames embed a content hash, so editing the source document and
+/// re-saving into the same audiobook id writes new filenames while the stale
+/// ones linger forever ([`scan_audiobook`] only prunes invalid WAVs at expected
+/// paths, never valid WAVs with old names). Sweep them once every current chunk
+/// is generated.
+///
+/// In-flight `.tmp` staging files are skipped on purpose: [`synthesize_to_file`]
+/// writes each chunk to `<name>.<nonce>.tmp` and atomically renames it into
+/// place, so a `.tmp` here can belong to a concurrent save of the same audiobook
+/// id mid-write. Deleting it would break that save's commit rename. Abandoned
+/// temps (each `.tmp` carries a unique nonce, so a crashed write is never
+/// overwritten by a later attempt) are reclaimed separately by
+/// [`prune_stale_temp_files`] using a job-start cutoff.
+fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
+    let expected: HashSet<std::ffi::OsString> = chunks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, chunk)| {
+            chunk_path(dir, index, chunk)
+                .file_name()
+                .map(|name| name.to_os_string())
+        })
+        .collect();
+
+    let Ok(entries) = fs::read_dir(dir.join("chunks")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "tmp") {
+            continue;
+        }
+        if !expected.contains(&entry.file_name()) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+/// Reclaim abandoned `.tmp` chunk staging files from crashed earlier writes.
+///
+/// A successful [`synthesize_to_file`] leaves no temp (it renames into place) and
+/// a failed one removes its own, so a `.tmp` still present here is either an
+/// orphan from a process that died mid-write or a concurrent save's live staging
+/// file. Each carries a unique nonce, so an abandoned one is never overwritten by
+/// a later attempt and would otherwise linger forever (inflating disk use and the
+/// byte totals reported on delete). Only files last modified before `cutoff` (this
+/// job's start) are swept: a concurrent save's in-flight temp is necessarily
+/// written after this job began, so its commit rename is never disturbed. Temps
+/// with unreadable mtime are left alone rather than risking a live write.
+fn prune_stale_temp_files(dir: &Path, cutoff: SystemTime) {
+    let Ok(entries) = fs::read_dir(dir.join("chunks")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.extension().is_some_and(|ext| ext == "tmp") {
+            continue;
+        }
+        let modified = entry.metadata().ok().and_then(|meta| meta.modified().ok());
+        if modified.is_some_and(|time| time < cutoff) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 /// Invalidate derived track artifacts whenever canonical manifest/chunks change.
 /// They are rebuilt or restored on demand and must never outlive source identity.
 fn remove_legacy_playback_files(dir: &Path) {
@@ -635,6 +769,98 @@ mod tests {
     }
 
     #[test]
+    fn legacy_manifest_without_model_id_defaults_to_kokoro() {
+        let manifest: NativeAudiobookManifest = serde_json::from_value(serde_json::json!({
+            "version": AUDIOBOOK_MANIFEST_VERSION,
+            "documentUrl": "/legacy.html",
+            "title": "Legacy",
+            "voice": "af_heart",
+            "speed": 1.0,
+            "threadCount": 1,
+            "chunks": [],
+            "generatedAtMs": 0,
+            "sourceSignature": "legacy",
+            "audioDurationSec": 0.0,
+            "wavBytes": 0,
+            "playbackChunks": []
+        }))
+        .expect("deserialize legacy manifest");
+
+        assert_eq!(manifest.model_id, DEFAULT_MODEL_ID);
+        assert_eq!(manifest.text_preprocessor, "none");
+    }
+
+    #[test]
+    fn prune_removes_orphan_chunk_files_only() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("papercut-prune-orphans-{nonce}"));
+        let chunks = chunks();
+        fs::create_dir_all(dir.join("chunks")).expect("create chunks dir");
+
+        // Write the expected WAV for each current chunk plus a leftover from an
+        // earlier save of different source text (a different content hash).
+        for (index, chunk) in chunks.iter().enumerate() {
+            fs::write(chunk_path(&dir, index, chunk), b"wav").expect("write expected chunk");
+        }
+        let orphan = dir.join("chunks").join("00001-a-deadbeefdeadbeef.wav");
+        fs::write(&orphan, b"stale").expect("write orphan chunk");
+        // A concurrent save of the same audiobook id stages its chunk here mid-write.
+        let in_flight = dir.join("chunks").join("00001-a-hash-a.123456789.tmp");
+        fs::write(&in_flight, b"writing").expect("write in-flight temp");
+
+        prune_orphan_chunk_files(&dir, &chunks);
+
+        assert!(!orphan.exists(), "orphan chunk should be removed");
+        assert!(
+            in_flight.exists(),
+            "in-flight temp must be left for the concurrent save's commit rename"
+        );
+        for (index, chunk) in chunks.iter().enumerate() {
+            assert!(
+                chunk_path(&dir, index, chunk).is_file(),
+                "current chunk should be kept"
+            );
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prune_stale_temp_files_removes_only_pre_job_temps() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("papercut-prune-temps-{nonce}"));
+        fs::create_dir_all(dir.join("chunks")).expect("create chunks dir");
+
+        // An abandoned temp from a crashed earlier write, then the job-start mark,
+        // then a concurrent save's in-flight temp staged after the job began.
+        let stale = dir.join("chunks").join("00001-a-hash-a.111.tmp");
+        fs::write(&stale, b"abandoned").expect("write stale temp");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let cutoff = SystemTime::now();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let in_flight = dir.join("chunks").join("00002-b-hash-b.222.tmp");
+        fs::write(&in_flight, b"writing").expect("write in-flight temp");
+        // A committed WAV must be untouched by the temp sweep.
+        let committed = dir.join("chunks").join("00001-a-hash-a.wav");
+        fs::write(&committed, b"wav").expect("write committed chunk");
+
+        prune_stale_temp_files(&dir, cutoff);
+
+        assert!(!stale.exists(), "abandoned pre-job temp should be removed");
+        assert!(
+            in_flight.exists(),
+            "a concurrent save's temp written after the job started must be kept"
+        );
+        assert!(committed.exists(), "committed WAVs must not be touched");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn new_save_writes_current_pending_and_complete_manifests() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -648,6 +874,8 @@ mod tests {
             audiobook_id: "test-audiobook".into(),
             document_url: "/test.html".into(),
             title: "Test".into(),
+            model_id: DEFAULT_MODEL_ID.into(),
+            text_preprocessor: "none".into(),
             chunks: chunks.clone(),
             voice: "af_heart".into(),
             speed: 1.0,

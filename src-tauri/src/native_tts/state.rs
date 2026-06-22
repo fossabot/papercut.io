@@ -14,15 +14,15 @@ use std::sync::Arc;
 use std::collections::HashSet;
 
 #[cfg(feature = "native-tts-core")]
-use super::engine::SherpaKokoroEngine;
+use super::engine::SherpaTtsEngine;
 
 pub struct NativeTtsState {
     #[cfg(feature = "native-tts-core")]
-    pub(crate) engine: Arc<Mutex<Option<SherpaKokoroEngine>>>,
+    pub(crate) engine: Arc<Mutex<Option<SherpaTtsEngine>>>,
     #[cfg(feature = "native-tts-core")]
     pub(crate) cancelled_jobs: Arc<Mutex<HashSet<String>>>,
     #[cfg(feature = "native-tts-core")]
-    pub(crate) model_installing: Arc<Mutex<bool>>,
+    pub(crate) model_installing: Arc<Mutex<HashSet<String>>>,
     #[cfg(not(feature = "native-tts-core"))]
     _disabled: Mutex<()>,
 }
@@ -35,7 +35,7 @@ impl Default for NativeTtsState {
             #[cfg(feature = "native-tts-core")]
             cancelled_jobs: Arc::new(Mutex::new(HashSet::new())),
             #[cfg(feature = "native-tts-core")]
-            model_installing: Arc::new(Mutex::new(false)),
+            model_installing: Arc::new(Mutex::new(HashSet::new())),
             #[cfg(not(feature = "native-tts-core"))]
             _disabled: Mutex::new(()),
         }

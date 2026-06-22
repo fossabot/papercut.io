@@ -1,4 +1,4 @@
-import type { KokoroDtype } from '../types'
+import { DEFAULT_TTS_MODEL_ID, NATIVE_TTS_DTYPE, TEXT_PREPROCESSOR_NONE } from '../types'
 
 const STORAGE_KEY = 'papercut.userUploads.v1'
 
@@ -6,6 +6,8 @@ export interface UserUploadDocument {
   url: string
   title: string
   importedAt: number
+  modelId: string
+  textPreprocessor: string
   voice: string
   speed: number
   dtype: string
@@ -24,7 +26,10 @@ export function getUserUploads(): UserUploadDocument[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed)
-      ? parsed.filter(isUserUploadDocument).sort((a, b) => b.importedAt - a.importedAt)
+      ? parsed
+        .filter(isUserUploadDocument)
+        .map((record) => ({ ...record, modelId: record.modelId ?? DEFAULT_TTS_MODEL_ID, textPreprocessor: record.textPreprocessor ?? TEXT_PREPROCESSOR_NONE }))
+        .sort((a, b) => b.importedAt - a.importedAt)
       : []
   } catch {
     return []
@@ -34,7 +39,9 @@ export function getUserUploads(): UserUploadDocument[] {
 export function upsertUserUpload(input: Omit<UserUploadDocument, 'importedAt'>): UserUploadDocument {
   const upload: UserUploadDocument = {
     ...input,
-    dtype: (input.dtype || 'native') as KokoroDtype,
+    modelId: input.modelId || DEFAULT_TTS_MODEL_ID,
+    dtype: input.dtype || NATIVE_TTS_DTYPE,
+    textPreprocessor: input.textPreprocessor ?? TEXT_PREPROCESSOR_NONE,
     importedAt: Date.now(),
   }
   const records = getUserUploads().filter((record) => record.url !== upload.url)
@@ -54,6 +61,8 @@ function isUserUploadDocument(value: unknown): value is UserUploadDocument {
   return typeof record.url === 'string' &&
     typeof record.title === 'string' &&
     typeof record.importedAt === 'number' &&
+    (typeof record.modelId === 'string' || record.modelId === undefined) &&
+    (typeof record.textPreprocessor === 'string' || record.textPreprocessor === undefined) &&
     typeof record.voice === 'string' &&
     typeof record.speed === 'number' &&
     typeof record.dtype === 'string' &&

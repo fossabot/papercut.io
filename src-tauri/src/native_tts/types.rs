@@ -7,6 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 
+/// IPC requests from older frontends retain historical identity processing.
+fn default_text_preprocessor() -> String {
+    "none".into()
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Whether native TTS is available, plus platform and thread defaults.
@@ -18,12 +23,43 @@ pub(crate) struct NativeTtsCapabilities {
     pub(crate) platform: String,
     pub(crate) default_thread_count: i32,
     pub(crate) max_thread_count: i32,
+    pub(crate) models: Vec<NativeTtsModelInfo>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeTtsModelInfo {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) family: String,
+    pub(crate) language: String,
+    pub(crate) language_label: String,
+    pub(crate) default_voice: String,
+    pub(crate) voices: Vec<NativeTtsVoiceInfo>,
+    pub(crate) default_text_preprocessor: String,
+    pub(crate) text_preprocessors: Vec<NativeTextPreprocessorInfo>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeTtsVoiceInfo {
+    pub(crate) id: String,
+    pub(crate) name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeTextPreprocessorInfo {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// Voice-model install state and the pinned source metadata.
 pub(crate) struct NativeTtsModelStatus {
+    pub(crate) model_id: String,
     pub(crate) installed: bool,
     pub(crate) installing: bool,
     pub(crate) model_dir: Option<String>,
@@ -40,6 +76,7 @@ pub(crate) struct NativeTtsModelStatus {
 /// Streamed progress while downloading/extracting the model.
 #[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
 pub(crate) struct NativeTtsModelInstallProgress {
+    pub(crate) model_id: String,
     pub(crate) status: String,
     pub(crate) message: String,
     pub(crate) downloaded_bytes: u64,
@@ -51,6 +88,7 @@ pub(crate) struct NativeTtsModelInstallProgress {
 #[serde(rename_all = "camelCase")]
 /// Result of a completed model install (final dir + size).
 pub(crate) struct NativeTtsModelInstallResponse {
+    pub(crate) model_id: String,
     pub(crate) model_dir: String,
     pub(crate) bytes: u64,
 }
@@ -135,6 +173,9 @@ pub(crate) struct NativeAudiobookSaveRequest {
     pub(crate) document_url: String,
     pub(crate) title: String,
     pub(crate) chunks: Vec<NativeTtsInputChunk>,
+    pub(crate) model_id: String,
+    #[serde(default = "default_text_preprocessor")]
+    pub(crate) text_preprocessor: String,
     pub(crate) voice: String,
     pub(crate) speed: f32,
     pub(crate) thread_count: Option<i32>,
@@ -150,6 +191,9 @@ pub(crate) struct NativeAudiobookExportRequest {
     pub(crate) title: String,
     pub(crate) source_html: String,
     pub(crate) chunks: Vec<NativeTtsInputChunk>,
+    pub(crate) model_id: String,
+    #[serde(default = "default_text_preprocessor")]
+    pub(crate) text_preprocessor: String,
     pub(crate) voice: String,
     pub(crate) speed: f32,
     pub(crate) dtype: String,
@@ -178,10 +222,28 @@ pub(crate) struct NativeImportedAudiobookSourceRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Original bundle metadata used when replaying an imported audiobook.
+pub(crate) struct NativeImportedAudiobookMetadataResponse {
+    pub(crate) document_url: String,
+    pub(crate) title: String,
+    pub(crate) model_id: String,
+    pub(crate) text_preprocessor: String,
+    pub(crate) voice: String,
+    pub(crate) speed: f32,
+    pub(crate) dtype: String,
+    pub(crate) chunks: Vec<NativeTtsInputChunk>,
+    pub(crate) audio_duration_sec: f32,
+    pub(crate) wav_bytes: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// Metadata about an audiobook restored from a bundle.
 pub(crate) struct NativeAudiobookImportResponse {
     pub(crate) document_url: String,
     pub(crate) title: String,
+    pub(crate) model_id: String,
+    pub(crate) text_preprocessor: String,
     pub(crate) voice: String,
     pub(crate) speed: f32,
     pub(crate) dtype: String,
@@ -244,7 +306,10 @@ pub(crate) struct NativeAudiobookSaveResponse {
     pub(crate) complete: bool,
     pub(crate) dir: String,
     pub(crate) generate_ms: u128,
-    pub(crate) audio_duration_sec: f32,
+    // Canonical total measured from WAV headers in `build_playback_index`, so the
+    // reported duration matches the persisted manifest instead of drifting from a
+    // per-chunk f32 accumulation over a long book.
+    pub(crate) audio_duration_sec: f64,
     pub(crate) wav_bytes: usize,
     pub(crate) applied_thread_count: i32,
     pub(crate) backend: String,

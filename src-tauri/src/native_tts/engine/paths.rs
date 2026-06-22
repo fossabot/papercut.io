@@ -16,21 +16,30 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::Manager;
 
-use super::config::{CACHE_VERSION, MODEL_ID, MODEL_NAME};
+use super::config::CACHE_VERSION;
+use super::models::ModelDefinition;
 use crate::native_tts::types::NativeTtsInputChunk;
 
 /// Where the installed voice model lives permanently: `<app-data>/models/...`.
-pub(super) fn installed_model_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(super) fn installed_model_dir(
+    app: &tauri::AppHandle,
+    model: &ModelDefinition,
+) -> Result<PathBuf, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|err| format!("Failed to resolve app data dir for offline voice model: {err}"))?;
-    Ok(app_data.join("models/sherpa-onnx").join(MODEL_NAME))
+    Ok(app_data
+        .join("models/sherpa-onnx")
+        .join(model.directory_name))
 }
 
 /// Scratch directory used only while downloading/extracting the model. Prefers
 /// the OS cache dir, falling back to app data if the cache dir can't resolve.
-pub(super) fn model_work_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(super) fn model_work_dir(
+    app: &tauri::AppHandle,
+    model: &ModelDefinition,
+) -> Result<PathBuf, String> {
     let cache_dir = app
         .path()
         .app_cache_dir()
@@ -38,33 +47,26 @@ pub(super) fn model_work_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> 
         .map_err(|err| {
             format!("Failed to resolve cache dir for offline voice model install: {err}")
         })?;
-    Ok(cache_dir.join("model-installer").join(MODEL_NAME))
+    Ok(cache_dir.join("model-installer").join(model.directory_name))
 }
 
 /// Return the model directory only if a complete model is present, otherwise an
 /// error telling the user to run the one-time download. Used as the "is TTS
 /// usable?" gate throughout the engine.
-pub(super) fn resolve_model_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let model_dir = installed_model_dir(app)?;
-    if has_required_files(&model_dir) {
+pub(super) fn resolve_model_dir(
+    app: &tauri::AppHandle,
+    model: &ModelDefinition,
+) -> Result<PathBuf, String> {
+    let model_dir = installed_model_dir(app, model)?;
+    if model.has_required_files(&model_dir) {
         return Ok(model_dir);
     }
 
     Err(format!(
-        "Missing sherpa-onnx Kokoro model. Open Audiobook settings and use Download voice model once before offline TTS. Checked: {}",
+        "Missing {}. Open Audiobook settings and download this voice model before offline TTS. Checked: {}",
+        model.display_name,
         model_dir.display()
     ))
-}
-
-/// True only if every file sherpa-onnx needs to load the Kokoro voice exists in
-/// `dir`. Cheap existence checks, no contents read.
-pub(super) fn has_required_files(dir: &Path) -> bool {
-    dir.join("model.onnx").is_file()
-        && dir.join("voices.bin").is_file()
-        && dir.join("tokens.txt").is_file()
-        && dir.join("espeak-ng-data/phontab").is_file()
-        && dir.join("espeak-ng-data/en_dict").is_file()
-        && dir.join("lexicon-us-en.txt").is_file()
 }
 
 /// Directory holding one saved audiobook's chunk WAVs. The audiobook id is
@@ -217,24 +219,29 @@ pub(super) fn imported_upload_dir(
     Ok(app_data.join("user_uploads").join(upload_id))
 }
 
-/// Build the saved-audiobook cache key: a `|`-joined string of model id, cache
-/// version, dtype, voice, speed, and the normalized document URL. Any change to
-/// these means a different key (and therefore a separate cache).
+/// Build the saved-audiobook cache key from model, cache version, playback options,
+/// preprocessing, and normalized document URL. The `none` preprocessor is omitted
+/// deliberately so historical Kokoro and undiacritized IDs remain byte-for-byte stable.
 pub(super) fn create_native_audiobook_id(
+    model_id: &str,
     document_url: &str,
     voice: &str,
     speed: f32,
     dtype: &str,
+    text_preprocessor: &str,
 ) -> String {
-    [
-        MODEL_ID.to_string(),
+    let mut parts = vec![
+        model_id.to_string(),
         CACHE_VERSION.to_string(),
         dtype.to_string(),
         voice.to_string(),
         format!("{speed:.2}"),
-        normalize_native_document_url(document_url),
-    ]
-    .join("|")
+    ];
+    if text_preprocessor != "none" {
+        parts.push(text_preprocessor.to_string());
+    }
+    parts.push(normalize_native_document_url(document_url));
+    parts.join("|")
 }
 
 /// Strip the `#fragment` and `?query` from a document URL so the same document
@@ -357,4 +364,35 @@ pub(super) fn stable_hex_hash(value: &str) -> String {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("{hash:016x}")
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preprocessing_preserves_legacy_ids_and_separates_diacritized_audio() {
+        let legacy = create_native_audiobook_id(
+            "sherpa-onnx/kokoro-multi-lang-v1_0",
+            "/documents/book.html",
+            "af_heart",
+            1.0,
+            "native",
+            "none",
+        );
+        assert_eq!(
+            legacy,
+            "sherpa-onnx/kokoro-multi-lang-v1_0|native-save-v4-segmented|native|af_heart|1.00|/documents/book.html"
+        );
+
+        let diacritized = create_native_audiobook_id(
+            "sherpa-onnx/vits-piper-ar_JO-kareem-medium",
+            "/documents/book.html",
+            "kareem",
+            1.0,
+            "native",
+            "libtashkeel-1.5.0",
+        );
+        assert!(diacritized.contains("|libtashkeel-1.5.0|"));
+        assert_ne!(diacritized, legacy);
+    }
 }

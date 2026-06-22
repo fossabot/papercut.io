@@ -20,8 +20,9 @@ use serde::Deserialize;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
-use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION, MODEL_ID};
+use super::super::config::{BUNDLE_MAGIC, CACHE_VERSION};
 use super::super::file_commit::commit_staged_file;
+use super::super::models::model_definition;
 use super::super::paths::{
     audiobook_dir, chunk_path, create_native_audiobook_id, imported_upload_dir,
     playback_track_path, speakable_chunks, stable_hex_hash,
@@ -30,6 +31,11 @@ use super::super::save::write_manifest;
 use crate::native_tts::types::{
     NativeAudiobookImportResponse, NativeAudiobookSaveRequest, NativeTtsInputChunk,
 };
+
+/// Version-2 bundles predating preprocessing represent original, undiacritized text.
+fn default_text_preprocessor() -> String {
+    "none".into()
+}
 
 /// The bundle's top-level JSON manifest, parsed from the header.
 #[derive(Debug, Deserialize)]
@@ -43,6 +49,8 @@ struct NativeAudiobookBundleManifest {
     speed: f32,
     dtype: String,
     model_id: String,
+    #[serde(default = "default_text_preprocessor")]
+    text_preprocessor: String,
     cache_version: String,
     chunks: Vec<NativeTtsInputChunk>,
     files: Vec<NativeAudiobookBundleFile>,
@@ -113,10 +121,12 @@ pub(crate) fn import_audiobook_native(
     })?;
 
     let audiobook_id = create_native_audiobook_id(
+        &manifest.model_id,
         &document_url,
         &manifest.voice,
         manifest.speed,
         &manifest.dtype,
+        &manifest.text_preprocessor,
     );
     let audiobook_dir = audiobook_dir(&app, &audiobook_id)?;
     fs::create_dir_all(audiobook_dir.join("chunks")).map_err(|err| {
@@ -216,6 +226,8 @@ pub(crate) fn import_audiobook_native(
         audiobook_id,
         document_url: document_url.clone(),
         title: manifest.title.clone(),
+        model_id: manifest.model_id.clone(),
+        text_preprocessor: manifest.text_preprocessor.clone(),
         chunks: manifest.chunks.clone(),
         voice: manifest.voice.clone(),
         speed: manifest.speed,
@@ -236,6 +248,8 @@ pub(crate) fn import_audiobook_native(
     Ok(NativeAudiobookImportResponse {
         document_url,
         title: manifest.title,
+        model_id: manifest.model_id,
+        text_preprocessor: manifest.text_preprocessor,
         voice: manifest.voice,
         speed: manifest.speed,
         dtype: manifest.dtype,
@@ -284,8 +298,13 @@ fn validate_bundle_manifest(manifest: &NativeAudiobookBundleManifest) -> Result<
     if manifest.version != 2 || manifest.kind != "papercut-audiobook-bundle" {
         return Err("Selected file is not a supported Papercut audiobook bundle".into());
     }
-    if manifest.model_id != MODEL_ID {
-        return Err("Audiobook bundle was generated for a different TTS model".into());
+    let model = model_definition(&manifest.model_id)?;
+    model.speaker_id(&manifest.voice)?;
+    if !model.supports_text_preprocessor(&manifest.text_preprocessor) {
+        return Err(format!(
+            "Audiobook bundle uses unsupported text preprocessor {:?}",
+            manifest.text_preprocessor
+        ));
     }
     if manifest.cache_version != CACHE_VERSION {
         return Err(
@@ -366,16 +385,19 @@ fn skip_payload<R: Read>(reader: &mut R, bytes: u64) -> Result<(), String> {
 }
 
 /// Derive a stable 24-char hex id from the bundle's identifying fields (title,
-/// source URL, voice, speed, dtype, and per-chunk text hashes). Same content in
+/// source URL, model, preprocessor, voice, speed, dtype, and chunk text hashes).
+/// Same content in
 /// → same id out, so importing the same bundle twice reuses one upload slot.
 fn imported_upload_id(manifest: &NativeAudiobookBundleManifest) -> String {
     stable_hex_hash(&format!(
-        "{}|{}|{}|{:.2}|{}|{}",
+        "{}|{}|{}|{}|{:.2}|{}|{}|{}",
+        manifest.model_id,
         manifest.title,
         manifest.source_document_url,
         manifest.voice,
         manifest.speed,
         manifest.dtype,
+        manifest.text_preprocessor,
         manifest
             .chunks
             .iter()

@@ -1,8 +1,8 @@
 import type { TtsChunkSourceSpan } from '../types'
-import { HTML_SKIP_SELECTOR, collectReadableHtmlBlocks } from './htmlStructure'
+import { collectReadableHtmlSegments, type ReadableHtmlSegment } from './htmlStructure'
 
 export interface ReadableDomSegmentIndex {
-  elements: Element[]
+  segments: ReadableHtmlSegment[]
 }
 
 interface NormalizedTextPoint {
@@ -15,14 +15,13 @@ interface NormalizedRangePoints {
   end: NormalizedTextPoint
 }
 
-// Build only ordered leaf-element references. No document-wide text concatenation
-// or per-character arrays, keeping startup proportional to DOM nodes.
+// Build ordered text-owner references. No document-wide text concatenation or
+// per-character arrays, keeping startup proportional to DOM nodes.
 export function buildReadableDomSegmentIndex(doc: Document): ReadableDomSegmentIndex {
   const body = doc.body
-  if (!body) return { elements: [] }
+  if (!body) return { segments: [] }
 
-  const elements = collectReadableHtmlBlocks(body)
-  return { elements: elements.length > 0 ? elements : [body] }
+  return { segments: collectReadableHtmlSegments(body) }
 }
 
 // Convert chunker-owned normalized segment offsets back to live DOM points. Only
@@ -32,18 +31,22 @@ export function createRangeForSourceSpan(
   index: ReadableDomSegmentIndex,
   span: TtsChunkSourceSpan,
 ): Range | null {
-  const startElement = index.elements[span.startSegmentIndex]
-  const endElement = index.elements[span.endSegmentIndex]
-  if (!startElement?.isConnected || !endElement?.isConnected || span.endOffset <= 0) return null
+  const startSegment = index.segments[span.startSegmentIndex]
+  const endSegment = index.segments[span.endSegmentIndex]
+  if (
+    !startSegment?.owner.isConnected ||
+    !endSegment?.owner.isConnected ||
+    span.endOffset <= 0
+  ) return null
 
   const startPoints = findNormalizedRangePoints(
-    startElement,
+    startSegment.textNodes,
     span.startOffset,
     span.startSegmentIndex === span.endSegmentIndex ? span.endOffset : span.startOffset + 1,
   )
   const endPoints = span.startSegmentIndex === span.endSegmentIndex
     ? startPoints
-    : findNormalizedRangePoints(endElement, Math.max(0, span.endOffset - 1), span.endOffset)
+    : findNormalizedRangePoints(endSegment.textNodes, Math.max(0, span.endOffset - 1), span.endOffset)
   if (!startPoints || !endPoints) return null
 
   const range = doc.createRange()
@@ -55,19 +58,11 @@ export function createRangeForSourceSpan(
 // Replay segment whitespace normalization while retaining original Text-node offsets.
 // Stops immediately after requested end, avoiding a full segment mapping table.
 function findNormalizedRangePoints(
-  root: Element,
+  textNodes: Text[],
   startOffset: number,
   endOffset: number,
 ): NormalizedRangePoints | null {
   if (startOffset < 0 || endOffset <= startOffset) return null
-
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement
-      if (parent?.closest(HTML_SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT
-      return NodeFilter.FILTER_ACCEPT
-    },
-  })
 
   let normalizedOffset = 0
   let pendingWhitespace: NormalizedTextPoint | null = null
@@ -82,9 +77,7 @@ function findNormalizedRangePoints(
     return null
   }
 
-  let current: Node | null
-  while ((current = walker.nextNode())) {
-    const node = current as Text
+  for (const node of textNodes) {
     const raw = node.data
     for (let offset = 0; offset < raw.length; offset++) {
       if (/\s/.test(raw[offset])) {
