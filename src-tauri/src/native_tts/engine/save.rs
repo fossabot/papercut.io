@@ -617,7 +617,13 @@ fn write_manifest_file(dir: &Path, manifest: &NativeAudiobookManifest) -> Result
 /// re-saving into the same audiobook id writes new filenames while the stale
 /// ones linger forever ([`scan_audiobook`] only prunes invalid WAVs at expected
 /// paths, never valid WAVs with old names). Sweep them once every current chunk
-/// is generated. Stray temp files from interrupted writes are cleaned too.
+/// is generated.
+///
+/// In-flight `.tmp` staging files are skipped on purpose: [`synthesize_to_file`]
+/// writes each chunk to `<name>.<nonce>.tmp` and atomically renames it into
+/// place, so a `.tmp` here can belong to a concurrent save of the same audiobook
+/// id mid-write. Deleting it would break that save's commit rename. A stale temp
+/// from a crashed write is harmless and gets overwritten by the next attempt.
 fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
     let expected: HashSet<std::ffi::OsString> = chunks
         .iter()
@@ -636,8 +642,12 @@ fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
         if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
             continue;
         }
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "tmp") {
+            continue;
+        }
         if !expected.contains(&entry.file_name()) {
-            let _ = fs::remove_file(entry.path());
+            let _ = fs::remove_file(path);
         }
     }
 }
@@ -761,10 +771,17 @@ mod tests {
         }
         let orphan = dir.join("chunks").join("00001-a-deadbeefdeadbeef.wav");
         fs::write(&orphan, b"stale").expect("write orphan chunk");
+        // A concurrent save of the same audiobook id stages its chunk here mid-write.
+        let in_flight = dir.join("chunks").join("00001-a-hash-a.123456789.tmp");
+        fs::write(&in_flight, b"writing").expect("write in-flight temp");
 
         prune_orphan_chunk_files(&dir, &chunks);
 
         assert!(!orphan.exists(), "orphan chunk should be removed");
+        assert!(
+            in_flight.exists(),
+            "in-flight temp must be left for the concurrent save's commit rename"
+        );
         for (index, chunk) in chunks.iter().enumerate() {
             assert!(
                 chunk_path(&dir, index, chunk).is_file(),
