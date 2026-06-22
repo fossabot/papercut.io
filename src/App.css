@@ -942,6 +942,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4rem;
+  /* Top-align cells so a field with wrapping helper text (e.g. Text
+     processing) does not stretch and vertically offset its row siblings. */
+  align-items: start;
 }
 
 .audiobooks-setup {

@@ -51,7 +51,7 @@ export const FALLBACK_TTS_MODELS: TtsModelInfo[] = [
       },
       {
         id: LIBTASHKEEL_TEXT_PREPROCESSOR,
-        name: 'Automatic Arabic diacritization',
+        name: 'Auto diacritization',
         description: 'Restore Arabic tashkeel with Libtashkeel before Piper synthesis.',
       },
     ],

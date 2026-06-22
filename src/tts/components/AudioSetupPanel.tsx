@@ -91,27 +91,6 @@ export function AudioSetupPanel({
           </select>
         </label>
 
-        {textPreprocessors.length > 1 && (
-          <label className="audio-field">
-            <span>Text processing</span>
-            <select
-              className="tts-select"
-              value={textPreprocessor}
-              onChange={(event) => onTextPreprocessorChange(event.target.value)}
-              title="Optional language preprocessing before speech synthesis"
-            >
-              {textPreprocessors.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <span className="audio-thread-meta">
-              {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
-            </span>
-          </label>
-        )}
-
         <label className="audio-field">
           <span>Speed</span>
           <select
@@ -151,6 +130,27 @@ export function AudioSetupPanel({
             </span>
           )}
         </label>
+
+        {textPreprocessors.length > 1 && (
+          <label className="audio-field">
+            <span>Text Processing</span>
+            <select
+              className="tts-select"
+              value={textPreprocessor}
+              onChange={(event) => onTextPreprocessorChange(event.target.value)}
+              title="Optional language preprocessing before speech synthesis"
+            >
+              {textPreprocessors.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+            <span className="audio-thread-meta">
+              {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
+            </span>
+          </label>
+        )}
       </div>
 
       <div className="audio-model-panel">

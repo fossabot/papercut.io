@@ -290,7 +290,7 @@ const PIPER_TEXT_PREPROCESSORS: &[TextPreprocessorDefinition] = &[
     },
     TextPreprocessorDefinition {
         id: TEXT_PREPROCESSOR_LIBTASHKEEL,
-        name: "Automatic Arabic diacritization",
+        name: "Auto diacritization",
         description: "Restore Arabic tashkeel with Libtashkeel before Piper synthesis.",
     },
 ];
