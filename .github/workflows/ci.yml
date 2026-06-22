@@ -22,11 +22,11 @@ jobs:
           - os: windows-2022
             platform: windows
             cache_suffix: ""
-          - os: macos-13
+          - os: macos-15-intel
             platform: macos
             arch: x64
             cache_suffix: "-x64"
-          - os: macos-14
+          - os: macos-15
             platform: macos
             arch: arm64
             cache_suffix: "-arm64"
