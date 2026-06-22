@@ -3,6 +3,25 @@ import type { TextPreprocessorInfo, TtsModelInfo, TtsVoice, TtsVoiceInfo } from 
 
 const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
 
+const SPEED_MIN = 0.5
+const SPEED_MAX = 2
+const SPEED_STEP = 0.05
+
+// Snap to the slider step and clamp to range. The saved-audiobook cache id buckets
+// speed to 2 decimals on both the JS and Rust side, so values must round-trip cleanly
+// at that precision; this also avoids float drift breaking equality checks on reload.
+function snapSpeed(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  const snapped = Math.round(value / SPEED_STEP) * SPEED_STEP
+  const clamped = Math.min(SPEED_MAX, Math.max(SPEED_MIN, snapped))
+  return Number(clamped.toFixed(2))
+}
+
+function formatSpeedLabel(speed: number): string {
+  if (!Number.isFinite(speed)) return '1x'
+  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
+}
+
 export interface AudioSetupPanelProps {
   appliedThreadCount: number | null
   defaultThreadCount: number
@@ -93,17 +112,40 @@ export function AudioSetupPanel({
 
         <label className="audio-field">
           <span>Speed</span>
-          <select
-            className="tts-select tts-speed"
-            value={speed}
-            onChange={(event) => onSpeedChange(Number(event.target.value))}
-            title="Speed"
-          >
-            <option value={0.85}>0.85x</option>
-            <option value={1}>1x</option>
-            <option value={1.1}>1.1x</option>
-            <option value={1.2}>1.2x</option>
-          </select>
+          <div className="audio-speed-row">
+            <button
+              type="button"
+              className="audio-speed-step"
+              onClick={() => onSpeedChange(snapSpeed(speed - SPEED_STEP))}
+              disabled={speed <= SPEED_MIN}
+              aria-label="Decrease Speed"
+              title="Decrease Speed"
+            >
+              &minus;
+            </button>
+            <input
+              type="range"
+              className="tts-speed-slider"
+              min={SPEED_MIN}
+              max={SPEED_MAX}
+              step={SPEED_STEP}
+              value={speed}
+              onChange={(event) => onSpeedChange(snapSpeed(Number(event.target.value)))}
+              title="Playback Speed"
+              aria-label="Playback Speed"
+            />
+            <button
+              type="button"
+              className="audio-speed-step"
+              onClick={() => onSpeedChange(snapSpeed(speed + SPEED_STEP))}
+              disabled={speed >= SPEED_MAX}
+              aria-label="Increase Speed"
+              title="Increase Speed"
+            >
+              +
+            </button>
+            <span className="audio-speed-value">{formatSpeedLabel(speed)}</span>
+          </div>
         </label>
 
         <label className="audio-field">
