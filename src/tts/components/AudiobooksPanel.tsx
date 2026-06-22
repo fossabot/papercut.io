@@ -107,7 +107,7 @@ export function AudiobooksPanel({
           className={'audiobooks-setup-btn' + (setupOpen ? ' audiobooks-setup-btn-open' : '')}
           aria-expanded={setupOpen}
           aria-label={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
-          title="Audio setup"
+          title={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
           onClick={() => setSetupOpen((value) => !value)}
         >
           <span aria-hidden="true">⚙</span>

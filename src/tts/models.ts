@@ -12,7 +12,7 @@ import {
 export const FALLBACK_TTS_MODELS: TtsModelInfo[] = [
   {
     id: DEFAULT_TTS_MODEL_ID,
-    name: 'Kokoro English v1.0',
+    name: 'Kokoro v1.0',
     family: 'kokoro',
     language: 'en-US',
     languageLabel: 'English',

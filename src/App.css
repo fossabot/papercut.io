@@ -994,7 +994,16 @@
 .tts-select {
   width: 100%;
   min-width: 0;
-  padding: 0 0.5rem;
+  padding: 0 1.6rem 0 0.5rem;
+  /* Normalize native select chrome: webkitgtk inherits the OS/GTK theme and
+     renders some selects with a grey fill, so the row looks inconsistent. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%236b7280' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 0.6rem;
 }
 
 .tts-btn {
@@ -1034,7 +1043,7 @@
   display: grid;
   gap: 0.15rem;
   min-width: 0;
-  color: #6b7280;
+  color: #4b5563;
   font-size: 0.74rem;
   line-height: 1.3;
 }

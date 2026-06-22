@@ -324,7 +324,7 @@ pub(super) const MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: DEFAULT_MODEL_ID,
         directory_name: "kokoro-multi-lang-v1_0",
-        display_name: "Kokoro English v1.0",
+        display_name: "Kokoro v1.0",
         family: SherpaModelFamily::Kokoro,
         language: "en-US",
         language_label: "English",
