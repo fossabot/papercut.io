@@ -2,7 +2,7 @@
 
 **Homepage:** 👉 [trypapercut.netlify.app](https://trypapercut.netlify.app) 👈
 
-[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
+[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
 
 
 Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native sherpa-onnx TTS.
@@ -73,6 +73,16 @@ sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-
 ```bash
 sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool patchelf gst-plugins-base gst-plugins-good
 ```
+
+### System Dependencies (macOS)
+
+Tauri on macOS uses the system WebKit (WKWebView) bundled with the OS, so there are no WebKitGTK/GTK-style system packages to install. Only the Xcode Command Line Tools are required:
+
+```bash
+xcode-select --install
+```
+
+The Rust toolchain (above) and Node.js (above) cover the rest. Native sherpa-onnx TTS dylibs are downloaded automatically during the build and bundled into the `.app` via Tauri resources, so no manual library setup is needed.
 
 ### Android Prerequisites
 
@@ -174,6 +184,7 @@ The built binary is output to `src-tauri/target/release/app` (`app.exe` on Windo
 
 - **Linux:** `.deb`, `.rpm`, and `.AppImage`
 - **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/` when building on Windows
+- **macOS:** `.dmg` (and `.app`) under `bundle/dmg/` and `bundle/macos/` when building on macOS
 
 `npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. The AppImage also bundles the GStreamer media framework used by WebKitGTK for audiobook playback; local Linux builders therefore need the GStreamer base and good plugin packages listed above. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
 
@@ -184,6 +195,8 @@ sudo apt install ./src-tauri/target/release/bundle/deb/Papercut_1.0.0_amd64.deb
 ```
 
 If you previously used `sudo dpkg -i ...` and the app did not launch, run `sudo apt -f install` once to finish installing missing dependencies, then reinstall the newly generated `.deb`.
+
+**macOS Gatekeeper (unsigned builds):** Papercut's macOS `.dmg` is currently shipped unsigned, so the first launch shows "Papercut cannot be opened because it is from an unidentified developer." To bypass, right-click (or Control-click) the `Papercut.app` icon and choose **Open**, then confirm in the dialog. After the first launch the app is remembered and opens normally. macOS builds are produced per-architecture: `Papercut_<version>_aarch64.dmg` for Apple Silicon and `Papercut_<version>_x64.dmg` for Intel. Pick the one matching your Mac. Native sherpa-onnx TTS dylibs are bundled inside the `.app` resources and resolved via an `@loader_path/../Resources` rpath, so no separate runtime library install is needed.
 
 **AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. If the build succeeds but `npm run verify:appimage-media` reports missing files, install the GStreamer base and good plugin packages above and rebuild. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`. Tauri's AppImage media bundling is fully supported on Ubuntu build systems, and Papercut builds and verifies its Linux release artifacts on Ubuntu 24.04 CI.
 

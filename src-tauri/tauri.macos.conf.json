@@ -1,0 +1,10 @@
+{
+  "build": {
+    "beforeBundleCommand": "node scripts/copy-sherpa-macos-libs.js"
+  },
+  "bundle": {
+    "resources": {
+      "tts/runtime/macos-shared-libs/": ""
+    }
+  }
+}
