@@ -198,10 +198,11 @@ fn generate_audio(
     };
 
     let mut sanitized = sanitize_tts_text(text);
-    // Year/number expansion is English-only; gate it so non-English models
-    // (e.g. Arabic Piper) never get Western number words in their synthesis text.
-    if engine.model.expands_english_years() {
-        sanitized = normalize_year_like_numbers(&sanitized);
+    // Year expansion, roman-numeral expansion, and semicolon/decimal cleanup are
+    // English-only; gate them so non-English models (e.g. Arabic Piper) never get
+    // Western number words or English punctuation rewrites in their synthesis text.
+    if engine.model.english_text_normalization() {
+        sanitized = normalize_english_synthesis_text(&sanitized);
     }
     if sanitized.trim().is_empty() {
         return Ok(None);
@@ -266,6 +267,167 @@ fn sanitize_tts_text(text: &str) -> String {
     }
 
     cleaned.trim().to_string()
+}
+
+/// Compose the English-only synthesis-text rewrites in the order their guards
+/// expect: roman-numeral expansion first (operates on letters), then decimal-dot
+/// repair (so the following year pass never mistakes a decimal fraction for a
+/// year), then year expansion, then clause-punctuation softening last.
+///
+/// Like [`normalize_year_like_numbers`], every step runs only on the synthesis
+/// copy, leaving source chunks, highlighting, search, bundle metadata, and cache
+/// identity untouched. It is gated per-model by `english_text_normalization()`.
+fn normalize_english_synthesis_text(text: &str) -> String {
+    let with_romans = expand_section_roman_numerals(text);
+    let collapsed = collapse_decimal_dots(&with_romans);
+    let with_years = normalize_year_like_numbers(&collapsed);
+    soften_clause_punctuation(&with_years)
+}
+
+/// Section keywords whose following uppercase roman numeral reads as a number.
+/// Restricting expansion to these prefixes avoids rewriting the pronoun "I",
+/// the grade "C", "X marks the spot", and other legitimate standalone letters.
+const SECTION_WORDS: [&str; 10] = [
+    "chapter", "part", "section", "book", "act", "volume", "appendix", "article",
+    "canto", "scene",
+];
+
+/// Expand an uppercase roman numeral that directly follows a section keyword into
+/// its cardinal digits, e.g. `Chapter IV` -> `Chapter 4`, `Part VII` -> `Part 7`.
+/// eSpeak's own roman handling is inconsistent (it can announce "roman one"), so
+/// we feed it plain digits instead. Post-`sanitize_tts_text` text is single-spaced
+/// with no newlines, so splitting on a single space is sufficient and lossless.
+///
+/// The keyword must be capitalized to match. Several keywords (`book`, `act`,
+/// `part`, `section`) are also common words, and a lowercase one is usually prose
+/// followed by the pronoun "I" (`the book I read`); requiring a capital keeps the
+/// match to genuine section references and avoids rewriting that "I" to "1". The
+/// trade-off is that a lowercase reference (`in chapter IV`) is left for eSpeak.
+fn expand_section_roman_numerals(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut previous_is_section = false;
+
+    for word in text.split(' ') {
+        let (lead, core, trail) = split_word_affixes(word);
+        let is_section = core.starts_with(|ch: char| ch.is_ascii_uppercase())
+            && SECTION_WORDS.contains(&core.to_ascii_lowercase().as_str());
+
+        if previous_is_section {
+            if let Some(value) = roman_to_u16(core) {
+                out.push(format!("{lead}{value}{trail}"));
+                // A numeral is never itself a section keyword for the next word.
+                previous_is_section = false;
+                continue;
+            }
+        }
+
+        out.push(word.to_string());
+        previous_is_section = is_section;
+    }
+
+    out.join(" ")
+}
+
+/// Split a whitespace-delimited word into leading punctuation, an alphanumeric
+/// core, and trailing punctuation so `(VII),` keeps its wrappers while only the
+/// core is tested as a numeral. An all-punctuation word yields an empty core.
+fn split_word_affixes(word: &str) -> (&str, &str, &str) {
+    let start = word
+        .find(|ch: char| ch.is_ascii_alphanumeric())
+        .unwrap_or(word.len());
+    let end = word
+        .rfind(|ch: char| ch.is_ascii_alphanumeric())
+        .map(|index| index + 1)
+        .unwrap_or(start);
+    (&word[..start], &word[start..end], &word[end..])
+}
+
+/// Parse an uppercase roman numeral token into its value using the standard
+/// right-to-left subtractive scan. Returns `None` for an empty token, any
+/// non-roman or lowercase character, or a zero result, so only deliberate
+/// uppercase numerals (`I`, `IV`, `Xii` is rejected) are ever expanded.
+fn roman_to_u16(token: &str) -> Option<u16> {
+    if token.is_empty() {
+        return None;
+    }
+    let mut total: u16 = 0;
+    let mut highest: u16 = 0;
+    for ch in token.chars().rev() {
+        let value = match ch {
+            'I' => 1,
+            'V' => 5,
+            'X' => 10,
+            'L' => 50,
+            'C' => 100,
+            'D' => 500,
+            'M' => 1000,
+            _ => return None,
+        };
+        if value < highest {
+            total = total.checked_sub(value)?;
+        } else {
+            total = total.checked_add(value)?;
+            highest = value;
+        }
+    }
+    (total > 0).then_some(total)
+}
+
+/// Repair a decimal fraction the segment chunker may have split and rejoined with
+/// a spurious space (`3.14` -> `3. 14`) by collapsing `digit. digit` back to
+/// `digit.digit`. Only fires between two digits, so sentence-ending periods like
+/// `... ends. 4 remain` are untouched.
+fn collapse_decimal_dots(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < chars.len() {
+        if chars[index].is_ascii_digit()
+            && chars.get(index + 1) == Some(&'.')
+            && chars.get(index + 2) == Some(&' ')
+            && chars.get(index + 3).is_some_and(|ch| ch.is_ascii_digit())
+        {
+            out.push(chars[index]);
+            out.push('.');
+            // Skip the dot and the spurious space; the trailing digit is emitted
+            // by the next iteration.
+            index += 3;
+            continue;
+        }
+        out.push(chars[index]);
+        index += 1;
+    }
+
+    out
+}
+
+/// Convert clause-level semicolons and colons to commas so Kokoro produces a
+/// medium pause (a bare `;`/`:` is often dropped or under-paused). A colon or
+/// semicolon flanked by digits on both sides is left alone to preserve clock
+/// times and ratios (`3:30`, `2:1`).
+fn soften_clause_punctuation(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+
+    for (index, &ch) in chars.iter().enumerate() {
+        if ch == ';' || ch == ':' {
+            let previous_is_digit = index
+                .checked_sub(1)
+                .and_then(|prev| chars.get(prev))
+                .is_some_and(|ch| ch.is_ascii_digit());
+            let next_is_digit = chars
+                .get(index + 1)
+                .is_some_and(|ch| ch.is_ascii_digit());
+            if !(previous_is_digit && next_is_digit) {
+                out.push(',');
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+
+    out
 }
 
 /// Expand standalone four-digit years into the phrasing eSpeak/Kokoro usually
@@ -562,10 +724,101 @@ mod tests {
     }
 
     #[test]
-    fn only_english_models_expand_years() {
-        assert!(model_definition(DEFAULT_MODEL_ID).unwrap().expands_english_years());
+    fn roman_numerals_expand_only_after_section_words() {
+        assert_eq!(
+            expand_section_roman_numerals("Chapter IV begins"),
+            "Chapter 4 begins"
+        );
+        assert_eq!(
+            expand_section_roman_numerals("See Part VII."),
+            "See Part 7."
+        );
+        assert_eq!(
+            expand_section_roman_numerals("Act III, Scene II:"),
+            "Act 3, Scene 2:"
+        );
+        // Wrapping punctuation is preserved around the expanded numeral.
+        assert_eq!(
+            expand_section_roman_numerals("Book (XII),"),
+            "Book (12),"
+        );
+    }
+
+    #[test]
+    fn roman_numerals_leave_bare_letters_alone() {
+        // No section keyword in front, so these standalone letters are untouched.
+        assert_eq!(expand_section_roman_numerals("I went home"), "I went home");
+        assert_eq!(expand_section_roman_numerals("grade C work"), "grade C work");
+        assert_eq!(expand_section_roman_numerals("X marks it"), "X marks it");
+        // Lowercase numeral tokens are never treated as numerals even after a keyword.
+        assert_eq!(
+            expand_section_roman_numerals("Part iv note"),
+            "Part iv note"
+        );
+    }
+
+    #[test]
+    fn roman_numerals_require_capitalized_keyword() {
+        // Common nouns (book/act/part/section) in lowercase prose are usually
+        // followed by the pronoun "I", not a section numeral, so a lowercase
+        // keyword must never trigger expansion.
+        assert_eq!(
+            expand_section_roman_numerals("the book I read last week"),
+            "the book I read last week"
+        );
+        assert_eq!(
+            expand_section_roman_numerals("they act I think"),
+            "they act I think"
+        );
+        // A capitalized keyword is still expanded as a genuine reference.
+        assert_eq!(expand_section_roman_numerals("Book I cover"), "Book 1 cover");
+    }
+
+    #[test]
+    fn decimal_dots_recollapse_after_chunk_split() {
+        assert_eq!(collapse_decimal_dots("It is 3. 14 today"), "It is 3.14 today");
+        assert_eq!(collapse_decimal_dots("version 1. 2 ships"), "version 1.2 ships");
+        // A real sentence boundary before a number is not a decimal.
+        assert_eq!(
+            collapse_decimal_dots("The talk ends. 4 people left."),
+            "The talk ends. 4 people left."
+        );
+    }
+
+    #[test]
+    fn clause_punctuation_softens_to_commas() {
+        assert_eq!(
+            soften_clause_punctuation("First; then second"),
+            "First, then second"
+        );
+        assert_eq!(
+            soften_clause_punctuation("Note: read this"),
+            "Note, read this"
+        );
+        // Clock times and ratios keep their colon.
+        assert_eq!(
+            soften_clause_punctuation("Meet at 3:30 for a 2:1 split"),
+            "Meet at 3:30 for a 2:1 split"
+        );
+    }
+
+    #[test]
+    fn english_normalizer_composes_all_passes() {
+        // Decimal repair runs before year expansion, so 1984 here stays a decimal
+        // fraction rather than being read as a year.
+        assert_eq!(
+            normalize_english_synthesis_text("Chapter IV; built in 1984 at 3. 1984 cost"),
+            "Chapter 4, built in nineteen eighty four at 3.1984 cost"
+        );
+    }
+
+    #[test]
+    fn only_english_models_normalize_text() {
+        assert!(model_definition(DEFAULT_MODEL_ID)
+            .unwrap()
+            .english_text_normalization());
         assert!(!model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium")
             .unwrap()
-            .expands_english_years());
+            .english_text_normalization());
     }
 }
