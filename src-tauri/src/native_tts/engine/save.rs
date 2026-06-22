@@ -134,6 +134,9 @@ fn save_audiobook_native_blocking(
     request: NativeAudiobookSaveRequest,
 ) -> Result<NativeAudiobookSaveResponse, String> {
     let started = Instant::now();
+    // Wall-clock mark for the final stale-temp sweep: only `.tmp` files left
+    // untouched since before this job began are abandoned remnants safe to remove.
+    let job_started = SystemTime::now();
     let chunks = speakable_chunks(&request.chunks);
     let total_chunks = chunks.len();
     if total_chunks == 0 {
@@ -327,10 +330,11 @@ fn save_audiobook_native_blocking(
         );
     }
 
-    // Final sweep before the manifest is finalized: catches stray temp files
-    // from this run's writes and any orphan that appeared since the start sweep,
-    // so disk use tracks exactly the current chunk set.
+    // Final sweep before the manifest is finalized: catches any orphan that
+    // appeared since the start sweep, so disk use tracks exactly the current
+    // chunk set. The companion sweep then removes abandoned `.tmp` remnants.
     prune_orphan_chunk_files(&dir, &chunks);
+    prune_stale_temp_files(&dir, job_started);
 
     // Record the manifest and clear any cancellation flag for this job. The
     // returned totals are measured from WAV headers, so they are the canonical
@@ -622,8 +626,10 @@ fn write_manifest_file(dir: &Path, manifest: &NativeAudiobookManifest) -> Result
 /// In-flight `.tmp` staging files are skipped on purpose: [`synthesize_to_file`]
 /// writes each chunk to `<name>.<nonce>.tmp` and atomically renames it into
 /// place, so a `.tmp` here can belong to a concurrent save of the same audiobook
-/// id mid-write. Deleting it would break that save's commit rename. A stale temp
-/// from a crashed write is harmless and gets overwritten by the next attempt.
+/// id mid-write. Deleting it would break that save's commit rename. Abandoned
+/// temps (each `.tmp` carries a unique nonce, so a crashed write is never
+/// overwritten by a later attempt) are reclaimed separately by
+/// [`prune_stale_temp_files`] using a job-start cutoff.
 fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
     let expected: HashSet<std::ffi::OsString> = chunks
         .iter()
@@ -647,6 +653,36 @@ fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
             continue;
         }
         if !expected.contains(&entry.file_name()) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+/// Reclaim abandoned `.tmp` chunk staging files from crashed earlier writes.
+///
+/// A successful [`synthesize_to_file`] leaves no temp (it renames into place) and
+/// a failed one removes its own, so a `.tmp` still present here is either an
+/// orphan from a process that died mid-write or a concurrent save's live staging
+/// file. Each carries a unique nonce, so an abandoned one is never overwritten by
+/// a later attempt and would otherwise linger forever (inflating disk use and the
+/// byte totals reported on delete). Only files last modified before `cutoff` (this
+/// job's start) are swept: a concurrent save's in-flight temp is necessarily
+/// written after this job began, so its commit rename is never disturbed. Temps
+/// with unreadable mtime are left alone rather than risking a live write.
+fn prune_stale_temp_files(dir: &Path, cutoff: SystemTime) {
+    let Ok(entries) = fs::read_dir(dir.join("chunks")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.extension().is_some_and(|ext| ext == "tmp") {
+            continue;
+        }
+        let modified = entry.metadata().ok().and_then(|meta| meta.modified().ok());
+        if modified.is_some_and(|time| time < cutoff) {
             let _ = fs::remove_file(path);
         }
     }
@@ -788,6 +824,39 @@ mod tests {
                 "current chunk should be kept"
             );
         }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prune_stale_temp_files_removes_only_pre_job_temps() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("papercut-prune-temps-{nonce}"));
+        fs::create_dir_all(dir.join("chunks")).expect("create chunks dir");
+
+        // An abandoned temp from a crashed earlier write, then the job-start mark,
+        // then a concurrent save's in-flight temp staged after the job began.
+        let stale = dir.join("chunks").join("00001-a-hash-a.111.tmp");
+        fs::write(&stale, b"abandoned").expect("write stale temp");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let cutoff = SystemTime::now();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let in_flight = dir.join("chunks").join("00002-b-hash-b.222.tmp");
+        fs::write(&in_flight, b"writing").expect("write in-flight temp");
+        // A committed WAV must be untouched by the temp sweep.
+        let committed = dir.join("chunks").join("00001-a-hash-a.wav");
+        fs::write(&committed, b"wav").expect("write committed chunk");
+
+        prune_stale_temp_files(&dir, cutoff);
+
+        assert!(!stale.exists(), "abandoned pre-job temp should be removed");
+        assert!(
+            in_flight.exists(),
+            "a concurrent save's temp written after the job started must be kept"
+        );
+        assert!(committed.exists(), "committed WAVs must not be touched");
         let _ = fs::remove_dir_all(dir);
     }
 
