@@ -15,8 +15,8 @@ use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use sherpa_onnx::{
-    GeneratedAudio, GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
-    OfflineTtsModelConfig, OfflineTtsVitsModelConfig,
+    write as write_wav_file, GeneratedAudio, GenerationConfig, OfflineTts, OfflineTtsConfig,
+    OfflineTtsKokoroModelConfig, OfflineTtsModelConfig, OfflineTtsVitsModelConfig,
 };
 
 use super::cache::wav_info;
@@ -86,9 +86,6 @@ pub(super) fn synthesize_to_file(
     output_path: &Path,
 ) -> Result<FileSynthesisResult, String> {
     let started = Instant::now();
-    let audio = generate_audio(engine, text, voice, speed)?;
-    let sample_rate = audio.sample_rate();
-    let audio_duration_sec = audio_duration_sec(audio.samples().len(), sample_rate);
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|err| {
             format!(
@@ -104,14 +101,35 @@ pub(super) fn synthesize_to_file(
             .map_err(|err| format!("System clock error: {err}"))?
             .as_nanos()
     ));
-    let temp_path_string = temp_path.display().to_string();
-    if !audio.save(&temp_path_string) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(format!(
-            "sherpa-onnx failed to write generated WAV {}",
-            temp_path.display()
-        ));
-    }
+
+    // A chunk whose text is empty after sanitization (e.g. a paragraph of only
+    // emoji or other dropped symbols) has nothing to synthesize. Failing here
+    // would abort the whole save and wedge resume on the same chunk forever, so
+    // instead write a short silent WAV: the playback timeline stays contiguous
+    // and the job completes. `fallback_duration_sec` guards against a generated
+    // WAV whose header rounds its duration down to zero.
+    let fallback_duration_sec = match generate_audio(engine, text, voice, speed)? {
+        Some(audio) => {
+            let duration = audio_duration_sec(audio.samples().len(), audio.sample_rate());
+            if !audio.save(&temp_path.display().to_string()) {
+                let _ = fs::remove_file(&temp_path);
+                return Err(format!(
+                    "sherpa-onnx failed to write generated WAV {}",
+                    temp_path.display()
+                ));
+            }
+            duration
+        }
+        None => {
+            let sample_rate = engine.tts.sample_rate();
+            log::warn!(
+                "Audiobook chunk had no speakable text after sanitization; writing {SILENT_PLACEHOLDER_SEC}s silent placeholder at {} ({sample_rate} Hz)",
+                output_path.display(),
+            );
+            write_silent_placeholder(&temp_path, sample_rate)?
+        }
+    };
+
     // Sanity-check the written file actually parses before committing it.
     let Some(info) = wav_info(&temp_path) else {
         let _ = fs::remove_file(&temp_path);
@@ -121,20 +139,53 @@ pub(super) fn synthesize_to_file(
 
     Ok(FileSynthesisResult {
         generate_ms: started.elapsed().as_millis(),
-        audio_duration_sec: info.audio_duration_sec.max(audio_duration_sec),
+        audio_duration_sec: info.audio_duration_sec.max(fallback_duration_sec),
         wav_bytes: info.wav_bytes,
     })
 }
 
+/// Length of the silent WAV written for a chunk with no speakable text. Short
+/// enough to be an imperceptible gap, but nonzero so the WAV is a valid,
+/// indexable chunk (the playback index rejects zero-duration chunks).
+const SILENT_PLACEHOLDER_SEC: f64 = 0.25;
+
+/// Write [`SILENT_PLACEHOLDER_SEC`] of silence to `path` and return its exact
+/// duration in seconds.
+///
+/// Uses sherpa-onnx's own WAV writer — the same one [`OfflineTts`] generation
+/// goes through — so the file's encoding (mono 16-bit PCM at the engine's
+/// sample rate) is byte-identical to generated chunks by construction. That
+/// keeps its `fmt ` block matching theirs, which single-track export
+/// concatenation requires. Silence is simply a run of zero samples.
+fn write_silent_placeholder(path: &Path, sample_rate: i32) -> Result<f32, String> {
+    if sample_rate <= 0 {
+        return Err(format!(
+            "Engine reported a non-positive sample rate ({sample_rate}); cannot write a silent placeholder for {}",
+            path.display()
+        ));
+    }
+    let frame_count = (sample_rate as f64 * SILENT_PLACEHOLDER_SEC).round() as usize;
+    let silence = vec![0f32; frame_count];
+    if !write_wav_file(&path.display().to_string(), &silence, sample_rate) {
+        return Err(format!(
+            "sherpa-onnx failed to write silent placeholder WAV {}",
+            path.display()
+        ));
+    }
+    Ok(frame_count as f32 / sample_rate as f32)
+}
+
 /// Run sherpa-onnx inference for one piece of text. Normalizes speed, maps the
 /// voice name to a speaker id, sanitizes the text, and asks the engine to
-/// generate. Errors if the text is empty after sanitization or generation fails.
+/// generate. Returns `Ok(None)` when the text is empty after sanitization (the
+/// chunk has nothing speakable, so the caller writes a silent placeholder rather
+/// than failing the save); errors only when generation itself fails.
 fn generate_audio(
     engine: &SherpaTtsEngine,
     text: &str,
     voice: &str,
     speed: f32,
-) -> Result<GeneratedAudio, String> {
+) -> Result<Option<GeneratedAudio>, String> {
     let speed = if speed.is_finite() && speed > 0.0 {
         speed
     } else {
@@ -153,13 +204,14 @@ fn generate_audio(
         sanitized = normalize_year_like_numbers(&sanitized);
     }
     if sanitized.trim().is_empty() {
-        return Err("TTS chunk became empty after sanitization".into());
+        return Ok(None);
     }
 
     // The last arg is an optional progress callback; `None::<fn...>` means none.
     engine
         .tts
         .generate_with_config(&sanitized, &generation, None::<fn(&[f32], f32) -> bool>)
+        .map(Some)
         .ok_or_else(|| "sherpa-onnx failed to synthesize audio".to_string())
 }
 
@@ -425,6 +477,24 @@ fn create_engine(
 mod tests {
     use super::*;
     use super::super::models::{model_definition, DEFAULT_MODEL_ID};
+
+    #[test]
+    fn silent_placeholder_passes_wav_validation() {
+        // The placeholder written for an empty-after-sanitization chunk must parse
+        // as a valid, nonzero-duration WAV through the same reader the save commit
+        // and playback index use, or it would just move the failure downstream.
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("papercut-silent-{nonce}.wav"));
+        let duration = write_silent_placeholder(&path, 24_000).expect("write silent placeholder");
+        assert!(duration > 0.0 && duration.is_finite());
+
+        let info = wav_info(&path).expect("silent placeholder must parse as WAV");
+        assert!(info.audio_duration_sec > 0.0);
+        let _ = fs::remove_file(&path);
+    }
 
     #[test]
     fn year_expansion_rewrites_standalone_years() {
