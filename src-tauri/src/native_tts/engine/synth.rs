@@ -498,6 +498,16 @@ fn strip_outer_punctuation(word: &str) -> (&str, &str, &str) {
     (&word[..start], &word[start..end], &word[end..])
 }
 
+/// Split a word into its body and any trailing punctuation (`million.` ->
+/// `("million", ".")`). Used so a unit voiced after a magnitude word lands before
+/// that word's sentence mark (`$5 million.` -> `5 million dollars.`).
+fn split_trailing_marks(word: &str) -> (&str, &str) {
+    let body_len = word
+        .trim_end_matches(|ch: char| ".,;:!?)]}\"'".contains(ch))
+        .len();
+    word.split_at(body_len)
+}
+
 /// Collapse a dotted initialism (`U.S.A.`, `N.Y.`, `a.m.`) to its bare letters so
 /// eSpeak spells them without pausing between each one. Requires at least two
 /// dots and a strict letter/dot alternation, so a sentence-final single token like
@@ -649,9 +659,17 @@ fn expand_currency(text: &str) -> String {
         let (lead, core, trail) = strip_outer_punctuation(word);
 
         if let Some((amount, kind)) = parse_currency_amount(core) {
+            // Peel a trailing sentence mark off the next word so `$5 million.`
+            // still resolves the magnitude (the unit is reordered before the mark
+            // when the magnitude word is emitted below).
             let next_is_magnitude = words
                 .get(index + 1)
-                .map(|next| strip_outer_punctuation(next).1.to_ascii_lowercase())
+                .map(|next| {
+                    strip_outer_punctuation(next)
+                        .1
+                        .trim_end_matches(['.', '!', '?'])
+                        .to_ascii_lowercase()
+                })
                 .is_some_and(|next_core| CURRENCY_MAGNITUDES.contains(&next_core.as_str()));
 
             if next_is_magnitude {
@@ -670,9 +688,15 @@ fn expand_currency(text: &str) -> String {
             continue;
         }
 
-        out.push((*word).to_string());
         if let Some(unit) = pending_unit.take() {
-            out.push(unit.to_string());
+            // This word is the magnitude just consumed; voice the unit after it,
+            // moving any trailing sentence mark past the unit so `$5 million.`
+            // reads `5 million dollars.`.
+            let (body, marks) = split_trailing_marks(word);
+            out.push(body.to_string());
+            out.push(format!("{unit}{marks}"));
+        } else {
+            out.push((*word).to_string());
         }
     }
 
@@ -806,8 +830,12 @@ fn soften_pause_punctuation(text: &str) -> String {
                 index += 1;
             }
             '(' | '[' => {
+                // A bracket at the very start has no preceding word to pause after,
+                // so skip the separator space to avoid a leading space.
                 push_pause_comma(&mut out);
-                out.push(' ');
+                if !out.is_empty() {
+                    out.push(' ');
+                }
                 index += 1;
             }
             ')' | ']' => {
@@ -1159,6 +1187,11 @@ mod tests {
             soften_pause_punctuation("done (see note); next"),
             "done, see note, next"
         );
+        // A bracket at the very start does not inject a leading space.
+        assert_eq!(
+            soften_pause_punctuation("(aside) follows"),
+            "aside, follows"
+        );
     }
 
     #[test]
@@ -1254,6 +1287,9 @@ mod tests {
         );
         // A magnitude word: the digits are kept and the plural unit voiced after.
         assert_eq!(expand_currency("a $5 million deal"), "a 5 million dollars deal");
+        // A sentence mark on the magnitude word is reordered after the unit.
+        assert_eq!(expand_currency("worth $5 million."), "worth 5 million dollars.");
+        assert_eq!(expand_currency("$5 million, plus"), "5 million dollars, plus");
         assert_eq!(expand_currency("worth $1 billion"), "worth 1 billion dollars");
         // Wrappers and trailing punctuation are preserved.
         assert_eq!(expand_currency("($5) each,"), "(five dollars) each,");
