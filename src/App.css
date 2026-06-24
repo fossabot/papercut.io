@@ -683,7 +683,9 @@
 }
 
 .header-controls-slot {
-  display: contents;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .header-controls-slot-disabled {
