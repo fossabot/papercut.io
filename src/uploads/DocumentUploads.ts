@@ -24,6 +24,32 @@ export interface UploadedDocumentDeleteResult {
   bytesFreed: number
 }
 
+export interface UploadedLibraryFolder {
+  id: string
+  parentId?: string | null
+  name: string
+  depth: number
+  sortOrder: number
+  createdAtMs: number
+  updatedAtMs: number
+}
+
+export interface UploadedDocumentLocation {
+  documentId: string
+  folderId?: string | null
+  sortOrder: number
+}
+
+export interface UploadedLibraryOrganization {
+  folders: UploadedLibraryFolder[]
+  documentLocations: UploadedDocumentLocation[]
+}
+
+export interface UploadedLibraryOrderItem {
+  itemType: 'folder' | 'document'
+  id: string
+}
+
 export function isUploadedDocumentUrl(url: string): boolean {
   return /^\/uploads\/[a-fA-F0-9]+\.html(?:[#?].*)?$/.test(url)
 }
@@ -63,6 +89,54 @@ export async function deleteUploadedDocument(documentUrl: string): Promise<Uploa
   const invoke = await loadTauriInvoke()
   return invoke<UploadedDocumentDeleteResult>('document_uploads_delete', {
     request: { documentUrl },
+  })
+}
+
+export async function getUploadedLibraryOrganization(): Promise<UploadedLibraryOrganization> {
+  if (!isTauriRuntime()) return { folders: [], documentLocations: [] }
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryOrganization>('document_uploads_library_organization')
+}
+
+export async function createUploadedLibraryFolder(parentId: string | null, name: string): Promise<UploadedLibraryFolder> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryFolder>('document_uploads_create_folder', {
+    request: { parentId, name },
+  })
+}
+
+export async function renameUploadedLibraryFolder(folderId: string, name: string): Promise<UploadedLibraryFolder> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryFolder>('document_uploads_rename_folder', {
+    request: { folderId, name },
+  })
+}
+
+export async function deleteUploadedLibraryFolder(folderId: string): Promise<void> {
+  const invoke = await loadTauriInvoke()
+  await invoke<void>('document_uploads_delete_folder', {
+    request: { folderId },
+  })
+}
+
+export async function moveUploadedDocuments(documentIds: string[], folderId: string | null): Promise<UploadedLibraryOrganization> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryOrganization>('document_uploads_move_documents', {
+    request: { documentIds, folderId },
+  })
+}
+
+export async function moveUploadedLibraryFolder(folderId: string, parentId: string | null): Promise<UploadedLibraryOrganization> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryOrganization>('document_uploads_move_folder', {
+    request: { folderId, parentId },
+  })
+}
+
+export async function reorderUploadedLibrary(parentId: string | null, items: UploadedLibraryOrderItem[]): Promise<UploadedLibraryOrganization> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedLibraryOrganization>('document_uploads_reorder_library', {
+    request: { parentId, items },
   })
 }
 
