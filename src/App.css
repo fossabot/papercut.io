@@ -654,7 +654,8 @@
   text-align: center;
   margin-bottom: 2rem;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
+  z-index: 35;
 }
 
 .header-left {
@@ -679,6 +680,16 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   min-width: 0;
+}
+
+.header-controls-slot {
+  display: contents;
+}
+
+.header-controls-slot-disabled {
+  pointer-events: none;
+  opacity: 0.5;
+  filter: grayscale(0.25);
 }
 
 .back-button {
@@ -717,10 +728,16 @@
   white-space: nowrap;
 }
 
-.find-btn:hover {
+.find-btn:hover:not(:disabled) {
   border-color: #6366f1;
   color: #6366f1;
 }
+
+.find-btn:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
 
 /* Larger touch targets for document-header buttons on mobile. */
 @media (max-width: 767px) {
@@ -859,14 +876,15 @@
   border-radius: 10px;
   background: #fff;
   padding: 2rem 1.25rem;
-  line-height: 1.65;
+  font-size: var(--reader-font-size, 16px);
+  line-height: var(--reader-line-height, 1.65);
   overflow-wrap: anywhere;
 }
 
 .document-html-content {
-  max-width: 72ch;
+  max-width: min(100%, var(--reader-width, 72ch));
   margin: 0 auto;
-  font-family: serif;
+  font-family: var(--reader-font-family, Georgia, serif);
 }
 
 .document-loading-surface {

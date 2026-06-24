@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
+import { ReaderSettings, useReaderSettings } from '../ReaderSettings/ReaderSettings'
 import { useFindInPage } from '../../hooks/useFindInPage'
 import { useTtsHighlight } from '../../tts/hooks/useTtsHighlight'
 import type { TtsChunk } from '../../tts/types'
@@ -41,6 +42,7 @@ export function DocumentViewer({
 }: DocumentViewerProps) {
   const readerRef = useRef<HTMLElement | null>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const { readerSettingsStyle, readerSettingsProps } = useReaderSettings()
 
   const {
     showFind,
@@ -124,7 +126,12 @@ export function DocumentViewer({
           <h1 className="app-title doc-title" title={title}>{title ?? 'Papercut'}</h1>
         </div>
         <div className="header-right">
-          {headerControls}
+          {headerControls && (
+            <div className={'header-controls-slot' + (loading ? ' header-controls-slot-disabled' : '')}>
+              {headerControls}
+            </div>
+          )}
+          <ReaderSettings disabled={loading} {...readerSettingsProps} />
           <button
             className="find-btn"
             disabled={loading || Boolean(loadError)}
@@ -153,7 +160,7 @@ export function DocumentViewer({
 
       {beforeDocument}
 
-      <main className="document-view">
+      <main className="document-view" style={readerSettingsStyle}>
         {loading ? (
           <div className="document-html-surface document-loading-surface" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />

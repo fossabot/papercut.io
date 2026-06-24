@@ -63,13 +63,13 @@ The frontend keeps upload, search, and viewing responsibilities separated:
 - `src/uploads/DocumentUploads.ts` is the upload API boundary. React code calls these helpers instead of invoking Tauri commands directly throughout the UI.
 - `src/hooks/useSearch.ts` merges bundled Pagefind results with uploaded-document SQLite results and returns the shared `SearchResult` shape.
 - `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the library-facing import/delete/filter controls. Import options stay option-driven so generic document import and audiobook bundle import can appear together without sharing backend code.
-- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, same-document link scrolling, scroll-to-top behavior, loading/error display for document opens, and TTS highlight integration.
+- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, reader settings, header slots, same-document link scrolling, scroll-to-top behavior, loading/error display for document opens, and TTS highlight integration.
 
 Viewer rendering is plugin-based:
 
 - `src/viewers/registry.ts` chooses a `ViewerPlugin` by URL and optional document format.
 - More specific URL formats must be registered before the HTML fallback. PDF and raw `.epub` entries remain reserved ahead of the catch-all HTML viewer.
-- `src/viewers/HtmlViewer.tsx` parses the stored full HTML document, extracts body content, and renders it into an app-owned sanitized reader surface instead of a `srcDoc` iframe. Imported head styles are intentionally not injected into the app DOM.
+- `src/viewers/HtmlViewer.tsx` parses the stored full HTML document, extracts body content, and renders it into an app-owned sanitized reader surface instead of a `srcDoc` iframe. Imported head styles are intentionally not injected into the app DOM. Reader settings apply through CSS variables on the viewer shell, so changing font, font size, line height, or width does not rewrite stored source or invalidate audiobook metadata.
 - Uploaded EPUB documents currently resolve to the HTML viewer because their stored source is generated reading HTML. The shared DOM reader handles generated hash links so TOC entries and footnotes scroll within the stored document. TTS highlighting caches the generated reader DOM while it is stable and invalidates those caches when Find or reader updates replace text nodes. A richer EPUB viewer can replace that later if it declares which reader capabilities it supports, because Find, scrolling, TTS highlighting, and locator navigation may differ by format.
 
 This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
