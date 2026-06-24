@@ -47,6 +47,7 @@ interface AudiobooksPanelProps {
   downloadState: AudiobookCacheState
   exportState: AudiobookExportState | null
   importState: AudiobookImportState
+  documentOpening?: boolean
   isSaving: boolean
   queuedDownloads: AudiobookDownloadRecord[]
   savedAudiobooks: SavedAudiobookRecord[]
@@ -67,6 +68,7 @@ export function AudiobooksPanel({
   downloadState,
   exportState,
   importState,
+  documentOpening = false,
   isSaving,
   queuedDownloads,
   savedAudiobooks,
@@ -196,7 +198,8 @@ export function AudiobooksPanel({
                 <div key={record.id} className="audiobook-item audiobook-item-saved">
                   <button
                     className="audiobook-saved-main"
-                    onClick={() => onOpenSaved(record)}
+                    disabled={documentOpening}
+                    onClick={() => { if (!documentOpening) onOpenSaved(record) }}
                   >
                     <span className="audiobook-title">{record.title}</span>
                     <span className="audiobook-meta">

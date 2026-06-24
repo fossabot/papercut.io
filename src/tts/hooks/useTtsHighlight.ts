@@ -68,7 +68,8 @@ export function useTtsHighlight(
     mutationObserverRef.current = observer
   })
 
-  // Pre-index the reader during idle time so Play usually pays only active-range cost.
+  // Pre-index only when highlight playback is active. Huge uploaded books should
+  // not pay a full DOM text walk merely because the reader opened.
   useEffect(() => {
     let idleHandle: number | null = null
     let timeoutHandle: number | null = null
@@ -108,12 +109,12 @@ export function useTtsHighlight(
       }
     }
 
-    scheduleBuild()
+    if (enabled && currentChunkIndex !== null) scheduleBuild()
     return () => {
       cancelScheduledBuild()
       segmentIndexCacheRef.current = null
     }
-  }, [rootRef])
+  }, [currentChunkIndex, enabled, rootRef])
 
   // CSS Highlight ranges retain DOM nodes; clear registry/cache on unmount.
   useEffect(

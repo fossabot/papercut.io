@@ -475,11 +475,12 @@
   transition: all 0.15s;
 }
 
-.document-view-btn:hover {
+.document-view-btn:hover:not(:disabled) {
   border-color: #6366f1;
   color: #6366f1;
 }
 
+.document-view-btn:disabled,
 .document-delete-btn:hover:not(:disabled) {
   border-color: #dc2626;
   color: #dc2626;
@@ -553,9 +554,14 @@
   background: #fff;
 }
 
-.result-card:hover {
+.result-card:hover:not(.result-card-disabled) {
   border-color: #6366f1;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.result-card-disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .result-title {
@@ -861,6 +867,22 @@
   max-width: 72ch;
   margin: 0 auto;
   font-family: serif;
+}
+
+.document-loading-surface {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 320px;
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.document-load-error {
+  flex-direction: column;
+  color: #991b1b;
+  text-align: center;
 }
 
 .document-html-content > :first-child {
@@ -1671,8 +1693,13 @@
   cursor: pointer;
 }
 
-.audiobook-saved-main:hover {
+.audiobook-saved-main:hover:not(:disabled) {
   color: #4338ca;
+}
+
+.audiobook-saved-main:disabled {
+  color: #9ca3af;
+  cursor: wait;
 }
 
 .audiobook-saved-main .audiobook-meta {

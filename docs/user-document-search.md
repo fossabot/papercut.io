@@ -63,7 +63,7 @@ The frontend keeps upload, search, and viewing responsibilities separated:
 - `src/uploads/DocumentUploads.ts` is the upload API boundary. React code calls these helpers instead of invoking Tauri commands directly throughout the UI.
 - `src/hooks/useSearch.ts` merges bundled Pagefind results with uploaded-document SQLite results and returns the shared `SearchResult` shape.
 - `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the library-facing import/delete/filter controls. Import options stay option-driven so generic document import and audiobook bundle import can appear together without sharing backend code.
-- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, same-document link scrolling, scroll-to-top behavior, and TTS highlight integration.
+- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, same-document link scrolling, scroll-to-top behavior, loading/error display for document opens, and TTS highlight integration.
 
 Viewer rendering is plugin-based:
 
@@ -120,7 +120,7 @@ For 500+ user documents, the important scaling rules are:
 
 This branch already follows those rules for HTML and EPUB uploads. PDF can stay lightweight if it produces page records and avoids rendering or indexing entire binary files in the frontend.
 
-TTS highlighting currently maps saved audiobook chunks back onto the live reader DOM. The hook caches the reader's text-node segment index while the DOM is stable, then invalidates that cache when Find, document loading, or other reader mutations replace text nodes under the same root. That keeps existing saved audio compatible and avoids rescanning on every chunk advance, but a very large fully-rendered book can still pay a one-time segment-index rebuild after a mutation. The long-term scaling path is chapter/page-level rendering with locator-aware TTS ranges, so the app only indexes the visible or active chapter instead of one giant reader DOM.
+TTS highlighting currently maps saved audiobook chunks back onto the live reader DOM. The hook caches the reader's text-node segment index while active playback highlighting needs it, then invalidates that cache when Find, document loading, or other reader mutations replace text nodes under the same root. That keeps existing saved audio compatible and avoids rescanning on every chunk advance or immediately after merely opening a large book, but a very large fully-rendered book can still pay a one-time segment-index rebuild when playback highlighting first starts after a mutation. The long-term scaling path is chapter/page-level rendering with locator-aware TTS ranges, so the app only indexes the visible or active chapter instead of one giant reader DOM.
 
 ## Sanitization And Format Modules
 
@@ -146,7 +146,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 - There is no user-facing reindex action for generic uploaded documents yet.
 - Uploaded documents are not exported as part of a library backup yet.
 - Quoted exact-phrase behavior is strongest for bundled Pagefind documents and should be unified with SQLite FTS later.
-- Very large uploaded books currently render as one generated reader DOM. TTS highlight caches are mutation-aware, but the next highlight after a large DOM mutation may still rebuild the text segment index. Chapter/page-level rendering with locator-aware highlighting is the preferred long-term fix.
+- Very large uploaded books currently render as one generated reader DOM. The app now treats document opening as one global reader transition, disables competing View/Open actions while source HTML loads, and avoids building the TTS text-node index until playback highlighting needs it. The first highlight after a large DOM mutation may still rebuild the text segment index. Chapter/page-level rendering with locator-aware highlighting is the preferred long-term fix.
 
 ## Recommended Next Steps
 

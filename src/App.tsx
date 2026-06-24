@@ -2,7 +2,8 @@ import {
   useState,
   useEffect,
   useCallback,
-  useMemo
+  useMemo,
+  useRef
 } from 'react'
 import './App.css'
 import papercutIcon from './assets/papercut-icon.png'
@@ -34,9 +35,17 @@ import {
   type UploadedDocument,
 } from './uploads/DocumentUploads'
 
+type DocumentLoadState =
+  | { status: 'idle' }
+  | { status: 'loading'; url: string; message: string }
+  | { status: 'error'; url: string; message: string }
+
 function App() {
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [docContent, setDocContent] = useState('')
+  const [documentLoad, setDocumentLoad] = useState<DocumentLoadState>({ status: 'idle' })
+  const openDocumentRequestRef = useRef(0)
+  const documentOpeningRef = useRef(false)
   const [activeTab, setActiveTab] = useState<AppTab>('search')
   const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
@@ -75,8 +84,11 @@ function App() {
   }, [])
 
   const clearSelectedDocument = useCallback(() => {
+    openDocumentRequestRef.current += 1
+    documentOpeningRef.current = false
     setSelectedDoc(null)
     setDocContent('')
+    setDocumentLoad({ status: 'idle' })
   }, [])
 
   const handleUserUploadsChanged = useCallback(() => {
@@ -145,15 +157,31 @@ function App() {
   } = libraryFilters 
 
   const audioFilteredResults = filterResults(results)
+  const documentOpening = documentLoad.status === 'loading'
 
   const handleViewDocument = useCallback(async (url: string) => {
+    if (documentOpeningRef.current) return
+    documentOpeningRef.current = true
+    const requestId = openDocumentRequestRef.current + 1
+    openDocumentRequestRef.current = requestId
+    prepareDocumentOpen()
+    setSelectedDoc(url)
+    setDocContent('')
+    setDocumentLoad({ status: 'loading', url, message: 'Opening document...' })
+    window.scrollTo({ top: 0 })
+
     try {
       const html = await loadHtmlDocument(url)
-      prepareDocumentOpen()
+      if (openDocumentRequestRef.current !== requestId) return
+      documentOpeningRef.current = false
       setDocContent(html)
-      setSelectedDoc(url)
-      window.scrollTo({ top: 0 })
+      setDocumentLoad({ status: 'idle' })
     } catch (err) {
+      if (openDocumentRequestRef.current !== requestId) return
+      const message = err instanceof Error ? err.message : String(err)
+      documentOpeningRef.current = false
+      setDocContent('')
+      setDocumentLoad({ status: 'error', url, message })
       console.error('Failed to load document:', err)
     }
   }, [loadHtmlDocument, prepareDocumentOpen]) // 
@@ -249,6 +277,8 @@ function App() {
         headerControls={<AudioControls {...audioControlsProps} />}
         beforeDocument={<TtsDiagnosticsPanel />}
         ttsHighlight={ttsHighlight}
+        loading={documentLoad.status === 'loading' && documentLoad.url === selectedDoc}
+        loadError={documentLoad.status === 'error' && documentLoad.url === selectedDoc ? documentLoad.message : undefined}
         onClose={handleCloseDocument}
       />
     )
@@ -298,6 +328,8 @@ function App() {
             submittedQuery={submittedQuery}
             lastSearchInfo={lastSearchInfo}
             selectedFilters={selectedFilters}
+            openingDisabled={documentOpening}
+            openingDocumentUrl={documentLoad.status === 'loading' ? documentLoad.url : undefined}
             onViewResult={(result) => handleViewDocument(result.url)}
           />
         </section>
@@ -333,6 +365,8 @@ function App() {
               // { id: 'pdf', label: 'PDF', detail: 'Import PDFs when text extraction support lands', future: true },
             ]}
             importStatuses={[documentImport]}
+            documentOpening={documentOpening}
+            openingDocumentUrl={documentLoad.status === 'loading' ? documentLoad.url : undefined}
             collapsedAuthors={libraryCollapsedAuthors}
             onToggleShow={() => setShowDocuments((v) => !v)}
             onFilterChange={setLibraryDocumentFilter}
@@ -350,6 +384,7 @@ function App() {
             {...audiobooksPanelProps}
             audioSetup={audioSetupProps}
             importState={audiobookImport}
+            documentOpening={documentOpening}
             onImportAudiobook={handleImportAudiobook}
             onOpenSaved={(record) => {
               void openSavedAudiobook(record, handleViewDocument)

@@ -21,6 +21,8 @@ interface DocumentViewerProps {
   headerControls?: ReactNode
   beforeDocument?: ReactNode
   ttsHighlight?: TtsHighlightOptions
+  loading?: boolean
+  loadError?: string
   onClose: () => void
 }
 
@@ -33,6 +35,8 @@ export function DocumentViewer({
   headerControls,
   beforeDocument,
   ttsHighlight,
+  loading = false,
+  loadError,
   onClose,
 }: DocumentViewerProps) {
   const readerRef = useRef<HTMLElement | null>(null)
@@ -123,6 +127,7 @@ export function DocumentViewer({
           {headerControls}
           <button
             className="find-btn"
+            disabled={loading || Boolean(loadError)}
             onClick={() => {
               setShowFind(true)
               setTimeout(() => findInputRef.current?.focus(), 0)
@@ -149,12 +154,24 @@ export function DocumentViewer({
       {beforeDocument}
 
       <main className="document-view">
-        <ViewerComponent
-          url={url}
-          format={format}
-          content={content}
-          contentRef={readerRef}
-        />
+        {loading ? (
+          <div className="document-html-surface document-loading-surface" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            <span>Opening document...</span>
+          </div>
+        ) : loadError ? (
+          <div className="document-html-surface document-loading-surface document-load-error" role="alert">
+            <strong>Unable to open document.</strong>
+            <span>{loadError}</span>
+          </div>
+        ) : (
+          <ViewerComponent
+            url={url}
+            format={format}
+            content={content}
+            contentRef={readerRef}
+          />
+        )}
       </main>
 
       <ScrollTopButton
