@@ -11,6 +11,7 @@
 //! - [`pipeline`]: orchestrates import / get-source / delete.
 //! - [`html`]: HTML-specific parsing + sanitization.
 //! - [`epub`]: EPUB-specific parsing, sanitization, and generated reading HTML.
+//! - [`organization`]: folder and manual ordering metadata for uploaded docs.
 //! - [`parsed`]: format-neutral parsed document shape.
 //! - [`store`]: SQLite schema, persistence, and listing.
 //! - [`search`]: FTS5 query building and execution.
@@ -22,6 +23,7 @@
 pub(crate) mod commands;
 mod epub;
 mod html;
+mod organization;
 mod parsed;
 mod pipeline;
 mod search;

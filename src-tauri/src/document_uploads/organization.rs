@@ -1,0 +1,612 @@
+//! Library organization metadata for uploaded documents.
+//!
+//! Folders and manual ordering live beside the upload/search tables. They never
+//! change the uploaded document URL or stored source file, which keeps search,
+//! saved audiobook cache ids, and TTS highlighting stable when users reorganize
+//! their library.
+
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+
+use rusqlite::{params, Connection, OptionalExtension};
+use tauri::Runtime;
+
+use super::storage::now_ms;
+use super::store::{db_err, open_db};
+use super::types::{
+    UploadedDocumentLocation, UploadedLibraryCreateFolderRequest,
+    UploadedLibraryDeleteFolderRequest, UploadedLibraryFolder, UploadedLibraryMoveDocumentsRequest,
+    UploadedLibraryMoveFolderRequest, UploadedLibraryOrderItem, UploadedLibraryOrganization,
+    UploadedLibraryRenameFolderRequest, UploadedLibraryReorderRequest,
+};
+
+/// Root folders use depth 0, so a max depth of 4 allows five visible folder levels.
+const MAX_FOLDER_DEPTH: usize = 4;
+const MAX_FOLDER_NAME_CHARS: usize = 80;
+const ORDER_STEP: i64 = 1000;
+
+#[derive(Clone)]
+struct FolderRow {
+    id: String,
+    parent_id: Option<String>,
+    name: String,
+    depth: usize,
+    sort_order: i64,
+    created_at_ms: u128,
+    updated_at_ms: u128,
+}
+
+impl From<FolderRow> for UploadedLibraryFolder {
+    fn from(row: FolderRow) -> Self {
+        Self {
+            id: row.id,
+            parent_id: row.parent_id,
+            name: row.name,
+            depth: row.depth,
+            sort_order: row.sort_order,
+            created_at_ms: row.created_at_ms,
+            updated_at_ms: row.updated_at_ms,
+        }
+    }
+}
+
+/// Return the folder tree and document placements without document payloads.
+pub(crate) fn list_organization<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<UploadedLibraryOrganization, String> {
+    let db = open_db(app)?;
+    Ok(UploadedLibraryOrganization {
+        folders: list_folders(&db)?,
+        document_locations: list_document_locations(&db)?,
+    })
+}
+
+/// Create a folder at root or under a parent folder, enforcing name and depth rules.
+pub(crate) fn create_folder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryCreateFolderRequest,
+) -> Result<UploadedLibraryFolder, String> {
+    let db = open_db(app)?;
+    let name = normalize_folder_name(&request.name)?;
+    let depth = match request.parent_id.as_deref() {
+        Some(parent_id) => load_folder(&db, parent_id)?.depth + 1,
+        None => 0,
+    };
+    if depth > MAX_FOLDER_DEPTH {
+        return Err("Uploaded document folders can be nested up to 5 levels deep".into());
+    }
+    ensure_unique_folder_name(&db, request.parent_id.as_deref(), &name, None)?;
+
+    let now = now_ms()?;
+    let id = folder_id(request.parent_id.as_deref(), &name, now);
+    let sort_order = next_sort_order(&db, request.parent_id.as_deref())?;
+    db.execute(
+        "INSERT INTO uploaded_folders \
+         (id, parent_id, name, depth, sort_order, created_at_ms, updated_at_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id,
+            request.parent_id,
+            name,
+            depth as i64,
+            sort_order,
+            now as i64,
+            now as i64,
+        ],
+    )
+    .map_err(db_err)?;
+
+    Ok(load_folder(&db, &id)?.into())
+}
+
+/// Rename a folder without changing its id, parent, children, or contained documents.
+pub(crate) fn rename_folder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryRenameFolderRequest,
+) -> Result<UploadedLibraryFolder, String> {
+    let db = open_db(app)?;
+    let folder = load_folder(&db, &request.folder_id)?;
+    let name = normalize_folder_name(&request.name)?;
+    ensure_unique_folder_name(&db, folder.parent_id.as_deref(), &name, Some(&folder.id))?;
+
+    let now = now_ms()?;
+    db.execute(
+        "UPDATE uploaded_folders SET name = ?1, updated_at_ms = ?2 WHERE id = ?3",
+        params![name, now as i64, request.folder_id],
+    )
+    .map_err(db_err)?;
+
+    Ok(load_folder(&db, &folder.id)?.into())
+}
+
+/// Delete only empty folders so document loss or surprising recursive moves are impossible.
+pub(crate) fn delete_folder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryDeleteFolderRequest,
+) -> Result<(), String> {
+    let db = open_db(app)?;
+    load_folder(&db, &request.folder_id)?;
+
+    let child_count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM uploaded_folders WHERE parent_id = ?1",
+            [request.folder_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(db_err)?;
+    let document_count: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM uploaded_document_locations WHERE folder_id = ?1",
+            [request.folder_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(db_err)?;
+    if child_count > 0 || document_count > 0 {
+        return Err("Folder must be empty before it can be deleted".into());
+    }
+
+    db.execute(
+        "DELETE FROM uploaded_folders WHERE id = ?1",
+        [request.folder_id.as_str()],
+    )
+    .map_err(db_err)?;
+    Ok(())
+}
+
+/// Move documents into a folder or back to root by editing metadata only.
+pub(crate) fn move_documents<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryMoveDocumentsRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    let mut db = open_db(app)?;
+    let document_ids = unique_ids(&request.document_ids)?;
+    if document_ids.is_empty() {
+        return Err("Select at least one uploaded document to move".into());
+    }
+    if let Some(folder_id) = request.folder_id.as_deref() {
+        load_folder(&db, folder_id)?;
+    }
+    for document_id in &document_ids {
+        ensure_document_exists(&db, document_id)?;
+    }
+
+    let mut sort_order = next_sort_order(&db, request.folder_id.as_deref())?;
+    let tx = db.transaction().map_err(db_err)?;
+    for document_id in document_ids {
+        tx.execute(
+            "INSERT INTO uploaded_document_locations (document_id, folder_id, sort_order) \
+             VALUES (?1, ?2, ?3) \
+             ON CONFLICT(document_id) DO UPDATE SET \
+               folder_id = excluded.folder_id, sort_order = excluded.sort_order",
+            params![document_id, request.folder_id, sort_order],
+        )
+        .map_err(db_err)?;
+        sort_order += ORDER_STEP;
+    }
+    tx.commit().map_err(db_err)?;
+
+    Ok(UploadedLibraryOrganization {
+        folders: list_folders(&db)?,
+        document_locations: list_document_locations(&db)?,
+    })
+}
+
+/// Move a folder while preventing self-parenting, cycles, and excessive depth.
+pub(crate) fn move_folder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryMoveFolderRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    let mut db = open_db(app)?;
+    let folder = load_folder(&db, &request.folder_id)?;
+    if request.parent_id.as_deref() == Some(folder.id.as_str()) {
+        return Err("A folder cannot be moved inside itself".into());
+    }
+
+    let new_depth = match request.parent_id.as_deref() {
+        Some(parent_id) => {
+            if is_descendant(&db, parent_id, &folder.id)? {
+                return Err("A folder cannot be moved inside one of its child folders".into());
+            }
+            load_folder(&db, parent_id)?.depth + 1
+        }
+        None => 0,
+    };
+    let max_subtree_depth = max_subtree_depth(&db, &folder.id)?;
+    let deepest_after_move = new_depth + max_subtree_depth.saturating_sub(folder.depth);
+    if deepest_after_move > MAX_FOLDER_DEPTH {
+        return Err("Uploaded document folders can be nested up to 5 levels deep".into());
+    }
+
+    let now = now_ms()?;
+    let sort_order = next_sort_order(&db, request.parent_id.as_deref())?;
+    let depth_delta = new_depth as i64 - folder.depth as i64;
+    let tx = db.transaction().map_err(db_err)?;
+    tx.execute(
+        "UPDATE uploaded_folders \
+         SET parent_id = ?1, depth = ?2, sort_order = ?3, updated_at_ms = ?4 \
+         WHERE id = ?5",
+        params![
+            request.parent_id,
+            new_depth as i64,
+            sort_order,
+            now as i64,
+            folder.id,
+        ],
+    )
+    .map_err(db_err)?;
+    tx.execute(
+        "WITH RECURSIVE descendants(id) AS (
+           SELECT id FROM uploaded_folders WHERE parent_id = ?1
+           UNION ALL
+           SELECT f.id FROM uploaded_folders f
+           JOIN descendants d ON f.parent_id = d.id
+         )
+         UPDATE uploaded_folders
+         SET depth = depth + ?2, updated_at_ms = ?3
+         WHERE id IN (SELECT id FROM descendants)",
+        params![folder.id, depth_delta, now as i64],
+    )
+    .map_err(db_err)?;
+    tx.commit().map_err(db_err)?;
+
+    Ok(UploadedLibraryOrganization {
+        folders: list_folders(&db)?,
+        document_locations: list_document_locations(&db)?,
+    })
+}
+
+/// Persist a complete sibling ordering for one folder/root.
+pub(crate) fn reorder<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: UploadedLibraryReorderRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    let mut db = open_db(app)?;
+    if let Some(parent_id) = request.parent_id.as_deref() {
+        load_folder(&db, parent_id)?;
+    }
+    validate_reorder_items(&db, request.parent_id.as_deref(), &request.items)?;
+
+    let tx = db.transaction().map_err(db_err)?;
+    for (index, item) in request.items.iter().enumerate() {
+        let sort_order = index as i64 * ORDER_STEP;
+        match item.item_type.as_str() {
+            "folder" => {
+                tx.execute(
+                    "UPDATE uploaded_folders SET sort_order = ?1 WHERE id = ?2",
+                    params![sort_order, item.id],
+                )
+                .map_err(db_err)?;
+            }
+            "document" => {
+                tx.execute(
+                    "UPDATE uploaded_document_locations SET sort_order = ?1 WHERE document_id = ?2",
+                    params![sort_order, item.id],
+                )
+                .map_err(db_err)?;
+            }
+            _ => return Err("Library order item type must be folder or document".into()),
+        }
+    }
+    tx.commit().map_err(db_err)?;
+
+    Ok(UploadedLibraryOrganization {
+        folders: list_folders(&db)?,
+        document_locations: list_document_locations(&db)?,
+    })
+}
+
+fn list_folders(db: &Connection) -> Result<Vec<UploadedLibraryFolder>, String> {
+    let mut stmt = db
+        .prepare(
+            "SELECT id, parent_id, name, depth, sort_order, created_at_ms, updated_at_ms \
+             FROM uploaded_folders ORDER BY parent_id IS NOT NULL, parent_id, sort_order, name",
+        )
+        .map_err(db_err)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(UploadedLibraryFolder {
+                id: row.get(0)?,
+                parent_id: row.get(1)?,
+                name: row.get(2)?,
+                depth: row.get::<_, i64>(3)? as usize,
+                sort_order: row.get(4)?,
+                created_at_ms: row.get::<_, i64>(5)? as u128,
+                updated_at_ms: row.get::<_, i64>(6)? as u128,
+            })
+        })
+        .map_err(db_err)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+}
+
+fn list_document_locations(db: &Connection) -> Result<Vec<UploadedDocumentLocation>, String> {
+    let mut stmt = db
+        .prepare(
+            "SELECT document_id, folder_id, sort_order \
+             FROM uploaded_document_locations ORDER BY folder_id IS NOT NULL, folder_id, sort_order",
+        )
+        .map_err(db_err)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(UploadedDocumentLocation {
+                document_id: row.get(0)?,
+                folder_id: row.get(1)?,
+                sort_order: row.get(2)?,
+            })
+        })
+        .map_err(db_err)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+}
+
+fn load_folder(db: &Connection, id: &str) -> Result<FolderRow, String> {
+    db.query_row(
+        "SELECT id, parent_id, name, depth, sort_order, created_at_ms, updated_at_ms \
+         FROM uploaded_folders WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(FolderRow {
+                id: row.get(0)?,
+                parent_id: row.get(1)?,
+                name: row.get(2)?,
+                depth: row.get::<_, i64>(3)? as usize,
+                sort_order: row.get(4)?,
+                created_at_ms: row.get::<_, i64>(5)? as u128,
+                updated_at_ms: row.get::<_, i64>(6)? as u128,
+            })
+        },
+    )
+    .optional()
+    .map_err(db_err)?
+    .ok_or_else(|| "Uploaded document folder was not found".to_string())
+}
+
+fn ensure_document_exists(db: &Connection, id: &str) -> Result<(), String> {
+    if !is_valid_id(id) {
+        return Err("Uploaded document id is invalid".into());
+    }
+    let exists: Option<String> = db
+        .query_row(
+            "SELECT id FROM uploaded_documents WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_err)?;
+    exists
+        .map(|_| ())
+        .ok_or_else(|| "Uploaded document was not found".to_string())
+}
+
+fn normalize_folder_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Folder name cannot be empty".into());
+    }
+    if name.chars().count() > MAX_FOLDER_NAME_CHARS {
+        return Err(format!(
+            "Folder name must be {MAX_FOLDER_NAME_CHARS} characters or fewer"
+        ));
+    }
+    Ok(name.to_string())
+}
+
+fn ensure_unique_folder_name(
+    db: &Connection,
+    parent_id: Option<&str>,
+    name: &str,
+    except_id: Option<&str>,
+) -> Result<(), String> {
+    let duplicate: Option<String> = match parent_id {
+        Some(parent_id) => db
+            .query_row(
+                "SELECT id FROM uploaded_folders \
+                 WHERE parent_id = ?1 AND lower(name) = lower(?2) AND (?3 IS NULL OR id <> ?3)",
+                params![parent_id, name, except_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_err)?,
+        None => db
+            .query_row(
+                "SELECT id FROM uploaded_folders \
+                 WHERE parent_id IS NULL AND lower(name) = lower(?1) AND (?2 IS NULL OR id <> ?2)",
+                params![name, except_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_err)?,
+    };
+    if duplicate.is_some() {
+        return Err("A folder with that name already exists here".into());
+    }
+    Ok(())
+}
+
+fn next_sort_order(db: &Connection, parent_id: Option<&str>) -> Result<i64, String> {
+    let folder_max: Option<i64> = match parent_id {
+        Some(parent_id) => db
+            .query_row(
+                "SELECT MAX(sort_order) FROM uploaded_folders WHERE parent_id = ?1",
+                [parent_id],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?,
+        None => db
+            .query_row(
+                "SELECT MAX(sort_order) FROM uploaded_folders WHERE parent_id IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?,
+    };
+    let document_max: Option<i64> = match parent_id {
+        Some(parent_id) => db
+            .query_row(
+                "SELECT MAX(sort_order) FROM uploaded_document_locations WHERE folder_id = ?1",
+                [parent_id],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?,
+        None => db
+            .query_row(
+                "SELECT MAX(sort_order) FROM uploaded_document_locations WHERE folder_id IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?,
+    };
+
+    Ok(folder_max
+        .into_iter()
+        .chain(document_max)
+        .max()
+        .unwrap_or(0)
+        + ORDER_STEP)
+}
+
+fn is_descendant(db: &Connection, candidate_id: &str, folder_id: &str) -> Result<bool, String> {
+    let found: Option<String> = db
+        .query_row(
+            "WITH RECURSIVE descendants(id) AS (
+               SELECT id FROM uploaded_folders WHERE parent_id = ?1
+               UNION ALL
+               SELECT f.id FROM uploaded_folders f
+               JOIN descendants d ON f.parent_id = d.id
+             )
+             SELECT id FROM descendants WHERE id = ?2 LIMIT 1",
+            params![folder_id, candidate_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_err)?;
+    Ok(found.is_some())
+}
+
+fn max_subtree_depth(db: &Connection, folder_id: &str) -> Result<usize, String> {
+    let max_depth: i64 = db
+        .query_row(
+            "WITH RECURSIVE subtree(id, depth) AS (
+               SELECT id, depth FROM uploaded_folders WHERE id = ?1
+               UNION ALL
+               SELECT f.id, f.depth FROM uploaded_folders f
+               JOIN subtree s ON f.parent_id = s.id
+             )
+             SELECT MAX(depth) FROM subtree",
+            [folder_id],
+            |row| row.get(0),
+        )
+        .map_err(db_err)?;
+    Ok(max_depth as usize)
+}
+
+fn validate_reorder_items(
+    db: &Connection,
+    parent_id: Option<&str>,
+    items: &[UploadedLibraryOrderItem],
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for item in items {
+        if item.item_type != "folder" && item.item_type != "document" {
+            return Err("Library order item type must be folder or document".into());
+        }
+        if !is_valid_id(&item.id) {
+            return Err("Library order item id is invalid".into());
+        }
+        let key = format!("{}:{}", item.item_type, item.id);
+        if !seen.insert(key) {
+            return Err("Library order contains duplicate items".into());
+        }
+    }
+
+    let expected = sibling_keys(db, parent_id)?;
+    let actual = items
+        .iter()
+        .map(|item| format!("{}:{}", item.item_type, item.id))
+        .collect::<HashSet<_>>();
+    if actual != expected {
+        return Err("Library order must include every folder and document in that location".into());
+    }
+    Ok(())
+}
+
+fn sibling_keys(db: &Connection, parent_id: Option<&str>) -> Result<HashSet<String>, String> {
+    let mut keys = HashSet::new();
+    match parent_id {
+        Some(parent_id) => {
+            let mut stmt = db
+                .prepare("SELECT id FROM uploaded_folders WHERE parent_id = ?1")
+                .map_err(db_err)?;
+            let rows = stmt
+                .query_map([parent_id], |row| row.get::<_, String>(0))
+                .map_err(db_err)?;
+            for id in rows {
+                keys.insert(format!("folder:{}", id.map_err(db_err)?));
+            }
+        }
+        None => {
+            let mut stmt = db
+                .prepare("SELECT id FROM uploaded_folders WHERE parent_id IS NULL")
+                .map_err(db_err)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(db_err)?;
+            for id in rows {
+                keys.insert(format!("folder:{}", id.map_err(db_err)?));
+            }
+        }
+    }
+
+    match parent_id {
+        Some(parent_id) => {
+            let mut stmt = db
+                .prepare("SELECT document_id FROM uploaded_document_locations WHERE folder_id = ?1")
+                .map_err(db_err)?;
+            let rows = stmt
+                .query_map([parent_id], |row| row.get::<_, String>(0))
+                .map_err(db_err)?;
+            for id in rows {
+                keys.insert(format!("document:{}", id.map_err(db_err)?));
+            }
+        }
+        None => {
+            let mut stmt = db
+                .prepare(
+                    "SELECT document_id FROM uploaded_document_locations WHERE folder_id IS NULL",
+                )
+                .map_err(db_err)?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(db_err)?;
+            for id in rows {
+                keys.insert(format!("document:{}", id.map_err(db_err)?));
+            }
+        }
+    }
+    Ok(keys)
+}
+
+fn unique_ids(ids: &[String]) -> Result<Vec<String>, String> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    for id in ids {
+        if !is_valid_id(id) {
+            return Err("Uploaded document id is invalid".into());
+        }
+        if seen.insert(id.as_str()) {
+            unique.push(id.clone());
+        }
+    }
+    Ok(unique)
+}
+
+fn is_valid_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn folder_id(parent_id: Option<&str>, name: &str, created_at_ms: u128) -> String {
+    let mut hasher = DefaultHasher::new();
+    parent_id.hash(&mut hasher);
+    name.hash(&mut hasher);
+    created_at_ms.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}

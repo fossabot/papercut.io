@@ -50,11 +50,12 @@ pub(crate) fn open_db<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Connectio
     let db = Connection::open(root.join("search.sqlite3")).map_err(db_err)?;
     db.execute_batch(
         "PRAGMA journal_mode = WAL;
+         PRAGMA foreign_keys = ON;
          CREATE TABLE IF NOT EXISTS upload_schema_metadata (
            key TEXT PRIMARY KEY,
            value TEXT NOT NULL
          );
-         INSERT OR IGNORE INTO upload_schema_metadata (key, value) VALUES ('schema_version', '1');
+         INSERT OR REPLACE INTO upload_schema_metadata (key, value) VALUES ('schema_version', '2');
          CREATE TABLE IF NOT EXISTS uploaded_documents (
            id TEXT PRIMARY KEY,
            url TEXT NOT NULL UNIQUE,
@@ -79,7 +80,32 @@ pub(crate) fn open_db<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Connectio
            heading,
            text,
            tokenize = 'porter unicode61 remove_diacritics 1'
-         );",
+         );
+         CREATE TABLE IF NOT EXISTS uploaded_folders (
+           id TEXT PRIMARY KEY,
+           parent_id TEXT,
+           name TEXT NOT NULL,
+           depth INTEGER NOT NULL,
+           sort_order INTEGER NOT NULL,
+           created_at_ms INTEGER NOT NULL,
+           updated_at_ms INTEGER NOT NULL,
+           FOREIGN KEY(parent_id) REFERENCES uploaded_folders(id) ON DELETE CASCADE,
+           CHECK(depth >= 0 AND depth <= 4),
+           CHECK(length(trim(name)) > 0)
+         );
+         CREATE INDEX IF NOT EXISTS uploaded_folders_parent_order_idx
+           ON uploaded_folders(parent_id, sort_order, name);
+         CREATE TABLE IF NOT EXISTS uploaded_document_locations (
+           document_id TEXT PRIMARY KEY,
+           folder_id TEXT,
+           sort_order INTEGER NOT NULL,
+           FOREIGN KEY(document_id) REFERENCES uploaded_documents(id) ON DELETE CASCADE,
+           FOREIGN KEY(folder_id) REFERENCES uploaded_folders(id) ON DELETE SET NULL
+         );
+         CREATE INDEX IF NOT EXISTS uploaded_document_locations_folder_order_idx
+           ON uploaded_document_locations(folder_id, sort_order);
+         INSERT OR IGNORE INTO uploaded_document_locations (document_id, folder_id, sort_order)
+           SELECT id, NULL, -imported_at_ms FROM uploaded_documents;",
     )
     .map_err(db_err)?;
     Ok(db)
@@ -132,6 +158,12 @@ pub(crate) fn upsert_document(
             bytes as i64,
             parsed.sections.len() as i64,
         ],
+    )
+    .map_err(db_err)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO uploaded_document_locations (document_id, folder_id, sort_order) \
+         VALUES (?1, NULL, ?2)",
+        params![id, -(imported_at_ms as i64)],
     )
     .map_err(db_err)?;
 
