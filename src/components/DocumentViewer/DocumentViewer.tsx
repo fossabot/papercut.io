@@ -3,6 +3,8 @@ import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
 import { ReaderSettings, useReaderSettings } from '../ReaderSettings/ReaderSettings'
+import { ExternalLinkPrompt } from '../ExternalLinkPrompt/ExternalLinkPrompt'
+import { getExternalLinkUrl, getInternalDocumentHash } from './linkUtils'
 import { useFindInPage } from '../../hooks/useFindInPage'
 import { useTtsHighlight } from '../../tts/hooks/useTtsHighlight'
 import type { TtsChunk } from '../../tts/types'
@@ -42,6 +44,7 @@ export function DocumentViewer({
 }: DocumentViewerProps) {
   const readerRef = useRef<HTMLElement | null>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [pendingExternalUrl, setPendingExternalUrl] = useState<string | null>(null)
   const { readerSettingsStyle, readerSettingsProps } = useReaderSettings()
 
   const {
@@ -81,8 +84,8 @@ export function DocumentViewer({
     window.scrollTo({ top: Math.max(targetTop - 120, 0), behavior: 'smooth' })
   }, [])
 
-  // Direct rendering makes same-document links ordinary DOM events again. The
-  // delegated handler covers generated EPUB ToCs, footnotes, and bundled HTML.
+  // Direct rendering makes document links ordinary DOM events again. Internal
+  // hash links scroll in-place; everything else asks before leaving the app.
   useEffect(() => {
     const root = readerRef.current
     if (!root) return
@@ -91,16 +94,37 @@ export function DocumentViewer({
     function handleReaderClick(event: MouseEvent) {
       const target = event.target
       if (!(target instanceof Element)) return
-      const link = target.closest('a[href^="#"]')
+      const link = target.closest('a[href]')
       if (!link || !readerRoot.contains(link)) return
 
+      const href = link.getAttribute('href') ?? ''
+      const internalHash = getInternalDocumentHash(href)
+      if (internalHash) {
+        event.preventDefault()
+        scrollToHash(internalHash)
+        return
+      }
+
+      const externalUrl = getExternalLinkUrl(href)
+      if (!externalUrl) return
+
       event.preventDefault()
-      scrollToHash(link.getAttribute('href') ?? '')
+      setPendingExternalUrl(externalUrl)
     }
 
     readerRoot.addEventListener('click', handleReaderClick)
     return () => readerRoot.removeEventListener('click', handleReaderClick)
   }, [content, scrollToHash, url])
+
+  const closeExternalLinkPrompt = useCallback(() => {
+    setPendingExternalUrl(null)
+  }, [])
+
+  const openPendingExternalUrl = useCallback(() => {
+    if (!pendingExternalUrl) return
+    window.open(pendingExternalUrl, '_blank', 'noopener,noreferrer')
+    setPendingExternalUrl(null)
+  }, [pendingExternalUrl])
 
   useEffect(() => {
     function handleScroll() {
@@ -185,6 +209,14 @@ export function DocumentViewer({
         visible={showScrollTop}
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
       />
+
+      {pendingExternalUrl && (
+        <ExternalLinkPrompt
+          url={pendingExternalUrl}
+          onCancel={closeExternalLinkPrompt}
+          onOpen={openPendingExternalUrl}
+        />
+      )}
     </div>
   )
 }
