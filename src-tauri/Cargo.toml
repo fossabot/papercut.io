@@ -20,7 +20,7 @@ tauri-build = { version = "2.5.6", features = [] }
 [features]
 default = []
 native-tts = ["native-tts-static"]
-native-tts-core = ["dep:base64", "dep:bzip2", "dep:num2words", "dep:reqwest", "dep:sha2", "dep:tar", "dep:sherpa-onnx"]
+native-tts-core = ["dep:bzip2", "dep:num2words", "dep:reqwest", "dep:sha2", "dep:tar", "dep:sherpa-onnx"]
 native-text-preprocessing = ["dep:libtashkeel_base", "dep:ort", "dep:ort-sys"]
 native-tts-static = ["native-tts-core", "sherpa-onnx/static"]
 native-tts-shared = ["native-tts-core", "native-text-preprocessing", "sherpa-onnx/shared"]
@@ -34,7 +34,7 @@ tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-native-audio = "=1.0.5"
-base64 = { version = "0.22", optional = true }
+base64 = "0.22"
 num2words = { version = "1.2", optional = true }
 sha2 = { version = "0.10", optional = true }
 tar = { version = "0.4", optional = true }
@@ -45,3 +45,8 @@ libtashkeel_base = { version = "=1.5.0", optional = true, default-features = fal
 ort = { version = "=2.0.0-rc.1", optional = true, default-features = false, features = ["load-dynamic", "ndarray"] }
 ort-sys = { version = "=2.0.0-rc.1", optional = true, default-features = false, features = ["load-dynamic"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+ammonia = "3.3"
+roxmltree = "0.20"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+percent-encoding = "2.3"
+kuchikiki = "=0.8.8-speedreader"

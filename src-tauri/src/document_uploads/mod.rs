@@ -4,12 +4,14 @@
 //! independently. Dependencies only point downward:
 //!
 //! ```text
-//! commands -> pipeline -> { html, store, search, storage } -> types
+//! commands -> pipeline -> { epub, html, parsed, store, search, storage } -> types
 //! ```
 //!
 //! - [`commands`]: the thin `#[tauri::command]` edge exposed to the frontend.
 //! - [`pipeline`]: orchestrates import / get-source / delete.
-//! - [`html`]: format-specific parsing + sanitization (PDF/EPUB plug in here).
+//! - [`html`]: HTML-specific parsing + sanitization.
+//! - [`epub`]: EPUB-specific parsing, sanitization, and generated reading HTML.
+//! - [`parsed`]: format-neutral parsed document shape.
 //! - [`store`]: SQLite schema, persistence, and listing.
 //! - [`search`]: FTS5 query building and execution.
 //! - [`storage`]: filesystem paths, upload ids, size accounting, clock.
@@ -18,7 +20,9 @@
 // `commands` is `pub(crate)` so `generate_handler!` in `lib.rs` can reach both
 // each command and the hidden `__cmd__*` helper the macro generates beside it.
 pub(crate) mod commands;
+mod epub;
 mod html;
+mod parsed;
 mod pipeline;
 mod search;
 mod storage;
