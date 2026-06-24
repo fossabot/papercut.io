@@ -845,12 +845,41 @@
   margin-top: 1rem;
 }
 
-.document-iframe {
+.document-html-surface {
   width: 100%;
+  min-height: 320px;
+  display: block;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   background: #fff;
-  overflow: hidden;
+  padding: 2rem 1.25rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.document-html-content {
+  max-width: 72ch;
+  margin: 0 auto;
+  font-family: serif;
+}
+
+.document-html-content > :first-child {
+  margin-top: 0;
+}
+
+.document-html-content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem auto;
+}
+
+.document-html-content a {
+  color: #2563eb;
+}
+
+.document-html-content a:hover {
+  color: #1d4ed8;
 }
 
 

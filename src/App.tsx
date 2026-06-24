@@ -27,6 +27,7 @@ import { useAudiobookManager } from './tts/hooks/useAudiobookManager'
 import {
   deleteUploadedDocument,
   getUploadedDocumentSource,
+  importEpubDocument,
   importHtmlDocument,
   isUploadedDocumentUrl,
   listUploadedDocuments,
@@ -110,9 +111,9 @@ function App() {
   } = audiobook
 
   const libraryDocuments = useMemo<DocumentInfo[]>(() => [
-    ...allDocuments.map((doc) => ({ ...doc, source: 'bundled' as const })),
-    ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, source: 'upload' as const })),
-    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, source: 'audiobook-upload' as const })),
+    ...allDocuments.map((doc) => ({ ...doc, format: 'html', source: 'bundled' as const })),
+    ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, format: upload.format, source: 'upload' as const })),
+    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, format: 'html', source: 'audiobook-upload' as const })),
   ], [allDocuments, uploadedDocuments, userUploads]) 
 
   const searchFilters = useDocumentFilters(libraryDocuments, { includeDocument: includeDocumentInList })
@@ -166,15 +167,35 @@ function App() {
     setActiveTab(tab)
   }, [])
 
-  const selectedTitle = useMemo(
-    () => (selectedDoc ? libraryDocuments.find((doc) => doc.url === selectedDoc)?.title : undefined),
+  const selectedDocument = useMemo(
+    () => (selectedDoc ? libraryDocuments.find((doc) => doc.url === selectedDoc) : undefined),
     [selectedDoc, libraryDocuments],
   )
+  const selectedTitle = selectedDocument?.title
+  const selectedFormat = selectedDocument?.format
 
   const handleImportHtmlDocument = useCallback(async () => {
     setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
     try {
       const result = await importHtmlDocument()
+      setUploadedDocuments(await listUploadedDocuments())
+      setShowDocuments(true)
+      setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
+      await handleViewDocument(result.url)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const cancelled = message.toLowerCase().includes('cancelled')
+      setDocumentImport({
+        status: cancelled ? 'cancelled' : 'error',
+        message: cancelled ? 'Import cancelled.' : message,
+      })
+    }
+  }, [handleViewDocument, setShowDocuments])
+
+  const handleImportEpubDocument = useCallback(async () => {
+    setDocumentImport({ status: 'importing', message: 'Importing EPUB book' })
+    try {
+      const result = await importEpubDocument()
       setUploadedDocuments(await listUploadedDocuments())
       setShowDocuments(true)
       setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
@@ -227,6 +248,7 @@ function App() {
       <DocumentViewer
         url={selectedDoc}
         title={selectedTitle}
+        format={selectedFormat}
         content={docContent}
         className={hasFloatingAudioControls ? 'app-audio-floating' : ''}
         headerControls={<AudioControls {...audioControlsProps} />}
@@ -301,11 +323,18 @@ function App() {
                 id: 'html',
                 label: 'HTML',
                 detail: 'Import a local .html or .htm document',
-                statusLabel: documentImport.status === 'importing' ? 'Importing HTML' : undefined,
+                statusLabel: documentImport.status === 'importing' && documentImport.message.includes('HTML') ? 'Importing HTML' : undefined,
                 disabled: documentImport.status === 'importing',
                 onSelect: handleImportHtmlDocument,
               },
-              // { id: 'epub', label: 'EPUB', detail: 'Import EPUB books when parser support lands', future: true },
+              {
+                id: 'epub',
+                label: 'EPUB',
+                detail: 'Import a local .epub book',
+                statusLabel: documentImport.status === 'importing' && documentImport.message.includes('EPUB') ? 'Importing EPUB' : undefined,
+                disabled: documentImport.status === 'importing',
+                onSelect: handleImportEpubDocument,
+              },
               // { id: 'pdf', label: 'PDF', detail: 'Import PDFs when text extraction support lands', future: true },
             ]}
             importStatuses={[documentImport]}

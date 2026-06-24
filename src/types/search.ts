@@ -22,5 +22,6 @@ export interface PagefindInstance {
 export interface DocumentInfo {
   title: string
   url: string
+  format?: string
   source?: 'bundled' | 'upload' | 'audiobook-upload'
 }
