@@ -141,7 +141,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 - Runtime import supports HTML and EPUB; PDF is not implemented yet.
 - HTML files must be UTF-8 and at most 25 MB.
 - EPUB files must be readable ZIP-based EPUB archives with a valid container and OPF spine, and must be at most 100 MB. Only local PNG, JPEG, GIF, and WebP images are retained, with 5 MB per image and 30 MB total image caps.
-- The HTML sanitizer is a conservative first pass; EPUB XHTML uses `ammonia` plus the EPUB DOM rewrite/generation path before storage. Because stored sources render into the app DOM, sanitizer regressions are higher risk than they were with an iframe surface and should be covered by parser fixtures.
+- The HTML sanitizer is a conservative first pass; EPUB XHTML uses `ammonia` plus the EPUB DOM rewrite/generation path before storage. Because stored sources render into the app DOM, sanitizer regressions are higher risk than they were with an iframe surface and should be covered by parser fixtures. The HTML upload path still needs explicit sanitizer regression tests for scripts, event handlers, inline styles, `javascript:` URLs, and URL-bearing attributes before further sanitizer refactors.
 - Uploaded-document search only runs inside the Tauri app, not plain browser preview.
 - There is no user-facing reindex action for generic uploaded documents yet.
 - Uploaded documents are not exported as part of a library backup yet.
@@ -150,14 +150,15 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 
 ## Recommended Next Steps
 
-1. Add more EPUB parser fixtures for malformed OPF/container cases, spine edge cases, sanitizer regressions, oversized image skipping, and metadata fallback.
-2. Detect EPUB 2/3 cover metadata and render a safe retained raster cover near the top of generated reading HTML, still respecting existing image caps and SVG skipping.
-3. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
-4. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
-5. Add import progress reporting for very large EPUB/PDF files.
-6. Add richer EPUB reader features such as TOC, location restore, pagination/theme controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
-7. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
-8. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
+1. Add explicit HTML sanitizer regression tests for active elements, event handlers, inline styles, `javascript:` links, image/source attributes, and malformed attribute spacing before changing the HTML upload sanitizer.
+2. Add more EPUB parser fixtures for malformed OPF/container cases, spine edge cases, sanitizer regressions, oversized image skipping, and metadata fallback.
+3. Detect EPUB 2/3 cover metadata and render a safe retained raster cover near the top of generated reading HTML, still respecting existing image caps and SVG skipping.
+4. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
+5. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
+6. Add import progress reporting for very large EPUB/PDF files.
+7. Add richer EPUB reader features such as TOC, location restore, pagination/theme controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
+8. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
+9. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
 
 ## Branching Guidance
 
