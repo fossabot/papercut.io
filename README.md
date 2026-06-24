@@ -7,7 +7,7 @@
 
 Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native sherpa-onnx TTS.
 
-Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
+Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML and EPUB documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. EPUB uploads are parsed as a sibling runtime format that emits the same normalized document sections before indexing. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
 
 ## Prerequisites
 
@@ -318,7 +318,7 @@ Papercut now has two document paths:
 - **Bundled documents** live in `public/documents/` and are indexed by Pagefind during the production build. This is still the best path for documents you ship to every user.
 - **User uploads** are imported from the app UI and indexed incrementally into a local SQLite FTS database. This is the scalable path for documents users add themselves, because it does not require a rebuild or a packaged Pagefind index update.
 
-The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md).
+The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md). EPUB implementation notes and remaining follow-up work are tracked in [docs/epub-implementation-plan.md](docs/epub-implementation-plan.md).
 
 <details>
 <summary><strong>Document formats and search behavior</strong></summary>
@@ -343,11 +343,11 @@ Place your HTML files in `public/documents/`. Each document should have a standa
 
 Pagefind will automatically extract and index the text content on the next build. The `<title>` tag is used as the document title in search results.
 
-### User-Uploaded HTML Documents
+### User-Uploaded HTML And EPUB Documents
 
-From the document list, open **Import** and choose **HTML** to select a local `.html` or `.htm` file. The native import path sanitizes and stores a copy of the HTML under Tauri app data, extracts readable sections, and indexes those sections into SQLite FTS5. Uploaded documents appear under **User Uploads**, open in the same reader as bundled HTML, participate in the same search UI, and can use the same TTS playback/save flow when native TTS is available. Uploaded HTML documents can also be deleted from the document list; delete removes the SQLite rows and the stored sanitized source file directory to free local storage.
+From the document list, open **Import** and choose **HTML** to select a local `.html` or `.htm` file, or **EPUB** to select a local `.epub` book. The native import path stores sanitized HTML for HTML uploads and generated reading HTML for EPUB uploads under Tauri app data, extracts readable sections, and indexes those sections into SQLite FTS5. Uploaded documents appear under **User Uploads**, open in the app-owned reader surface, participate in the same search UI, and can use the same TTS playback/save flow when native TTS is available. Uploaded documents can also be deleted from the document list; delete removes the SQLite rows and the stored source file directory to free local storage.
 
-This first upload branch is intentionally HTML-only. PDF and EPUB uploads should be added as separate parser modules that output the same normalized document sections before indexing.
+EPUB import validates the archive container, follows the OPF spine, stores a sanitized generated reading HTML copy, and outputs the same normalized sections before indexing. The generated reading copy is rendered directly into the reader DOM so ToC links, footnotes, Find, and TTS highlighting share one scroll model. PDF should follow the same shared import/search contract later, while keeping a PDF-specific viewer and page-aware locators.
 
 ### Search Behavior
 

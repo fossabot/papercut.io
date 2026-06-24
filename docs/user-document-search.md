@@ -9,16 +9,17 @@ This avoids the trap of trying to rebuild Pagefind on a user's device every time
 
 ## Current Scope
 
-The first upload branch supports local HTML files:
+The current upload branch supports local HTML and EPUB files:
 
-- Users open **Import** from the document list and choose **HTML**.
-- Tauri opens the native filesystem picker for `.html` and `.htm` files.
-- Rust reads the selected file, enforces a 25 MB limit, requires UTF-8, sanitizes the HTML, extracts readable sections, stores the sanitized source, and indexes the sections into SQLite FTS5.
-- React lists imported files under **User Uploads** and opens them with the same HTML reader path used by bundled documents.
+- Users open **Import** from the document list and choose **HTML** or **EPUB**.
+- Tauri opens the native filesystem picker for `.html`/`.htm` or `.epub` files.
+- Rust reads the selected HTML file, enforces a 25 MB limit, requires UTF-8, sanitizes the HTML, extracts readable sections, stores the sanitized source, and indexes the sections into SQLite FTS5.
+- Rust reads the selected EPUB file, enforces a 100 MB limit, validates the EPUB ZIP/container, follows OPF spine order, sanitizes XHTML chapters into generated reading HTML, rewrites and target-validates local chapter, TOC, and footnote links, retains supported local raster images within safety caps, extracts readable sections, and indexes the sections into SQLite FTS5.
+- React lists imported files under **User Uploads** and opens them through the shared document reader. EPUB uses the generated reading HTML for the first release.
 - Search queries run through `src/hooks/useSearch.ts`, which queries Pagefind and SQLite FTS in parallel and returns one shared result shape.
-- Users can delete uploaded HTML documents from the document list. Delete removes SQLite metadata, section rows, FTS rows, and the stored sanitized source directory.
+- Users can delete uploaded HTML and EPUB documents from the document list. Delete removes SQLite metadata, section rows, FTS rows, and the stored source directory.
 
-This path is intentionally independent from `.papercut-audiobook` import/export. Audiobook bundle import remains TTS-specific, while generic document import is designed to be shippable as its own branch.
+This path is intentionally independent from `.papercut-audiobook` import/export. Audiobook bundle import remains TTS-specific, while generic document import is designed to be shippable as its own branch. EPUB implementation notes and remaining reader-quality work live in [epub-implementation-plan.md](epub-implementation-plan.md).
 
 ## Code Map
 
@@ -27,26 +28,29 @@ Frontend:
 - `src/uploads/DocumentUploads.ts` is the small client API for user-upload commands and shared TypeScript types.
 - `src/App.tsx` wires upload/search state into reusable hooks and components, and provides source loading for uploaded URLs.
 - `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the document dropdown UI, including the option-driven Import menu, Saved audio filtering, uploaded-document delete, and active filter chips. The HTML branch can pass only the HTML option; TTS branches can add the Audiobook option separately.
-- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader shell, viewer plugin resolution, in-document Find, iframe sizing, scroll-to-top behavior, and the slots used by TTS controls/diagnostics.
+- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader shell, viewer plugin resolution, in-document Find, same-document link scrolling, scroll-to-top behavior, and the slots used by TTS controls/diagnostics.
 - `src/hooks/useDocumentFilters.ts` owns document filter text, selected filters, author grouping, collapsed groups, and the optional inclusion predicate used by the Saved audio filter.
 - `src/hooks/useSearch.ts` owns the combined Pagefind + SQLite query flow and maps uploaded matches into the shared `SearchResult` shape.
 
 Rust:
 
-- `src-tauri/src/document_uploads/` owns the runtime upload feature, split one concern per file (dependencies point downward, `commands → pipeline → { html, store, search, storage } → types`):
+- `src-tauri/src/document_uploads/` owns the runtime upload feature, split one concern per file (dependencies point downward, currently `commands → pipeline → { epub, html, parsed, store, search, storage } → types`):
   - `commands.rs` — the `#[tauri::command]` edge; each command just moves the blocking work onto the thread pool and delegates.
   - `pipeline.rs` — import / get-source / delete orchestration (no SQL or parsing of its own).
-  - `html/` — format-specific parsing (`parser.rs`) and sanitization (`sanitize.rs`). New formats (PDF/EPUB) add sibling modules here that emit the same `ParsedSection` shape.
+  - `html/` — HTML-specific parsing (`parser.rs`), sanitization (`sanitize.rs`), and small shared HTML helpers (`util.rs`).
+  - `epub/` — EPUB ZIP/container/OPF/spine parsing, with path resolution (`paths.rs`), bounded image inlining (`assets.rs`), DOM-based link/resource rewriting (`rewrite.rs`), and generated reading HTML assembly (`render.rs`) split into focused helpers.
+  - `parsed.rs` — format-neutral `ParsedDocument` / `ParsedSection` shape used by HTML, EPUB, storage, and future PDF work.
   - `store.rs` — SQLite schema, the index write path, listing, and deletes.
   - `search.rs` — FTS5 query building and execution (read-only).
   - `storage.rs` — app-data paths, upload ids, size accounting, clock, and the URL-prefix/size-limit constants.
   - `types.rs` — serde DTOs shared across the boundary.
 - `src-tauri/src/lib.rs` registers the Tauri commands, referenced through the `document_uploads::commands` path so the macro-generated command helpers resolve.
-- `src-tauri/Cargo.toml` includes `rusqlite` with the bundled SQLite feature so FTS5 support is available consistently across supported build targets.
+- `src-tauri/Cargo.toml` includes `rusqlite` with the bundled SQLite feature so FTS5 support is available consistently across supported build targets. EPUB parsing uses focused crates for ZIP, XML, sanitization, DOM rewriting, base64 image data URLs, and percent-decoded archive hrefs instead of handwritten decoders or tag scanners. The DOM rewriter is post-sanitizer plumbing, not the security boundary, so it can be swapped if a better-maintained HTML mutation crate fits later.
 
 Storage:
 
 - Sanitized uploaded HTML is stored under Tauri app data at `document_uploads/{upload_id}/source.html`.
+- EPUB stores a sanitized generated reading HTML copy at the same stored-source path. Search and TTS depend on the generated safe reading copy and normalized sections, not on rendering the raw EPUB archive in React. Local PNG, JPEG, GIF, and WebP manifest images referenced by retained reader content are inlined as data URLs with a 5 MB per-image cap and 30 MB total-image cap; remote images and SVG are skipped. The original EPUB archive is not retained by the current MVP.
 - The runtime search index lives at `document_uploads/search.sqlite3`.
 
 ## Frontend And Viewer Architecture
@@ -59,14 +63,14 @@ The frontend keeps upload, search, and viewing responsibilities separated:
 - `src/uploads/DocumentUploads.ts` is the upload API boundary. React code calls these helpers instead of invoking Tauri commands directly throughout the UI.
 - `src/hooks/useSearch.ts` merges bundled Pagefind results with uploaded-document SQLite results and returns the shared `SearchResult` shape.
 - `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the library-facing import/delete/filter controls. Import options stay option-driven so generic document import and audiobook bundle import can appear together without sharing backend code.
-- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, iframe sizing, scroll-to-top behavior, and TTS highlight integration.
+- `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader chrome: Back, Find, header slots, same-document link scrolling, scroll-to-top behavior, and TTS highlight integration.
 
 Viewer rendering is plugin-based:
 
-- `src/viewers/registry.ts` chooses a `ViewerPlugin` by URL.
-- More specific formats must be registered before the HTML fallback. Today PDF and EPUB entries are reserved ahead of the catch-all HTML viewer.
-- `src/viewers/HtmlViewer.tsx` renders sanitized HTML through `srcDoc` in a sandboxed iframe.
-- New formats should add a parser/indexing module on the Rust side first. Add a new viewer only when the stored source needs different rendering from sanitized HTML.
+- `src/viewers/registry.ts` chooses a `ViewerPlugin` by URL and optional document format.
+- More specific URL formats must be registered before the HTML fallback. PDF and raw `.epub` entries remain reserved ahead of the catch-all HTML viewer.
+- `src/viewers/HtmlViewer.tsx` parses the stored full HTML document, extracts body content, and renders it into an app-owned sanitized reader surface instead of a `srcDoc` iframe. Imported head styles are intentionally not injected into the app DOM.
+- Uploaded EPUB documents currently resolve to the HTML viewer because their stored source is generated reading HTML. The shared DOM reader handles generated hash links so TOC entries and footnotes scroll within the stored document. A richer EPUB viewer can replace that later if it declares which reader capabilities it supports, because Find, scrolling, TTS highlighting, and locator navigation may differ by format.
 
 This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
 
@@ -84,7 +88,7 @@ The runtime upload path follows a parser pipeline that can be reused for future 
 8. **Render/search**: React opens the stored source and searches through the same result-card UI as bundled docs.
 9. **Delete**: when requested, Rust removes the document rows from SQLite and deletes the stored source directory from app data.
 
-Future PDF and EPUB support should plug in at step 3 and output the same normalized section shape. That keeps upload UI, indexing, search results, and reader behavior shared.
+EPUB plugs in at step 3 by validating the ZIP/container, reading OPF metadata and spine order, sanitizing each XHTML spine item, generating safe reading HTML, and outputting the same normalized section shape. PDF should later plug into the same shared store/search path with page-aware locators and a PDF-specific viewer.
 
 ## Search Flow
 
@@ -114,7 +118,7 @@ For 500+ user documents, the important scaling rules are:
 - Limit initial result counts and fetch/open full source only when the user chooses a document.
 - Keep format parsing out of React so the WebView does not lock up on large imports.
 
-This branch already follows those rules for HTML uploads. EPUB and PDF can stay lightweight if they produce section/page records and avoid rendering or indexing entire binary files in the frontend.
+This branch already follows those rules for HTML and EPUB uploads. PDF can stay lightweight if it produces page records and avoids rendering or indexing entire binary files in the frontend.
 
 ## Sanitization And Format Modules
 
@@ -126,15 +130,16 @@ Yes, upload formats should have separate sanitization/parser modules. HTML, PDF,
 
 The shared output should be boring and stable:
 
-`{ title, format, sanitizedSource?, sections: [{ ordinal, heading?, text, locator? }] }`
+`{ title, format, viewHtml, sections: [{ ordinal, heading?, text, locator? }] }`
 
-Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic.
+Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic. See [epub-implementation-plan.md](epub-implementation-plan.md) for the ordered EPUB task list and acceptance checks.
 
 ## Current Limitations
 
-- Runtime import supports HTML only.
+- Runtime import supports HTML and EPUB; PDF is not implemented yet.
 - HTML files must be UTF-8 and at most 25 MB.
-- The current sanitizer is a conservative first pass, not a full standards-compliant HTML sanitizer.
+- EPUB files must be readable ZIP-based EPUB archives with a valid container and OPF spine, and must be at most 100 MB. Only local PNG, JPEG, GIF, and WebP images are retained, with 5 MB per image and 30 MB total image caps.
+- The HTML sanitizer is a conservative first pass; EPUB XHTML uses `ammonia` plus the EPUB DOM rewrite/generation path before storage. Because stored sources render into the app DOM, sanitizer regressions are higher risk than they were with an iframe surface and should be covered by parser fixtures.
 - Uploaded-document search only runs inside the Tauri app, not plain browser preview.
 - There is no user-facing reindex action for generic uploaded documents yet.
 - Uploaded documents are not exported as part of a library backup yet.
@@ -142,15 +147,14 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 
 ## Recommended Next Steps
 
-1. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
-2. Replace the lightweight Rust HTML sanitizer with a maintained sanitizer crate such as `ammonia`, if mobile/desktop build size and Android compatibility are acceptable.
-3. Add an EPUB parser module that validates the ZIP, reads OPF metadata/spine order, sanitizes XHTML chapters, and indexes chapters as sections.
-4. Add a runtime PDF import module that extracts page text and stores page records in the same SQLite schema.
-5. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
-6. Add schema migrations with an explicit database version before changing table layout.
-7. Add import progress reporting for very large EPUB/PDF files.
+1. Add more EPUB parser fixtures for malformed OPF/container cases, spine edge cases, sanitizer regressions, oversized image skipping, and metadata fallback.
+2. Detect EPUB 2/3 cover metadata and render a safe retained raster cover near the top of generated reading HTML, still respecting existing image caps and SVG skipping.
+3. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
+4. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
+5. Add import progress reporting for very large EPUB/PDF files.
+6. Add richer EPUB reader features such as TOC, location restore, pagination/theme controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
+7. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
 8. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
-9. Add automated tests for parser output, sanitizer behavior, FTS query escaping, source retrieval, and delete cleanup.
 
 ## Branching Guidance
 
