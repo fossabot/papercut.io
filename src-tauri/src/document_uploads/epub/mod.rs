@@ -24,6 +24,11 @@ use render::{render_chapter, render_reading_html};
 use rewrite::{collect_fragment_anchors, rewrite_epub_fragment};
 
 const CONTAINER_PATH: &str = "META-INF/container.xml";
+const MAX_MIMETYPE_BYTES: u64 = 128;
+const MAX_CONTAINER_XML_BYTES: u64 = 1024 * 1024;
+const MAX_OPF_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_CHAPTER_TEXT_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_TOTAL_CHAPTER_TEXT_BYTES: u64 = 120 * 1024 * 1024;
 
 /// Parse an EPUB archive into Papercut's format-neutral document shape.
 ///
@@ -38,9 +43,9 @@ pub(crate) fn parse_epub_document(
         .map_err(|err| format!("EPUB is not a readable ZIP archive: {err}"))?;
     validate_mimetype(&mut archive)?;
 
-    let container = read_zip_text(&mut archive, CONTAINER_PATH)?;
+    let container = read_zip_text_limited(&mut archive, CONTAINER_PATH, MAX_CONTAINER_XML_BYTES)?;
     let opf_path = parse_container_path(&container)?;
-    let opf = read_zip_text(&mut archive, &opf_path)?;
+    let opf = read_zip_text_limited(&mut archive, &opf_path, MAX_OPF_BYTES)?;
     let package = parse_opf(&opf, &opf_path, fallback_title)?;
 
     if package.spine_paths.is_empty() {
@@ -56,8 +61,15 @@ pub(crate) fn parse_epub_document(
         .collect();
 
     let mut chapter_drafts = Vec::new();
+    let mut total_chapter_text_bytes = 0u64;
     for (index, chapter_path) in package.spine_paths.iter().enumerate() {
-        let raw = read_zip_text(&mut archive, chapter_path)?;
+        let raw = read_zip_text_limited(&mut archive, chapter_path, MAX_CHAPTER_TEXT_BYTES)?;
+        total_chapter_text_bytes = total_chapter_text_bytes
+            .checked_add(raw.len() as u64)
+            .ok_or_else(|| "EPUB chapter text is too large to import".to_string())?;
+        if total_chapter_text_bytes > MAX_TOTAL_CHAPTER_TEXT_BYTES {
+            return Err("EPUB chapter text is too large to import".into());
+        }
         let body = extract_body_inner(&raw).unwrap_or(raw.as_str());
         let sanitized = sanitize_epub_fragment(body);
         if normalize_text(&strip_tags(&sanitized)).is_empty() {
@@ -124,18 +136,17 @@ struct ChapterDraft {
 /// This is a fast user-facing guard, not a full EPUB conformance check. Many
 /// malformed ZIPs can still fail later with a more specific container/OPF error.
 fn validate_mimetype<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>) -> Result<(), String> {
-    match archive.by_name("mimetype") {
-        Ok(mut file) => {
-            let mut value = String::new();
-            file.read_to_string(&mut value)
-                .map_err(|err| format!("Failed to read EPUB mimetype: {err}"))?;
-            if value.trim() != "application/epub+zip" {
-                return Err("Selected file is not an EPUB archive".into());
-            }
-            Ok(())
+    let value = match read_zip_text_limited(archive, "mimetype", MAX_MIMETYPE_BYTES) {
+        Ok(value) => value,
+        Err(err) if err.contains("is missing or unreadable") => {
+            return Err("EPUB is missing required mimetype entry".into());
         }
-        Err(_) => Err("EPUB is missing required mimetype entry".into()),
+        Err(err) => return Err(err),
+    };
+    if value.trim() != "application/epub+zip" {
+        return Err("Selected file is not an EPUB archive".into());
     }
+    Ok(())
 }
 
 /// Read `META-INF/container.xml` and locate the OPF package document.
@@ -227,21 +238,34 @@ fn is_readable_spine_item(media_type: &str, href: &str) -> bool {
         || href.ends_with(".htm")
 }
 
-/// Read a ZIP member as UTF-8 text with an error that names the failing entry.
+/// Read a ZIP member as UTF-8 text only when its decompressed size fits a cap.
 ///
-/// EPUB XHTML/OPF/container files should be text; binary assets use the separate
-/// byte reader so decoding failures do not get blurred with missing files.
-fn read_zip_text<R: Read + std::io::Seek>(
+/// The upload limit caps compressed EPUB bytes, not inflated ZIP entries. Checking
+/// both declared and actual bytes keeps malformed EPUBs from expanding into an
+/// unbounded allocation while still producing errors that name the failing entry.
+fn read_zip_text_limited<R: Read + std::io::Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
+    max_bytes: u64,
 ) -> Result<String, String> {
     let mut file = archive
         .by_name(path)
         .map_err(|err| format!("EPUB entry {path} is missing or unreadable: {err}"))?;
-    let mut value = String::new();
-    file.read_to_string(&mut value)
-        .map_err(|err| format!("EPUB entry {path} is not valid UTF-8 text: {err}"))?;
-    Ok(value)
+    if file.size() > max_bytes {
+        return Err(format!("EPUB entry {path} exceeds the text size limit"));
+    }
+
+    let mut bytes = Vec::with_capacity(file.size().min(max_bytes) as usize);
+    file.by_ref()
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("Failed to read EPUB entry {path}: {err}"))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("EPUB entry {path} exceeds the text size limit"));
+    }
+
+    String::from_utf8(bytes)
+        .map_err(|err| format!("EPUB entry {path} is not valid UTF-8 text: {err}"))
 }
 
 /// Sanitize one XHTML body fragment while preserving anchorable ids/names.
@@ -280,6 +304,23 @@ mod tests {
     #[test]
     fn rejects_paths_that_escape_root() {
         assert!(resolve_archive_path("", "../chapter.xhtml").is_err());
+    }
+
+    #[test]
+    fn rejects_text_zip_entries_over_limit() {
+        let mut archive = Vec::new();
+        {
+            let cursor = Cursor::new(&mut archive);
+            let mut zip = zip::ZipWriter::new(cursor);
+            let deflated = FileOptions::default().compression_method(CompressionMethod::Deflated);
+            zip.start_file("OPS/text/chapter.xhtml", deflated).unwrap();
+            zip.write_all(b"123456789").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let mut zip = ZipArchive::new(Cursor::new(archive)).unwrap();
+        let err = read_zip_text_limited(&mut zip, "OPS/text/chapter.xhtml", 8).unwrap_err();
+        assert!(err.contains("exceeds the text size limit"));
     }
 
     #[test]
