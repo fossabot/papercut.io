@@ -913,6 +913,14 @@
   margin-block: 0.85em;
 }
 
+.document-html-content :is(ul, ol) {
+  padding-inline-start: 1.35em;
+}
+
+.document-html-content :is(li, a) {
+  overflow-wrap: anywhere;
+}
+
 .document-html-content li {
   margin-block: 0.35em;
 }
@@ -952,6 +960,17 @@
 
 .document-html-content a:hover {
   color: #1d4ed8;
+}
+
+
+@media (max-width: 767px) {
+  .document-html-surface {
+    padding-inline: 1rem;
+  }
+
+  .document-html-content :is(ul, ol) {
+    padding-inline-start: 1.6em;
+  }
 }
 
 
