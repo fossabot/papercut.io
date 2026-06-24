@@ -15,13 +15,13 @@ interface NormalizedRangePoints {
   end: NormalizedTextPoint
 }
 
-// Build ordered text-owner references. No document-wide text concatenation or
-// per-character arrays, keeping startup proportional to DOM nodes.
-export function buildReadableDomSegmentIndex(doc: Document): ReadableDomSegmentIndex {
-  const body = doc.body
-  if (!body) return { segments: [] }
+// Build ordered text-owner references below the reader root. No document-wide
+// text concatenation or per-character arrays, keeping startup proportional to DOM nodes.
+export function buildReadableDomSegmentIndex(root: Element | Document): ReadableDomSegmentIndex {
+  const element = root instanceof Document ? root.body : root
+  if (!element) return { segments: [] }
 
-  return { segments: collectReadableHtmlSegments(body) }
+  return { segments: collectReadableHtmlSegments(element) }
 }
 
 // Convert chunker-owned normalized segment offsets back to live DOM points. Only

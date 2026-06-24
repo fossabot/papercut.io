@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import { resolveViewer } from '../../viewers/registry'
 import { FindBar } from '../FindBar/FindBar'
 import { ScrollTopButton } from '../ScrollTopButton/ScrollTopButton'
@@ -15,6 +15,7 @@ interface TtsHighlightOptions {
 interface DocumentViewerProps {
   url: string
   title?: string
+  format?: string
   content: string
   className?: string
   headerControls?: ReactNode
@@ -26,6 +27,7 @@ interface DocumentViewerProps {
 export function DocumentViewer({
   url,
   title,
+  format,
   content,
   className = '',
   headerControls,
@@ -33,7 +35,7 @@ export function DocumentViewer({
   ttsHighlight,
   onClose,
 }: DocumentViewerProps) {
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const readerRef = useRef<HTMLElement | null>(null)
   const [showScrollTop, setShowScrollTop] = useState(false)
 
   const {
@@ -47,34 +49,52 @@ export function DocumentViewer({
     findPrev,
     closeFind,
     setShowFind,
-  } = useFindInPage(iframeRef)
+  } = useFindInPage(readerRef)
 
-  useTtsHighlight(iframeRef, ttsHighlight ?? {
+  useTtsHighlight(readerRef, ttsHighlight ?? {
     enabled: false,
     currentChunkIndex: null,
     chunks: [],
   })
 
+  // Uploaded HTML/EPUB is already sanitized by the backend and rendered in the
+  // app DOM. Handle internal anchors here so ToC/footnote clicks do not mutate
+  // the app URL and can account for the fixed document header offset.
+  const scrollToHash = useCallback((hash: string) => {
+    const root = readerRef.current
+    if (!root || !hash.startsWith('#')) return
+
+    const id = decodeHash(hash.slice(1))
+    const doc = root.ownerDocument
+    const idTarget = doc.getElementById(id)
+    const namedTarget = Array.from(doc.getElementsByName(id)).find((node) => root.contains(node))
+    const target = idTarget && root.contains(idTarget) ? idTarget : namedTarget
+    if (!target) return
+
+    const targetTop = window.scrollY + target.getBoundingClientRect().top
+    window.scrollTo({ top: Math.max(targetTop - 120, 0), behavior: 'smooth' })
+  }, [])
+
+  // Direct rendering makes same-document links ordinary DOM events again. The
+  // delegated handler covers generated EPUB ToCs, footnotes, and bundled HTML.
   useEffect(() => {
-    const iframe = iframeRef.current
-    if (!iframe) return
+    const root = readerRef.current
+    if (!root) return
+    const readerRoot = root
 
-    function resizeIframe() {
-      try {
-        const doc = iframe!.contentDocument
-        if (doc?.body) iframe!.style.height = doc.body.scrollHeight + 'px'
-      } catch {
-        // Cross-origin access may fail in production Tauri builds.
-      }
+    function handleReaderClick(event: MouseEvent) {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const link = target.closest('a[href^="#"]')
+      if (!link || !readerRoot.contains(link)) return
+
+      event.preventDefault()
+      scrollToHash(link.getAttribute('href') ?? '')
     }
 
-    iframe.addEventListener('load', resizeIframe)
-    const frame = window.requestAnimationFrame(resizeIframe)
-    return () => {
-      iframe.removeEventListener('load', resizeIframe)
-      window.cancelAnimationFrame(frame)
-    }
-  }, [content, url])
+    readerRoot.addEventListener('click', handleReaderClick)
+    return () => readerRoot.removeEventListener('click', handleReaderClick)
+  }, [content, scrollToHash, url])
 
   useEffect(() => {
     function handleScroll() {
@@ -86,7 +106,7 @@ export function DocumentViewer({
     return () => window.removeEventListener('scroll', handleScroll)
   }, [url])
 
-  const plugin = resolveViewer(url)
+  const plugin = resolveViewer(url, format)
   const ViewerComponent = plugin.Component
   const appClassName = ['app', className].filter(Boolean).join(' ')
 
@@ -129,7 +149,12 @@ export function DocumentViewer({
       {beforeDocument}
 
       <main className="document-view">
-        <ViewerComponent url={url} content={content} iframeRef={iframeRef} />
+        <ViewerComponent
+          url={url}
+          format={format}
+          content={content}
+          contentRef={readerRef}
+        />
       </main>
 
       <ScrollTopButton
@@ -138,4 +163,12 @@ export function DocumentViewer({
       />
     </div>
   )
+}
+
+function decodeHash(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
