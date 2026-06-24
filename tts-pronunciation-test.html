@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TTS Pronunciation Test Document</title>
+  <meta name="category" content="testing">
+</head>
+<body>
+  <h1>TTS Pronunciation Test Document</h1>
+  <p>Import this document and save an audiobook with an English Kokoro voice, then listen through each section. Every test paragraph is followed by an italic "Expect" note describing what you should hear. The notes are read aloud too — that is intentional, so you can verify by ear while reading along in the viewer. Headings, paragraphs, and list items also let you confirm that highlighting tracks the spoken chunk.</p>
+
+  <h2>1. Section Roman Numerals (new)</h2>
+  <p>Chapter IV opens the second act. Part VII follows Part VI. See Book I and Book II for context. Act III, Scene II is the turning point. Appendix X lists the sources, and Volume IX closes the set.</p>
+  <p><em>Expect: each numeral spoken as a cardinal — "Chapter four", "Part seven", "Part six", "Book one", "Book two", "Act three", "Scene two", "Appendix ten", "Volume nine". Not "roman one".</em></p>
+
+  <h2>2. Roman Numeral False-Positive Guards (new)</h2>
+  <p>The book I read last week was long. They act I think too quickly. Do your part I guess. In lowercase prose like "chapter iv" the numeral stays untouched.</p>
+  <p><em>Expect: the pronoun "I" stays "I" (never "one"), because the keywords here are lowercase. "the book I read", "they act I think", "do your part I guess" must NOT become "book one", "act one", "part one".</em></p>
+
+  <h2>3. Semicolons and Colons (new)</h2>
+  <p>She packed three things; namely a map, a torch, and rope. The rule is simple: always check the knot. He paused; then he continued: slowly, deliberately.</p>
+  <p><em>Expect: a clear medium pause at each semicolon and clause colon — the same length as a comma — rather than the punctuation being skipped with no pause.</em></p>
+
+  <h2>4. Clock Times vs. Ratios (new)</h2>
+  <p>The train leaves at 3:30 and arrives at 10:45, with one at 9:00 and another at 9:05. The screen aspect ratio is 16:9, and the odds were 2:1. Read Genesis 1:1 aloud.</p>
+  <p><em>Expect: clock times (two-digit minute) are spoken — "three thirty", "ten forty five", "nine o'clock", "nine oh five" — not read digit-by-digit. Ratios and references with a single-digit right side (16:9, 2:1, 1:1) keep their colon and are NOT turned into a pause.</em></p>
+
+  <h2>5. Decimals and Version Numbers (new)</h2>
+  <p>Pi is roughly 3.14 and the constant e is about 2.72. We shipped version 1.2 after v1.10. The reading was 98.6 degrees and the file was 4.5 MB.</p>
+  <p><em>Expect: decimals read as a single number — "three point one four", "two point seven two", "one point two", "ninety eight point six". No stray pause splitting "3" from "14".</em></p>
+
+  <h2>6. Four-Digit Years (existing)</h2>
+  <p>First published in 1984, revised in 1998, and reissued in 2026. The text covers the period 1900-2000. It cost $1984 and showed a 1984.50 balance with 1984% growth.</p>
+  <p><em>Expect: standalone years spoken naturally — "nineteen eighty four", "nineteen ninety eight", "twenty twenty six". But $1984, 1984.50, 1984%, and the range 1900-2000 keep their plain digits (not year phrasing).</em></p>
+
+  <h2>7. Abbreviations and Initials</h2>
+  <p>Dr. Smith met Mr. Jones and Mrs. Lee at the U.S.A. embassy, e.g. on a Tuesday, i.e. mid-week, etc. They discussed the St. Louis office vs. the N.Y. branch on Main St. yesterday.</p>
+  <p><em>Expect: abbreviations expand to spoken words so no full-stop pause breaks the flow — "Doctor Smith", "Mister Jones", "Missus Lee", "for example", "that is", "versus". The sentence-final "etc." still reads "et cetera" followed by a full stop before "They". Initialisms read as letters without inter-letter pauses ("U.S.A." → "U S A", "N.Y." → "N Y"). "St. Louis" reads "Saint Louis" (capitalized name) while "Main St." reads "Main Street".</em></p>
+
+  <h2>8. Smart Punctuation, Dashes, Ellipses, and Asides</h2>
+  <p>“These are curly quotes,” she said — with an em-dash — and a pause… then an ellipsis. ‘Single quotes’ too, plus an en–dash range 10–20. A parenthetical aside (such as this one) is set off on both sides.</p>
+  <p><em>Expect: smart quotes and dashes are normalized to ASCII; the em dash now gives a medium pause, the ellipsis gives a trailing pause, and the parenthetical aside pauses on the way in and out (it no longer runs straight into the surrounding words). The glued en-dash range "10–20" is not a pause.</em></p>
+
+  <h2>9. Symbols, Currency, and Units</h2>
+  <p>The total was $5 and €10, with one item at $1 and a $5 million budget, up 25% from last year. Mix flour &amp; sugar at a 1:2 ratio. Email test@example.com or visit https://example.com for 24/7 support at 60 mph.</p>
+  <p><em>Expect: currency is spelled out with the unit after the amount — "five dollars", "ten euros", "one dollar" (singular), and "5 million dollars" (digits kept, unit after the magnitude word). A four-digit price reads as a plain number, e.g. "$1984" → "one thousand nine hundred and eighty-four dollars". "60 mph" reads "60 miles per hour". Percentages read sensibly. Symbols like &amp;, @, and URLs are read as-is (TTS handles these imperfectly — this is a baseline, not a regression target).</em></p>
+
+  <h2>10. Numbers and Lists</h2>
+  <p>Counts to verify: 7, 42, 100, 1000, 1,000,000, and the ordinal positions 1st, 2nd, 3rd, and 21st.</p>
+  <ul>
+    <li>Item one: the first list entry; it has a clause too.</li>
+    <li>Item two — covering Chapter II of the guide.</li>
+    <li>Item three, arriving at 9:00 sharp.</li>
+  </ul>
+  <p><em>Expect: numbers and ordinals read naturally; list items are separate chunks (watch highlighting move item to item); the colon and semicolon in item one give comma-length pauses; "Chapter II" reads "Chapter two"; "9:00" reads "nine o'clock".</em></p>
+
+  <h2>11. Emoji and Non-Speakable Symbols</h2>
+  <p>Great work 🎉 on the release 🚀 — the team 👏 shipped it. Math like 2 × 3 = 6 and a → arrow appear here.</p>
+  <p><em>Expect: emoji are silently dropped (not read as words); the sentence flows as if they were absent.</em></p>
+
+  <h2>12. Mixed Real-World Paragraph</h2>
+  <blockquote>In Chapter IX, published in 1979, Dr. Vance noted: the sample measured 3.7 units; the ratio held at 2:1 through 2003, and by Part XII the figure reached 98.6% — “a remarkable result,” she wrote, at exactly 5:45 PM.</blockquote>
+  <p><em>Expect everything at once: "Chapter nine", year "nineteen seventy nine", "Doctor Vance", the colon after "noted" and the semicolon both as comma pauses, "three point seven", ratio "2:1" preserved, year "two thousand three", "Part twelve", "ninety eight point six percent", the em dash as a pause, smart quotes natural, and "5:45" read as "five forty five".</em></p>
+
+  <h2>13. Inline Styling Inside Paragraphs (highlighting)</h2>
+  <p>This sentence has a <strong>bold</strong> word, an <em>italic</em> phrase, and a bit of <code>inline code</code> all in one flow. It also links to <a href="https://example.com">an external page</a> mid-sentence, and ends with a <mark>highlighted</mark> term. Nested styling like <strong><em>bold italic</em></strong> and <b>bold</b> next to <i>italic</i> appears too. Math such as E = mc<sup>2</sup> and a formula like H<sub>2</sub>O use superscript and subscript.</p>
+  <p><strong>A block that begins with bold</strong> text and continues in plain prose tests styling at the very start. And a block that ends with the final words in <em>italics right up to the period</em>.</p>
+  <p><em>Expect: the spoken text is continuous and natural across every styled span, and — crucially — the chunk highlight stays visible and correctly positioned through the whole sentence. Watch that it does not disappear or jump when crossing a &lt;strong&gt;, &lt;em&gt;, &lt;a&gt;, &lt;code&gt;, &lt;sup&gt;, or &lt;sub&gt; boundary, since each one splits the paragraph into multiple text nodes.</em></p>
+
+  <h2>14. Quotes, Alone and Mixed With Styling (highlighting)</h2>
+  <p>"This whole sentence is wrapped in double quotes from start to finish."</p>
+  <p>She turned and said, "We leave at dawn." Then silence.</p>
+  <p>The instruction was clear: leave nothing behind. "Nothing," he repeated.</p>
+  <p>The review called it "a <em>remarkable</em> achievement" and "<strong>unmissable</strong>," quoting the author directly. He whispered, "<em>not yet</em>," and stepped back.</p>
+  <blockquote>"Begin at the beginning," the King said gravely, "and go on till you come to the end: then stop."</blockquote>
+  <p><em>Expect: leading and trailing double quotes do not break highlighting — the highlight should cover the full quoted run including the quote marks. Where a quote also contains bold or italic (a "remarkable" / "unmissable" run), the highlight must stay continuous across both the quote characters and the style boundary, not collapse at either edge.</em></p>
+
+  <h2>15. Block Quotes (highlighting)</h2>
+  <p>A short lead-in paragraph precedes the quote below.</p>
+  <blockquote>This is a single-paragraph block quote that runs across two sentences. It should highlight as its own chunk, separate from the paragraphs around it.</blockquote>
+  <p>This paragraph comes immediately after the quote and must highlight independently of it.</p>
+  <blockquote>
+    <p>This block quote contains nested paragraphs. The first paragraph stands on its own.</p>
+    <p>The second paragraph continues the same quotation, with a <em>styled</em> word and a clause; it also ends on a closing colon: like this.</p>
+  </blockquote>
+  <blockquote>
+    <p>An outer quotation wraps an inner one.</p>
+    <blockquote>The nested block quote sits one level deeper and should still highlight correctly.</blockquote>
+    <p>— Attributed to Chapter IV, 1979</p>
+  </blockquote>
+  <p><em>Expect: each block quote (and each nested paragraph within one) highlights as its own chunk, and the surrounding paragraphs highlight independently — the highlight must not disappear when entering or leaving a &lt;blockquote&gt;, nor bleed across the quote boundary. In the nested example confirm the inner quote and the attribution line each track correctly, and that "Chapter IV" reads "Chapter four" and 1979 reads "nineteen seventy nine".</em></p>
+
+  <h2>16. Footnotes</h2>
+  <p>The treaty was signed in 1815<a href="#fn1">[1]</a> after long negotiations, and the population doubled within a decade<a href="#fn2">[2a]</a>. A later edition corrected the figure<a href="#fn3">[3*]</a> without comment. By contrast, this bracketed marker [99] is plain text, not an anchored reference.</p>
+  <p><em>Expect: the inline markers [1], [2a], and [3*] are SILENT — they are anchors and must be skipped, so the sentence reads "signed in eighteen fifteen after long negotiations". The plain-text [99] is NOT an anchor, so it IS read aloud. Highlighting should also skip the marker anchors.</em></p>
+
+  <h2>Footnotes</h2>
+  <ol>
+    <li id="fn1">Concluded on the eighteenth of June; see Chapter II for the full account. <a href="#">↩</a></li>
+    <li id="fn2">Census records from 1820 and 1830; the ratio was roughly 2:1 between the two surveys. <a href="#">↩</a></li>
+    <li id="fn3">The corrected value was 3.7 million, down from the earlier 4.0 million estimate. <a href="#">↩</a></li>
+  </ol>
+  <p><em>Expect: the footnote definitions ARE read (they are normal list text), exercising the new rules again — "Chapter two", the "2:1" ratio preserved, the clause semicolon/colon as pauses, and decimals "three point seven" and "four point oh / four point zero". The return arrow ↩ is non-BMP-adjacent punctuation; confirm it does not produce a spurious word.</em></p>
+
+  <h2>End of Test</h2>
+  <p>If every section matched its Expect note, the Phase 1 English normalization is behaving correctly and highlighting stayed aligned chunk by chunk.</p>
+</body>
+</html>

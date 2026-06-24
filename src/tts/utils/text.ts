@@ -136,15 +136,23 @@ function appendSegmentChunks(
     const normalized = normalizeSegmentText(text)
     if (!normalized) return
 
-    // Search forward from prior emitted chunk. This disambiguates repeated sentences
-    // without a document-wide text search and preserves deterministic offsets.
-    const startOffset = paragraph.indexOf(normalized, sourceSearchOffset)
-    const sourceSpan = startOffset >= 0
+    // Locate the chunk by its whitespace tokens rather than the whole joined
+    // string, searching forward from the prior chunk to keep repeated sentences
+    // deterministic. Sentence splitting trims fragments and rejoins them with a
+    // single space, so a dot that is not a sentence end (a decimal like `3.14`,
+    // an initialism like `U.S.A.`) produces chunk text (`3. 14`) that no longer
+    // appears verbatim in the source paragraph. A whole-string `indexOf` then
+    // fails, leaving the chunk without a source span and silently dropping its
+    // highlight. Individual tokens remain exact substrings, so spanning from the
+    // first to the last located token yields a valid span without changing the
+    // chunk text used for synthesis and cache identity.
+    const span = locateChunkTokenSpan(paragraph, normalized, sourceSearchOffset)
+    const sourceSpan = span
       ? {
         startSegmentIndex: segmentIndex,
-        startOffset,
+        startOffset: span.startOffset,
         endSegmentIndex: segmentIndex,
-        endOffset: startOffset + normalized.length,
+        endOffset: span.endOffset,
       }
       : undefined
     if (sourceSpan) sourceSearchOffset = sourceSpan.endOffset
@@ -220,6 +228,32 @@ function splitAtWordBoundaries(text: string, maxLength: number): string[] {
 
   if (remaining) chunks.push(remaining)
   return chunks
+}
+
+// Resolve a chunk's [startOffset, endOffset) within the normalized paragraph by
+// walking its whitespace tokens forward from the previous chunk's end. Each token
+// is an exact substring of the paragraph even when the joined chunk text is not
+// (sentence splitting can insert a space at a non-sentence dot), so the first
+// located token's start through the last located token's end spans the whole
+// chunk. Returns null only when no token can be located, matching the prior
+// "no source span" outcome for genuinely unmatchable text.
+function locateChunkTokenSpan(
+  paragraph: string,
+  chunkText: string,
+  fromOffset: number,
+): { startOffset: number; endOffset: number } | null {
+  let cursor = fromOffset
+  let startOffset = -1
+  let endOffset = -1
+  for (const token of chunkText.split(' ')) {
+    if (!token) continue
+    const at = paragraph.indexOf(token, cursor)
+    if (at < 0) continue
+    if (startOffset < 0) startOffset = at
+    endOffset = at + token.length
+    cursor = endOffset
+  }
+  return startOffset < 0 ? null : { startOffset, endOffset }
 }
 
 // Normalizes final chunk text where it becomes cache-keyed audiobook input.
