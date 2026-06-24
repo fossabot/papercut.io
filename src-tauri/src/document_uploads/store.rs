@@ -7,7 +7,7 @@
 use rusqlite::{params, Connection};
 use tauri::Runtime;
 
-use super::html::ParsedHtmlDocument;
+use super::parsed::ParsedDocument;
 use super::storage::uploads_root;
 use super::types::UploadedDocument;
 
@@ -50,6 +50,11 @@ pub(crate) fn open_db<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Connectio
     let db = Connection::open(root.join("search.sqlite3")).map_err(db_err)?;
     db.execute_batch(
         "PRAGMA journal_mode = WAL;
+         CREATE TABLE IF NOT EXISTS upload_schema_metadata (
+           key TEXT PRIMARY KEY,
+           value TEXT NOT NULL
+         );
+         INSERT OR IGNORE INTO upload_schema_metadata (key, value) VALUES ('schema_version', '1');
          CREATE TABLE IF NOT EXISTS uploaded_documents (
            id TEXT PRIMARY KEY,
            url TEXT NOT NULL UNIQUE,
@@ -102,7 +107,7 @@ pub(crate) fn upsert_document(
     db: &mut Connection,
     id: &str,
     url: &str,
-    parsed: &ParsedHtmlDocument,
+    parsed: &ParsedDocument,
     imported_at_ms: u128,
     bytes: u64,
 ) -> Result<(), String> {
@@ -117,11 +122,12 @@ pub(crate) fn upsert_document(
     tx.execute(
         "INSERT OR REPLACE INTO uploaded_documents \
          (id, url, title, format, imported_at_ms, bytes, sections) \
-         VALUES (?1, ?2, ?3, 'html', ?4, ?5, ?6)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             id,
             url,
             parsed.title,
+            parsed.format,
             imported_at_ms as i64,
             bytes as i64,
             parsed.sections.len() as i64,

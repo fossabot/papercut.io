@@ -7,7 +7,7 @@
 
 use tauri::Runtime;
 
-use super::pipeline::{delete_upload, get_source, import_html};
+use super::pipeline::{delete_upload, get_source, import_epub, import_html};
 use super::search::search_uploads;
 use super::store::list_uploads;
 use super::types::{
@@ -21,6 +21,16 @@ pub async fn document_uploads_import_html<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<UploadedDocument, String> {
     tauri::async_runtime::spawn_blocking(move || import_html(app))
+        .await
+        .map_err(|err| format!("Document import task failed: {err}"))?
+}
+
+/// Open the native picker, import the chosen EPUB file, and return its metadata.
+#[tauri::command]
+pub async fn document_uploads_import_epub<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<UploadedDocument, String> {
+    tauri::async_runtime::spawn_blocking(move || import_epub(app))
         .await
         .map_err(|err| format!("Document import task failed: {err}"))?
 }
