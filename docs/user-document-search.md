@@ -70,7 +70,7 @@ Viewer rendering is plugin-based:
 - `src/viewers/registry.ts` chooses a `ViewerPlugin` by URL and optional document format.
 - More specific URL formats must be registered before the HTML fallback. PDF and raw `.epub` entries remain reserved ahead of the catch-all HTML viewer.
 - `src/viewers/HtmlViewer.tsx` parses the stored full HTML document, extracts body content, and renders it into an app-owned sanitized reader surface instead of a `srcDoc` iframe. Imported head styles are intentionally not injected into the app DOM.
-- Uploaded EPUB documents currently resolve to the HTML viewer because their stored source is generated reading HTML. The shared DOM reader handles generated hash links so TOC entries and footnotes scroll within the stored document. A richer EPUB viewer can replace that later if it declares which reader capabilities it supports, because Find, scrolling, TTS highlighting, and locator navigation may differ by format.
+- Uploaded EPUB documents currently resolve to the HTML viewer because their stored source is generated reading HTML. The shared DOM reader handles generated hash links so TOC entries and footnotes scroll within the stored document. TTS highlighting caches the generated reader DOM while it is stable and invalidates those caches when Find or reader updates replace text nodes. A richer EPUB viewer can replace that later if it declares which reader capabilities it supports, because Find, scrolling, TTS highlighting, and locator navigation may differ by format.
 
 This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
 
@@ -120,6 +120,8 @@ For 500+ user documents, the important scaling rules are:
 
 This branch already follows those rules for HTML and EPUB uploads. PDF can stay lightweight if it produces page records and avoids rendering or indexing entire binary files in the frontend.
 
+TTS highlighting currently maps saved audiobook chunks back onto the live reader DOM. The hook caches the reader's text-node segment index while the DOM is stable, then invalidates that cache when Find, document loading, or other reader mutations replace text nodes under the same root. That keeps existing saved audio compatible and avoids rescanning on every chunk advance, but a very large fully-rendered book can still pay a one-time segment-index rebuild after a mutation. The long-term scaling path is chapter/page-level rendering with locator-aware TTS ranges, so the app only indexes the visible or active chapter instead of one giant reader DOM.
+
 ## Sanitization And Format Modules
 
 Yes, upload formats should have separate sanitization/parser modules. HTML, PDF, and EPUB have different risks and extraction behavior:
@@ -144,6 +146,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 - There is no user-facing reindex action for generic uploaded documents yet.
 - Uploaded documents are not exported as part of a library backup yet.
 - Quoted exact-phrase behavior is strongest for bundled Pagefind documents and should be unified with SQLite FTS later.
+- Very large uploaded books currently render as one generated reader DOM. TTS highlight caches are mutation-aware, but the next highlight after a large DOM mutation may still rebuild the text segment index. Chapter/page-level rendering with locator-aware highlighting is the preferred long-term fix.
 
 ## Recommended Next Steps
 

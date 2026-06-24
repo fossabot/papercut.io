@@ -13,12 +13,14 @@ const MAX_CACHED_RANGES = 128
 
 interface SegmentIndexCache {
   root: HTMLElement
+  version: number
   index: ReadableDomSegmentIndex
 }
 
 interface AlignmentCache {
   root: HTMLElement
   doc: Document
+  version: number
   chunks: TtsChunk[]
   segmentIndex: ReadableDomSegmentIndex
   ranges: Map<number, Range>
@@ -39,6 +41,32 @@ export function useTtsHighlight(
 ): void {
   const segmentIndexCacheRef = useRef<SegmentIndexCache | null>(null)
   const alignmentCacheRef = useRef<AlignmentCache | null>(null)
+  const rootVersionRef = useRef(0)
+  const observedRootRef = useRef<HTMLElement | null>(null)
+  const mutationObserverRef = useRef<MutationObserver | null>(null)
+
+  // Find highlights and reader content swaps replace Text nodes under the same
+  // article root. Versioning invalidates cached DOM node indexes without
+  // rescanning the whole book on every mutation.
+  useEffect(() => {
+    const root = rootRef.current
+    if (observedRootRef.current === root) return
+
+    mutationObserverRef.current?.disconnect()
+    mutationObserverRef.current = null
+    observedRootRef.current = root
+    rootVersionRef.current += 1
+    invalidateTtsDomCaches(root?.ownerDocument, segmentIndexCacheRef, alignmentCacheRef)
+
+    if (!root) return
+
+    const observer = new MutationObserver(() => {
+      rootVersionRef.current += 1
+      invalidateTtsDomCaches(root.ownerDocument, segmentIndexCacheRef, alignmentCacheRef)
+    })
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    mutationObserverRef.current = observer
+  })
 
   // Pre-index the reader during idle time so Play usually pays only active-range cost.
   useEffect(() => {
@@ -61,13 +89,18 @@ export function useTtsHighlight(
       timeoutHandle = null
       const root = rootRef.current
       if (!root?.isConnected) return
-      getOrBuildSegmentIndex(root, segmentIndexCacheRef)
+      getOrBuildSegmentIndex(root, rootVersionRef.current, segmentIndexCacheRef)
     }
 
     const scheduleBuild = () => {
       cancelScheduledBuild()
       const root = rootRef.current
-      if (segmentIndexCacheRef.current?.root !== root) segmentIndexCacheRef.current = null
+      if (
+        segmentIndexCacheRef.current?.root !== root
+        || segmentIndexCacheRef.current?.version !== rootVersionRef.current
+      ) {
+        segmentIndexCacheRef.current = null
+      }
       if (window.requestIdleCallback) {
         idleHandle = window.requestIdleCallback(buildIndex, { timeout: 1000 })
       } else {
@@ -85,6 +118,9 @@ export function useTtsHighlight(
   // CSS Highlight ranges retain DOM nodes; clear registry/cache on unmount.
   useEffect(
     () => () => {
+      mutationObserverRef.current?.disconnect()
+      mutationObserverRef.current = null
+      observedRootRef.current = null
       const cache = alignmentCacheRef.current
       if (cache) clearTtsHighlight(cache.doc, cache)
       alignmentCacheRef.current = null
@@ -117,6 +153,7 @@ export function useTtsHighlight(
             rootRef.current,
             currentChunkIndex,
             chunks,
+            rootVersionRef.current,
             segmentIndexCacheRef,
             alignmentCacheRef,
           )
@@ -146,6 +183,7 @@ function highlightTtsChunk(
   root: HTMLElement | null,
   chunkIndex: number,
   chunks: TtsChunk[],
+  rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
   alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
 ): { range: Range } | null {
@@ -156,9 +194,9 @@ function highlightTtsChunk(
   ensureTtsHighlightStyles(doc)
 
   let cache = alignmentCacheRef.current
-  if (!isUsableAlignmentCache(cache, root, chunks, chunkIndex)) {
+  if (!isUsableAlignmentCache(cache, root, chunks, chunkIndex, rootVersion)) {
     clearTtsHighlight(doc, cache)
-    cache = buildAlignmentCache(root, doc, view, chunks, segmentIndexCacheRef)
+    cache = buildAlignmentCache(root, doc, view, chunks, rootVersion, segmentIndexCacheRef)
     alignmentCacheRef.current = cache
   }
 
@@ -177,13 +215,15 @@ function buildAlignmentCache(
   doc: Document,
   view: Window & typeof globalThis,
   chunks: TtsChunk[],
+  rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
 ): AlignmentCache {
   return {
     root,
     doc,
+    version: rootVersion,
     chunks,
-    segmentIndex: getOrBuildSegmentIndex(root, segmentIndexCacheRef),
+    segmentIndex: getOrBuildSegmentIndex(root, rootVersion, segmentIndexCacheRef),
     ranges: new Map(),
     failedRanges: new Set(),
     highlight: new view.Highlight(),
@@ -193,14 +233,15 @@ function buildAlignmentCache(
 // Synchronous fallback handles Play before idle pre-index completes.
 function getOrBuildSegmentIndex(
   root: HTMLElement,
+  rootVersion: number,
   cacheRef: React.MutableRefObject<SegmentIndexCache | null>,
 ): ReadableDomSegmentIndex {
   const cached = cacheRef.current
-  if (cached?.root === root) return cached.index
+  if (cached?.root === root && cached.version === rootVersion) return cached.index
 
   const started = performance.now()
   const index = buildReadableDomSegmentIndex(root)
-  cacheRef.current = { root, index }
+  cacheRef.current = { root, version: rootVersion, index }
   logTtsDiagnostic('[tts-highlight] DOM segment index built', {
     segments: index.segments.length,
     elapsedMs: Math.round(performance.now() - started),
@@ -303,10 +344,22 @@ function isUsableAlignmentCache(
   root: HTMLElement,
   chunks: TtsChunk[],
   chunkIndex: number,
+  rootVersion: number,
 ): cache is AlignmentCache {
-  if (!cache || cache.root !== root || cache.chunks !== chunks) return false
+  if (!cache || cache.root !== root || cache.version !== rootVersion || cache.chunks !== chunks) return false
   const range = cache.ranges.get(chunkIndex)
   return !range || Boolean(range.startContainer.isConnected && range.endContainer.isConnected)
+}
+
+function invalidateTtsDomCaches(
+  doc: Document | undefined,
+  segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
+  alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
+): void {
+  segmentIndexCacheRef.current = null
+  const cache = alignmentCacheRef.current
+  if (cache) clearTtsHighlight(doc ?? cache.doc, cache)
+  alignmentCacheRef.current = null
 }
 
 // Clear both owned Highlight object and global registry entry, including old docs.
