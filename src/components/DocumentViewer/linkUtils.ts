@@ -34,8 +34,8 @@ export function getInternalDocumentHash(href: string): string | null {
  *
  * Hash links are handled separately by `getInternalDocumentHash`; active
  * schemes are ignored defensively even though backend sanitizers should already
- * remove them. Valid relative links resolve against the app URL, which makes
- * them confirmable rather than letting the WebView navigate silently.
+ * remove them. Only ordinary web/contact protocols are allowed through so
+ * imported documents cannot launch local files or arbitrary app URL schemes.
  */
 export function getExternalLinkUrl(href: string): string | null {
   const trimmed = href.trim()
@@ -43,7 +43,8 @@ export function getExternalLinkUrl(href: string): string | null {
 
   try {
     const target = new URL(trimmed, window.location.href)
-    if (target.protocol === 'javascript:' || target.protocol === 'data:') return null
+    const allowedProtocols = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+    if (!allowedProtocols.has(target.protocol)) return null
     return target.href
   } catch {
     return null

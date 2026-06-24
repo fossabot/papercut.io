@@ -26,12 +26,12 @@ export function ExternalLinkPrompt({ url, onCancel, onOpen }: ExternalLinkPrompt
         aria-labelledby="external-link-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="external-link-title">Open external link?</h2>
+        <h2 id="external-link-title">⚠️ Open External Link?</h2>
         <p>This link will open outside Papercut.</p>
         <code>{url}</code>
         <div className="external-link-actions">
-          <button type="button" className="external-link-cancel" onClick={onCancel}>No</button>
-          <button type="button" className="external-link-open" onClick={onOpen}>Yes, open</button>
+          <button type="button" className="external-link-cancel" onClick={onCancel}>Cancel</button>
+          <button type="button" className="external-link-open" onClick={onOpen}>Open</button>
         </div>
       </div>
     </div>
