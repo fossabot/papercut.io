@@ -27,12 +27,18 @@ import { getUserUploads, isUserUploadUrl, type UserUploadDocument } from './tts/
 import { useAudiobookManager } from './tts/hooks/useAudiobookManager'
 import {
   deleteUploadedDocument,
+  createUploadedLibraryFolder,
   getUploadedDocumentSource,
+  getUploadedLibraryOrganization,
   importEpubDocument,
   importHtmlDocument,
   isUploadedDocumentUrl,
   listUploadedDocuments,
+  moveUploadedDocuments,
+  renameUploadedLibraryFolder,
+  deleteUploadedLibraryFolder,
   type UploadedDocument,
+  type UploadedLibraryOrganization,
 } from './uploads/DocumentUploads'
 
 type DocumentLoadState =
@@ -49,6 +55,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('search')
   const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
+  const [uploadedLibraryOrganization, setUploadedLibraryOrganization] = useState<UploadedLibraryOrganization>({ folders: [], documentLocations: [] })
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
   const { pagefindRef, pagefindReady, allDocuments, documentsLoading } = usePagefind()
 
@@ -72,16 +79,20 @@ function App() {
     removeResultsForUrl,
   } = useSearch(pagefindRef, { loadDocumentSource: loadHtmlDocument })
 
-  useEffect(() => {
-    async function loadUploadedDocuments() {
-      try {
-        setUploadedDocuments(await listUploadedDocuments())
-      } catch (err) {
-        console.warn('Unable to load uploaded documents:', err)
-      }
-    }
-    void loadUploadedDocuments()
+  const refreshUploadedLibrary = useCallback(async () => {
+    const [documents, organization] = await Promise.all([
+      listUploadedDocuments(),
+      getUploadedLibraryOrganization(),
+    ])
+    setUploadedDocuments(documents)
+    setUploadedLibraryOrganization(organization)
   }, [])
+
+  useEffect(() => {
+    refreshUploadedLibrary().catch((err) => {
+      console.warn('Unable to load uploaded documents:', err)
+    })
+  }, [refreshUploadedLibrary])
 
   const clearSelectedDocument = useCallback(() => {
     openDocumentRequestRef.current += 1
@@ -209,7 +220,7 @@ function App() {
     setDocumentImport({ status: 'importing', message: importingMessage })
     try {
       const result = await importer()
-      setUploadedDocuments(await listUploadedDocuments())
+      await refreshUploadedLibrary()
       setShowDocuments(true)
       setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
       await handleViewDocument(result.url)
@@ -221,7 +232,7 @@ function App() {
         message: cancelled ? 'Import cancelled.' : message,
       })
     }
-  }, [handleViewDocument, setShowDocuments])
+  }, [handleViewDocument, refreshUploadedLibrary, setShowDocuments])
 
   const handleImportHtmlDocument = useCallback(
     () => runDocumentImport('⏳ Importing HTML Document...', importHtmlDocument),
@@ -245,7 +256,7 @@ function App() {
     setDocumentImport({ status: 'deleting', message: 'Deleting ' + doc.title })
     try {
       const result = await deleteUploadedDocument(doc.url)
-      setUploadedDocuments(await listUploadedDocuments())
+      await refreshUploadedLibrary()
       removeResultsForUrl(doc.url)
       clearPhraseFetchCache(doc.url)
       removeFilter(doc.title)
@@ -264,7 +275,26 @@ function App() {
         message: err instanceof Error ? err.message : String(err),
       })
     }
-  }, [handleCloseDocument, removeFilter, removeResultsForUrl, selectedDoc])
+  }, [handleCloseDocument, refreshUploadedLibrary, removeFilter, removeResultsForUrl, selectedDoc])
+
+  const handleCreateLibraryFolder = useCallback(async (parentId: string | null, name: string) => {
+    await createUploadedLibraryFolder(parentId, name)
+    setUploadedLibraryOrganization(await getUploadedLibraryOrganization())
+  }, [])
+
+  const handleRenameLibraryFolder = useCallback(async (folderId: string, name: string) => {
+    await renameUploadedLibraryFolder(folderId, name)
+    setUploadedLibraryOrganization(await getUploadedLibraryOrganization())
+  }, [])
+
+  const handleDeleteLibraryFolder = useCallback(async (folderId: string) => {
+    await deleteUploadedLibraryFolder(folderId)
+    setUploadedLibraryOrganization(await getUploadedLibraryOrganization())
+  }, [])
+
+  const handleMoveLibraryDocuments = useCallback(async (documentIds: string[], folderId: string | null) => {
+    setUploadedLibraryOrganization(await moveUploadedDocuments(documentIds, folderId))
+  }, [])
 
   if (selectedDoc) {
     return (
@@ -314,6 +344,7 @@ function App() {
             collapsedAuthors={searchCollapsedAuthors}
             docFilterLower={searchDocFilterLower}
             documentFilter={searchDocumentFilter}
+            libraryOrganization={uploadedLibraryOrganization}
             selectedFilters={selectedFilters}
             onFilterChange={setSearchDocumentFilter}
             onToggleFilter={toggleFilter}
@@ -365,13 +396,18 @@ function App() {
               // { id: 'pdf', label: 'PDF', detail: 'Import PDFs when text extraction support lands', future: true },
             ]}
             importStatuses={[documentImport]}
+            libraryOrganization={uploadedLibraryOrganization}
             documentOpening={documentOpening}
             openingDocumentUrl={documentLoad.status === 'loading' ? documentLoad.url : undefined}
             collapsedAuthors={libraryCollapsedAuthors}
             onToggleShow={() => setShowDocuments((v) => !v)}
             onFilterChange={setLibraryDocumentFilter}
             onAudioSavedOnlyChange={setAudioSavedOnly}
+            onCreateLibraryFolder={handleCreateLibraryFolder}
             onDeleteDocument={handleDeleteUploadedDocument}
+            onDeleteLibraryFolder={handleDeleteLibraryFolder}
+            onMoveLibraryDocuments={handleMoveLibraryDocuments}
+            onRenameLibraryFolder={handleRenameLibraryFolder}
             onToggleAuthor={toggleLibraryAuthor}
             onViewDocument={handleViewDocument}
           />

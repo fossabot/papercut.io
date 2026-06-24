@@ -1,13 +1,16 @@
 import type { DocumentInfo } from '../../types/search'
 import type { AuthorGroup } from '../../hooks/useDocumentFilters'
+import type { UploadedLibraryOrganization } from '../../uploads/DocumentUploads'
 import { Panel } from '../Panel/Panel'
 import { DocumentList } from '../DocumentList/DocumentList'
+import { UploadedLibraryTree } from '../UploadedLibraryTree/UploadedLibraryTree'
 
 interface SearchScopeProps {
   collapsedAuthors: Set<string>
   docFilterLower: string
   documentFilter: string
   groupedDocs: AuthorGroup[]
+  libraryOrganization?: UploadedLibraryOrganization
   selectedFilters: Set<string>
   onClearFilters: () => void
   onFilterChange: (value: string) => void
@@ -25,6 +28,7 @@ export function SearchScope({
   docFilterLower,
   documentFilter,
   groupedDocs,
+  libraryOrganization,
   selectedFilters,
   onClearFilters,
   onFilterChange,
@@ -36,6 +40,11 @@ export function SearchScope({
   const scopeLabel = count === 0
     ? 'All documents'
     : `${count} document${count === 1 ? '' : 's'}`
+  const uploadDocs = groupedDocs.flatMap((group) => group.docs.filter((doc) => doc.source === 'upload'))
+  const nonUploadGroups = groupedDocs
+    .map((group) => ({ ...group, docs: group.docs.filter((doc) => doc.source !== 'upload') }))
+    .filter((group) => group.docs.length > 0)
+  const showUploadedTree = Boolean(libraryOrganization && uploadDocs.length > 0)
 
   return (
     <div className="search-scope">
@@ -61,16 +70,29 @@ export function SearchScope({
           )}
         </div>
 
-        <DocumentList
-          selectable
-          groupedDocs={groupedDocs}
-          collapsedAuthors={collapsedAuthors}
-          docFilterLower={docFilterLower}
-          selectedFilters={selectedFilters}
-          onToggleAuthor={onToggleAuthor}
-          onToggleFilter={onToggleFilter}
-          onToggleAllInGroup={onToggleAllInGroup}
-        />
+        {showUploadedTree && libraryOrganization && (
+          <UploadedLibraryTree
+            mode="filter"
+            documents={uploadDocs}
+            organization={libraryOrganization}
+            selectedFilters={selectedFilters}
+            onToggleFilter={onToggleFilter}
+            onToggleAllInGroup={onToggleAllInGroup}
+          />
+        )}
+
+        {(nonUploadGroups.length > 0 || !showUploadedTree) && (
+          <DocumentList
+            selectable
+            groupedDocs={showUploadedTree ? nonUploadGroups : groupedDocs}
+            collapsedAuthors={collapsedAuthors}
+            docFilterLower={docFilterLower}
+            selectedFilters={selectedFilters}
+            onToggleAuthor={onToggleAuthor}
+            onToggleFilter={onToggleFilter}
+            onToggleAllInGroup={onToggleAllInGroup}
+          />
+        )}
       </Panel>
 
       {count > 0 && (

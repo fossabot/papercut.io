@@ -1070,6 +1070,7 @@
 .audiobooks-setup {
   max-height: min(62vh, 26rem);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0.75rem 1.25rem;
@@ -1106,6 +1107,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
   min-height: 2rem;
 }
 
@@ -1510,8 +1512,12 @@
   }
 
   .audio-settings-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.35rem;
+  }
+
+  .audio-field-speed {
+    grid-column: 1 / -1;
   }
 
   .audio-field {
@@ -1571,6 +1577,12 @@
   .audio-icon-btn {
     width: 2.5rem;
     height: 2.5rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .audio-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2070,21 +2082,25 @@
     padding: 0.65rem;
   }
 
-  .document-import-menu,
-  .document-import-btn {
-    width: 100%;
+  .documents-list-header .document-filter-input {
+    flex-basis: 100%;
+  }
+
+  .document-import-menu {
+    width: auto;
   }
 
   .document-import-btn {
+    width: auto;
     min-height: 2.25rem;
   }
 
   .document-import-options {
-    position: static;
-    width: 100%;
+    right: auto;
+    left: 0;
     min-width: 0;
+    width: min(18rem, calc(100vw - 2rem));
     max-height: min(16rem, calc(100vh - 18rem));
-    margin-top: 0.35rem;
   }
 
   .document-item {

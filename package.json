@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "react": "^19.2.0",
+    "react-aria-components": "^1.19.0",
     "react-dom": "^19.2.0",
     "tauri-plugin-native-audio-api": "1.0.5"
   },
