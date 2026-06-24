@@ -167,7 +167,7 @@ function App() {
     prepareDocumentOpen()
     setSelectedDoc(url)
     setDocContent('')
-    setDocumentLoad({ status: 'loading', url, message: 'Opening document...' })
+    setDocumentLoad({ status: 'loading', url, message: 'Opening Document...' })
     window.scrollTo({ top: 0 })
 
     try {
@@ -224,12 +224,12 @@ function App() {
   }, [handleViewDocument, setShowDocuments])
 
   const handleImportHtmlDocument = useCallback(
-    () => runDocumentImport('Importing HTML document', importHtmlDocument),
+    () => runDocumentImport('⏳ Importing HTML Document...', importHtmlDocument),
     [runDocumentImport],
   )
 
   const handleImportEpubDocument = useCallback(
-    () => runDocumentImport('Importing EPUB book', importEpubDocument),
+    () => runDocumentImport('⏳ Importing EPUB Book...', importEpubDocument),
     [runDocumentImport],
   )
 

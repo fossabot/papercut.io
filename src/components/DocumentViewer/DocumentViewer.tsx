@@ -189,7 +189,7 @@ export function DocumentViewer({
         {loading ? (
           <div className="document-html-surface document-loading-surface" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
-            <span>Opening document...</span>
+            <span>Opening Document...</span>
           </div>
         ) : loadError ? (
           <div className="document-html-surface document-loading-surface document-load-error" role="alert">
