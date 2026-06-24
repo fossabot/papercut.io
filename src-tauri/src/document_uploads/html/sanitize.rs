@@ -18,7 +18,7 @@ pub(crate) fn sanitize_html(html: &str) -> String {
 /// drops to end-of-input if a closing tag is missing.
 fn strip_element(html: &str, tag: &str) -> String {
     let mut out = String::with_capacity(html.len());
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let open_prefix = format!("<{tag}");
     let close = format!("</{tag}>");
     let mut pos = 0usize;
@@ -77,7 +77,7 @@ fn sanitize_single_tag(tag: &str) -> String {
     };
     let mut safe = String::from(name);
     for attr in parts {
-        let lower = attr.to_lowercase();
+        let lower = attr.to_ascii_lowercase();
         if lower.starts_with("on") || lower.starts_with("style") || lower.starts_with("src=") {
             continue;
         }
@@ -124,4 +124,20 @@ pub(crate) fn decode_entities(text: &str) -> String {
 /// Collapse all runs of whitespace into single spaces and trim the result.
 pub(crate) fn normalize_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_active_elements_when_unicode_precedes_tag() {
+        let html = "<p>İ before script</p><SCRIPT>alert(1)</SCRIPT><p>Safe</p>";
+        let sanitized = sanitize_html(html);
+
+        assert!(sanitized.contains("İ before script"));
+        assert!(sanitized.contains("Safe"));
+        assert!(!sanitized.contains("alert(1)"));
+        assert!(!sanitized.to_ascii_lowercase().contains("<script"));
+    }
 }

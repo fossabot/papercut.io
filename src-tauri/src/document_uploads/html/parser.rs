@@ -60,7 +60,7 @@ fn extract_text_blocks(html: &str) -> Vec<TextBlock> {
     let body = extract_body_inner(html).unwrap_or(html);
     let mut blocks = Vec::new();
     let mut pos = 0usize;
-    let lower = body.to_lowercase();
+    let lower = body.to_ascii_lowercase();
 
     while let Some(start_rel) = lower[pos..].find('<') {
         let start = pos + start_rel;
@@ -120,8 +120,25 @@ fn extract_title(html: &str) -> Option<String> {
 /// Return the slice between the first case-insensitive `open` and `close` markers,
 /// indexing back into the original (case-preserving) string.
 fn extract_between_case_insensitive<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a str> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let start = lower.find(open)?;
     let end = lower[start..].find(close)? + start;
     Some(&html[start..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_title_and_body_when_unicode_precedes_tags() {
+        let html = "<html><head>İ<TITLE>Expected Title</TITLE></head><body>İ<P>Readable text</P></body></html>";
+        let parsed = parse_html_document(html);
+
+        assert_eq!(parsed.title, "Expected Title");
+        assert!(parsed
+            .sections
+            .iter()
+            .any(|section| section.text == "Readable text"));
+    }
 }
