@@ -174,10 +174,13 @@ function App() {
   const selectedTitle = selectedDocument?.title
   const selectedFormat = selectedDocument?.format
 
-  const handleImportHtmlDocument = useCallback(async () => {
-    setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
+  const runDocumentImport = useCallback(async (
+    importingMessage: string,
+    importer: () => Promise<UploadedDocument>,
+  ) => {
+    setDocumentImport({ status: 'importing', message: importingMessage })
     try {
-      const result = await importHtmlDocument()
+      const result = await importer()
       setUploadedDocuments(await listUploadedDocuments())
       setShowDocuments(true)
       setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
@@ -192,23 +195,15 @@ function App() {
     }
   }, [handleViewDocument, setShowDocuments])
 
-  const handleImportEpubDocument = useCallback(async () => {
-    setDocumentImport({ status: 'importing', message: 'Importing EPUB book' })
-    try {
-      const result = await importEpubDocument()
-      setUploadedDocuments(await listUploadedDocuments())
-      setShowDocuments(true)
-      setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
-      await handleViewDocument(result.url)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      const cancelled = message.toLowerCase().includes('cancelled')
-      setDocumentImport({
-        status: cancelled ? 'cancelled' : 'error',
-        message: cancelled ? 'Import cancelled.' : message,
-      })
-    }
-  }, [handleViewDocument, setShowDocuments])
+  const handleImportHtmlDocument = useCallback(
+    () => runDocumentImport('Importing HTML document', importHtmlDocument),
+    [runDocumentImport],
+  )
+
+  const handleImportEpubDocument = useCallback(
+    () => runDocumentImport('Importing EPUB book', importEpubDocument),
+    [runDocumentImport],
+  )
 
   const handleImportAudiobook = useCallback(async () => {
     await importAudiobookBundle(handleViewDocument)
