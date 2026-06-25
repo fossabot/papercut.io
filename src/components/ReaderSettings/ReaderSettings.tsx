@@ -26,7 +26,7 @@ export function ReaderSettings({
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open || disabled) return
 
     function handlePointerDown(event: PointerEvent) {
       const root = rootRef.current
@@ -44,14 +44,18 @@ export function ReaderSettings({
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [open])
+  }, [disabled, open])
+
+  useEffect(() => {
+    if (disabled && open) setOpen(false)
+  }, [disabled, open])
 
   return (
     <div className="reader-settings" ref={rootRef}>
       <button
         className="reader-settings-btn"
         aria-label="Reader settings"
-        aria-expanded={open}
+        aria-expanded={!disabled && open}
         title="Reader settings"
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
