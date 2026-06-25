@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react'
 import {
+  buildReadableDomTextLocatorIndex,
   buildReadableDomSegmentIndex,
   createRangeForSourceSpan,
+  createSourceSpanFromTextMatch,
+  sourceSpanEndGlobalOffset,
   type ReadableDomSegmentIndex,
+  type ReadableDomTextLocatorIndex,
 } from '../alignment/domTextSegments'
 import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
-import type { TtsChunk } from '../types'
+import type { TtsChunk, TtsChunkSourceSpan } from '../types'
 
 const TTS_HIGHLIGHT_NAME = 'tts-current'
 const SCROLL_SETTLE_MS = 120
@@ -22,7 +26,10 @@ interface AlignmentCache {
   doc: Document
   version: number
   chunks: TtsChunk[]
+  allowDomFallback: boolean
   segmentIndex: ReadableDomSegmentIndex
+  textLocatorIndex: ReadableDomTextLocatorIndex | null
+  fallbackSourceSpans: Map<number, TtsChunkSourceSpan> | null
   ranges: Map<number, Range>
   failedRanges: Set<number>
   highlight: Highlight
@@ -32,12 +39,13 @@ interface UseTtsHighlightOptions {
   enabled: boolean
   currentChunkIndex: number | null
   chunks: TtsChunk[]
+  allowDomFallback?: boolean
 }
 
 // Highlights the current saved-audiobook chunk inside the rendered reader DOM.
 export function useTtsHighlight(
   rootRef: React.RefObject<HTMLElement | null>,
-  { enabled, currentChunkIndex, chunks }: UseTtsHighlightOptions,
+  { enabled, currentChunkIndex, chunks, allowDomFallback = false }: UseTtsHighlightOptions,
 ): void {
   const segmentIndexCacheRef = useRef<SegmentIndexCache | null>(null)
   const alignmentCacheRef = useRef<AlignmentCache | null>(null)
@@ -154,6 +162,7 @@ export function useTtsHighlight(
             rootRef.current,
             currentChunkIndex,
             chunks,
+            allowDomFallback,
             rootVersionRef.current,
             segmentIndexCacheRef,
             alignmentCacheRef,
@@ -176,7 +185,7 @@ export function useTtsHighlight(
       if (frame !== null) window.cancelAnimationFrame(frame)
       if (scrollTimer !== null) window.clearTimeout(scrollTimer)
     }
-  }, [chunks, currentChunkIndex, enabled, rootRef])
+  }, [allowDomFallback, chunks, currentChunkIndex, enabled, rootRef])
 }
 
 // Reuse document/chunk cache when valid, then replace single named Highlight range.
@@ -184,6 +193,7 @@ function highlightTtsChunk(
   root: HTMLElement | null,
   chunkIndex: number,
   chunks: TtsChunk[],
+  allowDomFallback: boolean,
   rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
   alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
@@ -195,9 +205,9 @@ function highlightTtsChunk(
   ensureTtsHighlightStyles(doc)
 
   let cache = alignmentCacheRef.current
-  if (!isUsableAlignmentCache(cache, root, chunks, chunkIndex, rootVersion)) {
+  if (!isUsableAlignmentCache(cache, root, chunks, allowDomFallback, chunkIndex, rootVersion)) {
     clearTtsHighlight(doc, cache)
-    cache = buildAlignmentCache(root, doc, view, chunks, rootVersion, segmentIndexCacheRef)
+    cache = buildAlignmentCache(root, doc, view, chunks, allowDomFallback, rootVersion, segmentIndexCacheRef)
     alignmentCacheRef.current = cache
   }
 
@@ -216,6 +226,7 @@ function buildAlignmentCache(
   doc: Document,
   view: Window & typeof globalThis,
   chunks: TtsChunk[],
+  allowDomFallback: boolean,
   rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
 ): AlignmentCache {
@@ -224,7 +235,10 @@ function buildAlignmentCache(
     doc,
     version: rootVersion,
     chunks,
+    allowDomFallback,
     segmentIndex: getOrBuildSegmentIndex(root, rootVersion, segmentIndexCacheRef),
+    textLocatorIndex: null,
+    fallbackSourceSpans: null,
     ranges: new Map(),
     failedRanges: new Set(),
     highlight: new view.Highlight(),
@@ -261,28 +275,35 @@ function getChunkRange(cache: AlignmentCache, chunkIndex: number): Range | null 
   }
   if (cache.failedRanges.has(chunkIndex)) return null
 
-  const sourceSpan = cache.chunks[chunkIndex]?.sourceSpan
-  if (!sourceSpan) {
-    cache.failedRanges.add(chunkIndex)
-    logTtsDiagnostic('[tts-highlight] chunk range unavailable', {
-      chunkIndex,
-      reason: 'missing source span',
-    }, 'warn')
-    return null
-  }
+  const chunk = cache.chunks[chunkIndex]
+  const sourceSpan = chunk?.sourceSpan
 
   const started = performance.now()
-  const range = createRangeForSourceSpan(cache.doc, cache.segmentIndex, sourceSpan)
+  let range = sourceSpan
+    ? createRangeForSourceSpan(cache.doc, cache.segmentIndex, sourceSpan)
+    : null
+  let strategy: 'source-span' | 'dom-fallback' = 'source-span'
+  if (range && !rangeTextMatchesChunk(range, chunk)) {
+    logHighlightRangeBuilt(cache, chunkIndex, range, performance.now() - started, 'source-span')
+    range = null
+  }
+
+  if (!range && cache.allowDomFallback) {
+    range = createFallbackRange(cache, chunkIndex)
+    if (range) strategy = 'dom-fallback'
+  }
+
   if (!range) {
     cache.failedRanges.add(chunkIndex)
     logTtsDiagnostic('[tts-highlight] chunk range unavailable', {
       chunkIndex,
-      reason: 'source span does not match reader DOM',
+      reason: sourceSpan ? 'source span does not match reader DOM' : 'missing source span',
+      domFallback: cache.allowDomFallback,
     }, 'warn')
     return null
   }
 
-  logHighlightRangeBuilt(cache, chunkIndex, range, performance.now() - started)
+  logHighlightRangeBuilt(cache, chunkIndex, range, performance.now() - started, strategy)
   cache.ranges.set(chunkIndex, range)
   if (cache.ranges.size > MAX_CACHED_RANGES) {
     const oldestIndex = cache.ranges.keys().next().value
@@ -298,10 +319,111 @@ function getChunkRange(cache: AlignmentCache, chunkIndex: number): Range | null 
   return range
 }
 
+// Last-resort compatibility path for imported audiobook bundles. Old bundles
+// preserve canonical chunk/audio metadata but not durable DOM locators, so a
+// restored legacy HTML document may no longer produce trustworthy source spans.
+// This recovers a span from the currently rendered reader text, then validates
+// the resulting Range before allowing it to drive visible highlighting.
+function createFallbackRange(cache: AlignmentCache, chunkIndex: number): Range | null {
+  const chunk = cache.chunks[chunkIndex]
+  if (!chunk?.text) return null
+
+  const sourceSpan = getOrBuildFallbackSourceSpan(cache, chunkIndex)
+  if (!sourceSpan) {
+    logTtsDiagnostic('[tts-highlight] DOM fallback unavailable', {
+      chunkIndex,
+      chunkId: chunk.id,
+      reason: 'chunk text not found in reader DOM',
+      textLength: chunk.text.length,
+    }, 'warn')
+    return null
+  }
+
+  const range = createRangeForSourceSpan(cache.doc, cache.segmentIndex, sourceSpan)
+  if (!range || !rangeTextMatchesChunk(range, chunk)) {
+    logTtsDiagnostic('[tts-highlight] DOM fallback mismatch', {
+      chunkIndex,
+      chunkId: chunk.id,
+      sourceSpan: `${sourceSpan.startSegmentIndex}:${sourceSpan.startOffset}-${sourceSpan.endSegmentIndex}:${sourceSpan.endOffset}`,
+      chunkPreview: previewDiagnosticText(normalizeDiagnosticText(chunk.text)),
+      rangePreview: previewDiagnosticText(normalizeDiagnosticText(range?.toString() ?? '')),
+    }, 'warn')
+    return null
+  }
+
+  logTtsDiagnostic('[tts-highlight] DOM fallback range built', {
+    chunkIndex,
+    chunkId: chunk.id,
+    sourceSpan: `${sourceSpan.startSegmentIndex}:${sourceSpan.startOffset}-${sourceSpan.endSegmentIndex}:${sourceSpan.endOffset}`,
+  })
+  return range
+}
+
+// Return the recovered sourceSpan for any chunk, regardless of playback order.
+// This matters for the chunk browser: a user can jump directly to chunk 40, so
+// fallback highlighting cannot depend on chunks 1-39 having already played.
+function getOrBuildFallbackSourceSpan(cache: AlignmentCache, chunkIndex: number): TtsChunkSourceSpan | undefined {
+  if (!cache.fallbackSourceSpans) {
+    cache.fallbackSourceSpans = buildFallbackSourceSpans(cache)
+  }
+  return cache.fallbackSourceSpans.get(chunkIndex)
+}
+
+// Build fallback spans in canonical audiobook order using a forward cursor. This
+// avoids the classic repeated-text trap where every later chunk containing "the"
+// or a common Arabic phrase would otherwise match an earlier occurrence. The
+// work is cached per stable reader DOM and only runs when the normal sourceSpan
+// path fails for imported bundles.
+function buildFallbackSourceSpans(cache: AlignmentCache): Map<number, TtsChunkSourceSpan> {
+  const started = performance.now()
+  const locator = getOrBuildTextLocatorIndex(cache)
+  const sourceSpans = new Map<number, TtsChunkSourceSpan>()
+  let cursor = 0
+
+  for (let index = 0; index < cache.chunks.length; index++) {
+    const chunk = cache.chunks[index]
+    if (!chunk?.text) continue
+    const sourceSpan = createSourceSpanFromTextMatch(locator, chunk.text, cursor)
+    if (!sourceSpan) continue
+    sourceSpans.set(index, sourceSpan)
+    const nextCursor = sourceSpanEndGlobalOffset(locator, sourceSpan)
+    if (nextCursor >= 0) cursor = nextCursor
+  }
+
+  logTtsDiagnostic('[tts-highlight] DOM fallback source spans built', {
+    chunks: cache.chunks.length,
+    matched: sourceSpans.size,
+    elapsedMs: Math.round(performance.now() - started),
+  })
+  return sourceSpans
+}
+
+// Build the normalized text map lazily because very large books should not pay
+// this cost merely by opening or starting playback when ordinary spans are valid.
+function getOrBuildTextLocatorIndex(cache: AlignmentCache): ReadableDomTextLocatorIndex {
+  if (cache.textLocatorIndex) return cache.textLocatorIndex
+
+  const started = performance.now()
+  const locator = buildReadableDomTextLocatorIndex(cache.segmentIndex)
+  cache.textLocatorIndex = locator
+  logTtsDiagnostic('[tts-highlight] DOM text locator index built', {
+    characters: locator.text.length,
+    segments: locator.segmentTexts.length,
+    elapsedMs: Math.round(performance.now() - started),
+  })
+  return locator
+}
+
 // Diagnostics compare the chunk text to the actual DOM Range text. If they
 // match but the visible highlight looks wrong, the issue is likely platform
 // rendering/scrolling. If they differ, source-span mapping is the culprit.
-function logHighlightRangeBuilt(cache: AlignmentCache, chunkIndex: number, range: Range, elapsedMs: number): void {
+function logHighlightRangeBuilt(
+  cache: AlignmentCache,
+  chunkIndex: number,
+  range: Range,
+  elapsedMs: number,
+  strategy: 'source-span' | 'dom-fallback',
+): void {
   const chunk = cache.chunks[chunkIndex]
   const sourceSpan = chunk?.sourceSpan
   const chunkText = normalizeDiagnosticText(chunk?.text ?? '')
@@ -317,6 +439,8 @@ function logHighlightRangeBuilt(cache: AlignmentCache, chunkIndex: number, range
     rangePreview: previewDiagnosticText(rangeText),
     chunkLength: chunkText.length,
     rangeLength: rangeText.length,
+    strategy,
+    domFallback: cache.allowDomFallback,
     sourceSpan: sourceSpan
       ? `${sourceSpan.startSegmentIndex}:${sourceSpan.startOffset}-${sourceSpan.endSegmentIndex}:${sourceSpan.endOffset}`
       : '',
@@ -335,6 +459,10 @@ function normalizeDiagnosticText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+function rangeTextMatchesChunk(range: Range, chunk: TtsChunk | undefined): boolean {
+  return normalizeDiagnosticText(range.toString()) === normalizeDiagnosticText(chunk?.text ?? '')
+}
+
 function previewDiagnosticText(text: string): string {
   return text.length <= 160 ? text : text.slice(0, 157).trimEnd() + '...'
 }
@@ -344,10 +472,17 @@ function isUsableAlignmentCache(
   cache: AlignmentCache | null,
   root: HTMLElement,
   chunks: TtsChunk[],
+  allowDomFallback: boolean,
   chunkIndex: number,
   rootVersion: number,
 ): cache is AlignmentCache {
-  if (!cache || cache.root !== root || cache.version !== rootVersion || cache.chunks !== chunks) return false
+  if (
+    !cache ||
+    cache.root !== root ||
+    cache.version !== rootVersion ||
+    cache.chunks !== chunks ||
+    cache.allowDomFallback !== allowDomFallback
+  ) return false
   const range = cache.ranges.get(chunkIndex)
   return !range || Boolean(range.startContainer.isConnected && range.endContainer.isConnected)
 }

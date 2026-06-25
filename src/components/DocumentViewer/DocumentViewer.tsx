@@ -14,6 +14,7 @@ interface TtsHighlightOptions {
   enabled: boolean
   currentChunkIndex: number | null
   chunks: TtsChunk[]
+  allowDomFallback?: boolean
 }
 
 interface DocumentViewerProps {
