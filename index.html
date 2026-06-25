@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Papercut</title>
+    <script>
+      ;(() => {
+        const storageKey = 'papercut.theme.v1'
+        const darkQuery = '(prefers-color-scheme: dark)'
+
+        try {
+          const stored = window.localStorage.getItem(storageKey)
+          const choice = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
+          const resolved = choice === 'system'
+            ? (window.matchMedia(darkQuery).matches ? 'dark' : 'light')
+            : choice
+
+          document.documentElement.dataset.theme = resolved
+          document.documentElement.dataset.themeChoice = choice
+        } catch {
+          document.documentElement.dataset.theme = 'light'
+          document.documentElement.dataset.themeChoice = 'system'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

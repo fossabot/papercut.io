@@ -53,7 +53,7 @@ The EPUB parser is split into focused ZIP/XML parsing, path, asset, DOM rewrite,
 5. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
 6. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
 7. Add import progress reporting for very large EPUB/PDF files.
-8. Add richer EPUB reader features such as TOC, location restore, pagination/theme controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
+8. Add richer EPUB reader features such as TOC, location restore, pagination, EPUB-specific appearance controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough. App-wide Light/System/Dark theme already applies to the generated HTML reader.
 9. For very large books, move from one fully-rendered generated HTML document toward chapter/page-level rendering with locator-aware Find and TTS ranges. Current TTS caches are mutation-aware, but the next highlight after a large DOM mutation can still rebuild the active reader text index.
 10. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
 11. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
@@ -258,7 +258,7 @@ Richer EPUB reader:
 - Detect EPUB 2/3 cover metadata and render safe retained raster covers in the generated reading HTML, even when the cover image is present only in the manifest and not referenced by a spine chapter.
 - Evaluate foliate-js, `epub.js`, or Readium only after normalized import ships.
 - Keep search/TTS source independent from the renderer.
-- Add TOC, pagination, theme, typography, and location restore as reader-quality work.
+- Add TOC, pagination, EPUB-specific appearance controls, and location restore as reader-quality work. App-wide Light/System/Dark theme already applies to the generated HTML reader.
 - Keep Arabic typography script-aware. Bundled Arabic-focused fonts should remain explicit reader choices unless a future per-script font setting proves safe across mixed-language books.
 - For very large books, bound reader work by rendering/indexing the active chapter or page instead of one generated DOM for the whole book. TTS chunk highlighting should then map through stored locators rather than scanning every rendered text node after a large mutation.
 

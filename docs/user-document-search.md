@@ -74,6 +74,7 @@ Viewer rendering is plugin-based:
 - More specific URL formats must be registered before the HTML fallback. PDF and raw `.epub` entries remain reserved ahead of the catch-all HTML viewer.
 - `src/viewers/HtmlViewer.tsx` parses the stored full HTML document, extracts body content, and renders it into an app-owned sanitized reader surface instead of a `srcDoc` iframe. Imported head styles are intentionally not injected into the app DOM. Reader settings apply through CSS variables on the viewer shell, so changing font, font size, line height, or width does not rewrite stored source or invalidate audiobook metadata.
 - Uploaded EPUB documents currently resolve to the HTML viewer because their stored source is generated reading HTML. The shared DOM reader handles generated hash links so TOC entries and footnotes scroll within the stored document. TTS highlighting caches the generated reader DOM while it is stable and invalidates those caches when Find or reader updates replace text nodes. A richer EPUB viewer can replace that later if it declares which reader capabilities it supports, because Find, scrolling, TTS highlighting, and locator navigation may differ by format.
+- App theme is separate from reader settings. `src/hooks/useTheme.ts` persists Light, System, and Dark choices and writes the resolved theme to the root element, while CSS tokens theme app chrome, dialogs, HTML/EPUB reader content, Find marks, and TTS highlights without changing stored documents or saved audiobook metadata. Future PDF viewing should keep the app chrome themed but should not assume PDF page contents can be recolored safely.
 
 This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
 
@@ -157,6 +158,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 - Uploaded documents are not exported as part of a library backup yet.
 - Quoted exact-phrase behavior is strongest for bundled Pagefind documents and should be unified with SQLite FTS later.
 - Very large uploaded books currently render as one generated reader DOM. The app now treats document opening as one global reader transition, disables competing View/Open actions while source HTML loads, and avoids building the TTS text-node index until playback highlighting needs it. The first highlight after a large DOM mutation may still rebuild the text segment index. Chapter/page-level rendering with locator-aware highlighting is the preferred long-term fix.
+- Light/Dark/System theme selection is UI state, not document state. Theme polish should stay in CSS tokens where possible so imported HTML, generated EPUB HTML, and saved audiobook highlighting remain stable across theme changes.
 
 ## Recommended Next Steps
 
@@ -166,9 +168,10 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 4. Add duplicate detection based on source hash so repeated imports can update or skip existing records.
 5. Add a reindex action for uploaded documents if parser or sanitizer behavior changes after import.
 6. Add import progress reporting for very large EPUB/PDF files.
-7. Add richer EPUB reader features such as TOC, location restore, pagination/theme controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
+7. Add richer EPUB reader features such as TOC, location restore, pagination, EPUB-specific appearance controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
 8. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
-9. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
+9. Keep future viewer-specific theme work format-aware: EPUB/HTML can inherit CSS tokens, while PDF should theme surrounding controls without recoloring document pages by default.
+10. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
 
 ## Branching Guidance
 

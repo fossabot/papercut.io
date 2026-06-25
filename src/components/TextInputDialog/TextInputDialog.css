@@ -1,7 +1,7 @@
 .text-input-dialog-field {
   display: grid;
   gap: 0.35rem;
-  color: #374151;
+  color: var(--text-body);
   font-size: 0.82rem;
   font-weight: 600;
 }
@@ -10,22 +10,22 @@
   width: 100%;
   min-height: 2.45rem;
   padding: 0.45rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--text-heading);
   font-size: 0.9rem;
   outline: none;
 }
 
 .text-input-dialog-field input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--shadow-focus);
 }
 
 .text-input-dialog-error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--danger);
   font-size: 0.85rem;
   line-height: 1.35;
 }
