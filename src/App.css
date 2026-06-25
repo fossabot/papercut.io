@@ -2078,7 +2078,7 @@
 
 .tts-diagnostic-warn {
   border-left-color: var(--warning-accent);
-  background: var(--surface)beb;
+  background: var(--surface-warning);
 }
 
 .tts-diagnostic-header {
