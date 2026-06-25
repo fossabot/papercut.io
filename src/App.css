@@ -1111,6 +1111,18 @@
   color: var(--link-hover);
 }
 
+/* Legacy imported audiobook bundles can restore pre-CSS HTML such as
+   <font color> and table bgcolor. In dark mode those fixed colors can create
+   white islands with pale text, so keep old presentational colors from
+   overriding the themed reader surface. */
+html[data-theme="dark"] .document-html-content :where(font[color], [color]) {
+  color: inherit;
+}
+
+html[data-theme="dark"] .document-html-content :where([bgcolor]) {
+  background-color: transparent;
+}
+
 .document-html-content table {
   display: block;
   max-width: 100%;

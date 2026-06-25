@@ -78,6 +78,13 @@ Viewer rendering is plugin-based:
 
 This keeps the runtime upload pipeline independent from the viewer shell. The upload backend produces safe stored source and normalized searchable sections; the viewer shell decides how the document is presented and how reader-level controls attach to it.
 
+Reader typography is intentionally owned by the shared DOM reader, not by each upload parser:
+
+- The reader bundles offline fonts under `public/fonts/reader/` so desktop and Android do not collapse every serif choice into the same platform fallback.
+- Literata is the default long-form reading face, Atkinson Hyperlegible is available for accessibility-focused reading, and system serif/sans remain available for users who prefer platform defaults.
+- Naskh Arabic, Droid Arabic Naskh, Scheherazade New, and Readex Pro are exposed as explicit Arabic-focused options. They are not inserted into every stack because Arabic font metrics can change spacing and line flow in documents that previously rendered better with their platform fallback.
+- These controls are reader presentation only. They do not rewrite stored HTML, EPUB-generated reading HTML, search sections, TTS chunks, saved audiobook metadata, or highlight locators.
+
 ## Import Pipeline
 
 The runtime upload path follows a parser pipeline that can be reused for future formats:

@@ -1,3 +1,100 @@
+@font-face {
+  font-family: "Papercut Literata";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("/fonts/reader/literata/Literata.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Literata";
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("/fonts/reader/literata/Literata-Italic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Atkinson Hyperlegible";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/atkinson-hyperlegible/AtkinsonHyperlegible-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Atkinson Hyperlegible";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/atkinson-hyperlegible/AtkinsonHyperlegible-Italic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Atkinson Hyperlegible";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/atkinson-hyperlegible/AtkinsonHyperlegible-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Atkinson Hyperlegible";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/atkinson-hyperlegible/AtkinsonHyperlegible-BoldItalic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Noto Naskh Arabic";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/reader/noto-naskh-arabic/NotoNaskhArabic.ttf") format("truetype");
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@font-face {
+  font-family: "Papercut Droid Arabic Naskh";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/droid-arabic-naskh/DroidNaskh-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Droid Arabic Naskh";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/droid-arabic-naskh/DroidNaskh-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Scheherazade New";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/scheherazade-new/ScheherazadeNew-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Scheherazade New";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/scheherazade-new/ScheherazadeNew-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Readex Pro";
+  font-style: normal;
+  font-weight: 200 700;
+  font-display: swap;
+  src: url("/fonts/reader/readex-pro/ReadexPro.ttf") format("truetype");
+}
+
 :root {
   --color-scheme: light;
   --app-bg: #f9fafb;

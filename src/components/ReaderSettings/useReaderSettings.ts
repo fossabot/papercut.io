@@ -16,8 +16,22 @@ export interface ReaderRangeConfig {
   suffix: string
 }
 
+// Keep the CSS @font-face names internal and user labels plain. Naskh Arabic is
+// an explicit reader choice rather than a universal fallback because Arabic
+// font metrics can noticeably change spacing in mixed-language documents.
+const READER_FONT_STACKS = {
+  literata: '"Papercut Literata", serif',
+  atkinson: '"Papercut Atkinson Hyperlegible", sans-serif',
+  systemSerif: 'ui-serif, Georgia, "Times New Roman", serif',
+  systemSans: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  naskhArabic: '"Papercut Noto Naskh Arabic", serif',
+  droidArabicNaskh: '"Papercut Droid Arabic Naskh", serif',
+  scheherazadeNew: '"Papercut Scheherazade New", serif',
+  readexPro: '"Papercut Readex Pro", sans-serif',
+} as const
+
 export const DEFAULT_READER_SETTINGS: ReaderSettingsState = {
-  fontFamily: 'Georgia, serif',
+  fontFamily: READER_FONT_STACKS.literata,
   fontSizePx: 16,
   lineHeight: 1.65,
   widthCh: 72,
@@ -31,12 +45,23 @@ export const READER_SETTING_LIMITS = {
 } satisfies Record<'fontSizePx' | 'lineHeight' | 'widthCh', ReaderRangeConfig>
 
 export const FONT_FAMILY_OPTIONS = [
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Palatino', value: 'Palatino, "Palatino Linotype", serif' },
-  { label: 'System Sans', value: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Literata', value: READER_FONT_STACKS.literata },
+  { label: 'Atkinson Hyperlegible', value: READER_FONT_STACKS.atkinson },
+  { label: 'System Serif', value: READER_FONT_STACKS.systemSerif },
+  { label: 'System Sans', value: READER_FONT_STACKS.systemSans },
+  { label: 'Naskh Arabic', value: READER_FONT_STACKS.naskhArabic },
+  { label: 'Droid Arabic Naskh', value: READER_FONT_STACKS.droidArabicNaskh },
+  { label: 'Scheherazade New', value: READER_FONT_STACKS.scheherazadeNew },
+  { label: 'Readex Pro', value: READER_FONT_STACKS.readexPro },
 ]
+
+const LEGACY_FONT_FAMILY_MAP = new Map([
+  ['Georgia, serif', READER_FONT_STACKS.literata],
+  ['"Times New Roman", Times, serif', READER_FONT_STACKS.systemSerif],
+  ['Palatino, "Palatino Linotype", serif', READER_FONT_STACKS.systemSerif],
+  ['-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', READER_FONT_STACKS.systemSans],
+  ['Verdana, Geneva, sans-serif', READER_FONT_STACKS.atkinson],
+])
 
 export function useReaderSettings() {
   const [settings, setSettings] = useState<ReaderSettingsState>(() => loadReaderSettings())
@@ -93,15 +118,19 @@ function saveReaderSettings(settings: ReaderSettingsState): void {
 // Normalize every setting before it reaches CSS variables, preventing unsupported
 // font values or stale numeric bounds from leaking into the reader surface.
 function clampReaderSettings(settings: ReaderSettingsState): ReaderSettingsState {
-  const fontFamily = FONT_FAMILY_OPTIONS.some((option) => option.value === settings.fontFamily)
-    ? settings.fontFamily
-    : DEFAULT_READER_SETTINGS.fontFamily
   return {
-    fontFamily,
+    fontFamily: normalizeReaderFontFamily(settings.fontFamily),
     fontSizePx: clampSettingNumber('fontSizePx', settings.fontSizePx, DEFAULT_READER_SETTINGS.fontSizePx),
     lineHeight: clampSettingNumber('lineHeight', settings.lineHeight, DEFAULT_READER_SETTINGS.lineHeight),
     widthCh: clampSettingNumber('widthCh', settings.widthCh, DEFAULT_READER_SETTINGS.widthCh),
   }
+}
+
+// Older saved settings used desktop font names that collapse on Android. Map
+// those values into bundled stacks instead of resetting every preference.
+function normalizeReaderFontFamily(value: string): string {
+  if (FONT_FAMILY_OPTIONS.some((option) => option.value === value)) return value
+  return LEGACY_FONT_FAMILY_MAP.get(value) ?? DEFAULT_READER_SETTINGS.fontFamily
 }
 
 // Clamp against the shared range table so slider limits and saved-value repair
