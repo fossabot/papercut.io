@@ -9,7 +9,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use tauri::Runtime;
 
 use super::storage::now_ms;
@@ -125,17 +125,20 @@ pub(crate) fn delete_folder<R: Runtime>(
     app: &tauri::AppHandle<R>,
     request: UploadedLibraryDeleteFolderRequest,
 ) -> Result<(), String> {
-    let db = open_db(app)?;
-    load_folder(&db, &request.folder_id)?;
+    let mut db = open_db(app)?;
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_err)?;
+    load_folder(&tx, &request.folder_id)?;
 
-    let child_count: i64 = db
+    let child_count: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM uploaded_folders WHERE parent_id = ?1",
             [request.folder_id.as_str()],
             |row| row.get(0),
         )
         .map_err(db_err)?;
-    let document_count: i64 = db
+    let document_count: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM uploaded_document_locations WHERE folder_id = ?1",
             [request.folder_id.as_str()],
@@ -146,11 +149,12 @@ pub(crate) fn delete_folder<R: Runtime>(
         return Err("Folder must be empty before it can be deleted".into());
     }
 
-    db.execute(
+    tx.execute(
         "DELETE FROM uploaded_folders WHERE id = ?1",
         [request.folder_id.as_str()],
     )
     .map_err(db_err)?;
+    tx.commit().map_err(db_err)?;
     Ok(())
 }
 
