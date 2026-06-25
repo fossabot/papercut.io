@@ -24,6 +24,14 @@
   position: relative;
 }
 
+.header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .app-title {
   display: inline-flex;
   align-items: center;
@@ -694,6 +702,47 @@
   filter: grayscale(0.25);
 }
 
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.theme-toggle-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.theme-toggle-btn:hover,
+.theme-toggle-btn:focus-visible {
+  color: var(--text-body);
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.theme-toggle-btn-active,
+.theme-toggle-btn-active:hover,
+.theme-toggle-btn-active:focus-visible {
+  color: var(--accent-hover);
+  background: var(--surface);
+  box-shadow: 0 1px 3px var(--shadow-soft);
+}
+
 .back-button {
   display: inline-flex;
   align-items: center;
@@ -745,6 +794,12 @@
 @media (max-width: 767px) {
   .doc-header {
     gap: 0.65rem 0.5rem;
+  }
+
+  .header-actions {
+    position: static;
+    justify-content: center;
+    margin-bottom: 0.75rem;
   }
 
   .find-btn,
