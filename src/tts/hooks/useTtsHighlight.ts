@@ -12,12 +12,15 @@ const SCROLL_SETTLE_MS = 120
 const MAX_CACHED_RANGES = 128
 
 interface SegmentIndexCache {
-  doc: Document
+  root: HTMLElement
+  version: number
   index: ReadableDomSegmentIndex
 }
 
 interface AlignmentCache {
+  root: HTMLElement
   doc: Document
+  version: number
   chunks: TtsChunk[]
   segmentIndex: ReadableDomSegmentIndex
   ranges: Map<number, Range>
@@ -31,20 +34,43 @@ interface UseTtsHighlightOptions {
   chunks: TtsChunk[]
 }
 
-// Highlights the current saved-audiobook chunk inside the document iframe.
+// Highlights the current saved-audiobook chunk inside the rendered reader DOM.
 export function useTtsHighlight(
-  iframeRef: React.RefObject<HTMLIFrameElement | null>,
+  rootRef: React.RefObject<HTMLElement | null>,
   { enabled, currentChunkIndex, chunks }: UseTtsHighlightOptions,
 ): void {
   const segmentIndexCacheRef = useRef<SegmentIndexCache | null>(null)
   const alignmentCacheRef = useRef<AlignmentCache | null>(null)
+  const rootVersionRef = useRef(0)
+  const observedRootRef = useRef<HTMLElement | null>(null)
+  const mutationObserverRef = useRef<MutationObserver | null>(null)
 
-  // Pre-index iframe during idle time so Play usually pays only active-range cost.
-  // Load listener also invalidates indexes when srcDoc creates a new Document.
+  // Find highlights and reader content swaps replace Text nodes under the same
+  // article root. Versioning invalidates cached DOM node indexes without
+  // rescanning the whole book on every mutation.
   useEffect(() => {
-    const iframe = iframeRef.current
-    if (!iframe) return
+    const root = rootRef.current
+    if (observedRootRef.current === root) return
 
+    mutationObserverRef.current?.disconnect()
+    mutationObserverRef.current = null
+    observedRootRef.current = root
+    rootVersionRef.current += 1
+    invalidateTtsDomCaches(root?.ownerDocument, segmentIndexCacheRef, alignmentCacheRef)
+
+    if (!root) return
+
+    const observer = new MutationObserver(() => {
+      rootVersionRef.current += 1
+      invalidateTtsDomCaches(root.ownerDocument, segmentIndexCacheRef, alignmentCacheRef)
+    })
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    mutationObserverRef.current = observer
+  })
+
+  // Pre-index only when highlight playback is active. Huge uploaded books should
+  // not pay a full DOM text walk merely because the reader opened.
+  useEffect(() => {
     let idleHandle: number | null = null
     let timeoutHandle: number | null = null
 
@@ -62,15 +88,20 @@ export function useTtsHighlight(
     const buildIndex = () => {
       idleHandle = null
       timeoutHandle = null
-      const doc = iframe.contentDocument
-      if (!doc?.body || doc.readyState === 'loading') return
-      getOrBuildSegmentIndex(doc, segmentIndexCacheRef)
+      const root = rootRef.current
+      if (!root?.isConnected) return
+      getOrBuildSegmentIndex(root, rootVersionRef.current, segmentIndexCacheRef)
     }
 
     const scheduleBuild = () => {
       cancelScheduledBuild()
-      const doc = iframe.contentDocument
-      if (segmentIndexCacheRef.current?.doc !== doc) segmentIndexCacheRef.current = null
+      const root = rootRef.current
+      if (
+        segmentIndexCacheRef.current?.root !== root
+        || segmentIndexCacheRef.current?.version !== rootVersionRef.current
+      ) {
+        segmentIndexCacheRef.current = null
+      }
       if (window.requestIdleCallback) {
         idleHandle = window.requestIdleCallback(buildIndex, { timeout: 1000 })
       } else {
@@ -78,18 +109,19 @@ export function useTtsHighlight(
       }
     }
 
-    iframe.addEventListener('load', scheduleBuild)
-    scheduleBuild()
+    if (enabled && currentChunkIndex !== null) scheduleBuild()
     return () => {
       cancelScheduledBuild()
-      iframe.removeEventListener('load', scheduleBuild)
       segmentIndexCacheRef.current = null
     }
-  }, [iframeRef])
+  }, [currentChunkIndex, enabled, rootRef])
 
   // CSS Highlight ranges retain DOM nodes; clear registry/cache on unmount.
   useEffect(
     () => () => {
+      mutationObserverRef.current?.disconnect()
+      mutationObserverRef.current = null
+      observedRootRef.current = null
       const cache = alignmentCacheRef.current
       if (cache) clearTtsHighlight(cache.doc, cache)
       alignmentCacheRef.current = null
@@ -100,8 +132,8 @@ export function useTtsHighlight(
   // Update only active range. RAF coalesces rapid chunk changes; delayed scroll
   // prevents many smooth-scroll animations from competing during button spam.
   useEffect(() => {
-    const iframe = iframeRef.current
-    const doc = iframe?.contentDocument
+    const root = rootRef.current
+    const doc = root?.ownerDocument
 
     if (!enabled || currentChunkIndex === null) {
       if (doc) clearTtsHighlight(doc, alignmentCacheRef.current)
@@ -119,9 +151,10 @@ export function useTtsHighlight(
         frame = null
         try {
           const result = highlightTtsChunk(
-            iframeRef.current,
+            rootRef.current,
             currentChunkIndex,
             chunks,
+            rootVersionRef.current,
             segmentIndexCacheRef,
             alignmentCacheRef,
           )
@@ -129,7 +162,7 @@ export function useTtsHighlight(
 
           scrollTimer = window.setTimeout(() => {
             scrollTimer = null
-            scrollRangeIntoView(result.iframe, result.range)
+            scrollRangeIntoView(result.range)
           }, SCROLL_SETTLE_MS)
         } catch (err) {
           console.warn('Unable to highlight current TTS chunk:', err)
@@ -137,36 +170,34 @@ export function useTtsHighlight(
       })
     }
 
-    const shouldRetryOnLoad = iframe && (!doc || doc.readyState === 'loading')
-    if (shouldRetryOnLoad) iframe.addEventListener('load', attemptHighlight)
     attemptHighlight()
 
     return () => {
       if (frame !== null) window.cancelAnimationFrame(frame)
       if (scrollTimer !== null) window.clearTimeout(scrollTimer)
-      if (shouldRetryOnLoad) iframe.removeEventListener('load', attemptHighlight)
     }
-  }, [chunks, currentChunkIndex, enabled, iframeRef])
+  }, [chunks, currentChunkIndex, enabled, rootRef])
 }
 
 // Reuse document/chunk cache when valid, then replace single named Highlight range.
 function highlightTtsChunk(
-  iframe: HTMLIFrameElement | null,
+  root: HTMLElement | null,
   chunkIndex: number,
   chunks: TtsChunk[],
+  rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
   alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
-): { iframe: HTMLIFrameElement; range: Range } | null {
-  const doc = iframe?.contentDocument
+): { range: Range } | null {
+  const doc = root?.ownerDocument
   const view = doc?.defaultView
-  if (!doc || !view || !iframe) return null
+  if (!root || !doc || !view) return null
 
   ensureTtsHighlightStyles(doc)
 
   let cache = alignmentCacheRef.current
-  if (!isUsableAlignmentCache(cache, doc, chunks, chunkIndex)) {
+  if (!isUsableAlignmentCache(cache, root, chunks, chunkIndex, rootVersion)) {
     clearTtsHighlight(doc, cache)
-    cache = buildAlignmentCache(doc, view, chunks, segmentIndexCacheRef)
+    cache = buildAlignmentCache(root, doc, view, chunks, rootVersion, segmentIndexCacheRef)
     alignmentCacheRef.current = cache
   }
 
@@ -176,20 +207,24 @@ function highlightTtsChunk(
 
   cache.highlight.add(range)
   view.CSS.highlights.set(TTS_HIGHLIGHT_NAME, cache.highlight)
-  return { iframe, range }
+  return { range }
 }
 
-// Alignment cache is tied to both live iframe Document and exact chunk-array identity.
+// Alignment cache is tied to both live reader root and exact chunk-array identity.
 function buildAlignmentCache(
+  root: HTMLElement,
   doc: Document,
   view: Window & typeof globalThis,
   chunks: TtsChunk[],
+  rootVersion: number,
   segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
 ): AlignmentCache {
   return {
+    root,
     doc,
+    version: rootVersion,
     chunks,
-    segmentIndex: getOrBuildSegmentIndex(doc, segmentIndexCacheRef),
+    segmentIndex: getOrBuildSegmentIndex(root, rootVersion, segmentIndexCacheRef),
     ranges: new Map(),
     failedRanges: new Set(),
     highlight: new view.Highlight(),
@@ -198,15 +233,16 @@ function buildAlignmentCache(
 
 // Synchronous fallback handles Play before idle pre-index completes.
 function getOrBuildSegmentIndex(
-  doc: Document,
+  root: HTMLElement,
+  rootVersion: number,
   cacheRef: React.MutableRefObject<SegmentIndexCache | null>,
 ): ReadableDomSegmentIndex {
   const cached = cacheRef.current
-  if (cached?.doc === doc) return cached.index
+  if (cached?.root === root && cached.version === rootVersion) return cached.index
 
   const started = performance.now()
-  const index = buildReadableDomSegmentIndex(doc)
-  cacheRef.current = { doc, index }
+  const index = buildReadableDomSegmentIndex(root)
+  cacheRef.current = { root, version: rootVersion, index }
   logTtsDiagnostic('[tts-highlight] DOM segment index built', {
     segments: index.segments.length,
     elapsedMs: Math.round(performance.now() - started),
@@ -241,7 +277,7 @@ function getChunkRange(cache: AlignmentCache, chunkIndex: number): Range | null 
     cache.failedRanges.add(chunkIndex)
     logTtsDiagnostic('[tts-highlight] chunk range unavailable', {
       chunkIndex,
-      reason: 'source span does not match iframe DOM',
+      reason: 'source span does not match reader DOM',
     }, 'warn')
     return null
   }
@@ -303,16 +339,28 @@ function previewDiagnosticText(text: string): string {
   return text.length <= 160 ? text : text.slice(0, 157).trimEnd() + '...'
 }
 
-// Detached range endpoints indicate iframe navigation/mutation; rebuild cache then.
+// Detached range endpoints indicate reader navigation/mutation; rebuild cache then.
 function isUsableAlignmentCache(
   cache: AlignmentCache | null,
-  doc: Document,
+  root: HTMLElement,
   chunks: TtsChunk[],
   chunkIndex: number,
+  rootVersion: number,
 ): cache is AlignmentCache {
-  if (!cache || cache.doc !== doc || cache.chunks !== chunks) return false
+  if (!cache || cache.root !== root || cache.version !== rootVersion || cache.chunks !== chunks) return false
   const range = cache.ranges.get(chunkIndex)
   return !range || Boolean(range.startContainer.isConnected && range.endContainer.isConnected)
+}
+
+function invalidateTtsDomCaches(
+  doc: Document | undefined,
+  segmentIndexCacheRef: React.MutableRefObject<SegmentIndexCache | null>,
+  alignmentCacheRef: React.MutableRefObject<AlignmentCache | null>,
+): void {
+  segmentIndexCacheRef.current = null
+  const cache = alignmentCacheRef.current
+  if (cache) clearTtsHighlight(doc ?? cache.doc, cache)
+  alignmentCacheRef.current = null
 }
 
 // Clear both owned Highlight object and global registry entry, including old docs.
@@ -343,12 +391,11 @@ function ensureTtsHighlightStyles(doc: Document): void {
   doc.head.appendChild(style)
 }
 
-// Translate iframe-local range coordinates into parent-window scroll coordinates.
-function scrollRangeIntoView(iframe: HTMLIFrameElement, range: Range): void {
+// Ranges now live in the app document, so their rects are already window-local.
+function scrollRangeIntoView(range: Range): void {
   const rangeRect = range.getBoundingClientRect()
-  const iframeRect = iframe.getBoundingClientRect()
-  if (!Number.isFinite(rangeRect.top) || !Number.isFinite(iframeRect.top)) return
+  if (!Number.isFinite(rangeRect.top)) return
 
-  const top = window.scrollY + iframeRect.top + rangeRect.top - window.innerHeight / 2
+  const top = window.scrollY + rangeRect.top - window.innerHeight / 2
   window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
 }

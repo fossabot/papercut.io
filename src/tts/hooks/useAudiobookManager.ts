@@ -704,7 +704,7 @@ export function useAudiobookManager({
   }, [onClearDocument, onUserUploadsChanged, resetSelectedAudiobookState, selectedDoc, stopTts])
 
   const importAudiobook = useCallback(async (openDocument: (url: string) => Promise<void>) => {
-    setAudiobookImport({ status: 'importing', message: 'Importing audiobook bundle' })
+    setAudiobookImport({ status: 'importing', message: '⏳ Importing Audiobook Bundle...' })
     try {
       const result = await importNativeAudiobook()
       upsertUserUpload({

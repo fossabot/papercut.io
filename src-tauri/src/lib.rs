@@ -10,6 +10,7 @@ pub fn run() {
         .manage(native_tts::NativeTtsState::default())
         .invoke_handler(tauri::generate_handler![
             document_uploads::commands::document_uploads_import_html,
+            document_uploads::commands::document_uploads_import_epub,
             document_uploads::commands::document_uploads_list,
             document_uploads::commands::document_uploads_search,
             document_uploads::commands::document_uploads_get_source,

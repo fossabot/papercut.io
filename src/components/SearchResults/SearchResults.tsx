@@ -12,6 +12,8 @@ interface SearchResultsProps {
   submittedQuery: string
   lastSearchInfo: LastSearchInfo | null
   selectedFilters: Set<string>
+  openingDisabled?: boolean
+  openingDocumentUrl?: string
   onViewResult: (result: SearchResult) => void
 }
 
@@ -21,6 +23,8 @@ export function SearchResults({
   submittedQuery,
   lastSearchInfo,
   selectedFilters,
+  openingDisabled = false,
+  openingDocumentUrl,
   onViewResult,
 }: SearchResultsProps) {
   const filtered = selectedFilters.size > 0
@@ -55,15 +59,24 @@ export function SearchResults({
         </p>
       )}
 
-      {filtered.map((result) => (
-        <div key={result.id} className="result-card" onClick={() => onViewResult(result)}>
-          <h2 className="result-title">{result.meta.title}</h2>
-          <p
-            className="result-excerpt"
-            dangerouslySetInnerHTML={{ __html: result.customExcerpt ?? result.excerpt }}
-          />
-        </div>
-      ))}
+      {filtered.map((result) => {
+        const opening = openingDocumentUrl === result.url
+        const disabled = openingDisabled || opening
+        return (
+          <div
+            key={result.id}
+            className={'result-card' + (disabled ? ' result-card-disabled' : '')}
+            aria-disabled={disabled}
+            onClick={() => { if (!disabled) onViewResult(result) }}
+          >
+            <h2 className="result-title">{result.meta.title}{opening ? ' (Opening...)' : ''}</h2>
+            <p
+              className="result-excerpt"
+              dangerouslySetInnerHTML={{ __html: result.customExcerpt ?? result.excerpt }}
+            />
+          </div>
+        )
+      })}
 
       {submittedQuery.length === 0 && (
         <div className="welcome">

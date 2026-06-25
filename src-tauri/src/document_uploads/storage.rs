@@ -11,17 +11,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::{Manager, Runtime};
 
-use super::html::ParsedSection;
+use super::parsed::ParsedSection;
 
 /// URL prefix that marks a document as a runtime upload (vs. a bundled doc).
 pub(crate) const UPLOAD_URL_PREFIX: &str = "/uploads/";
 /// Hard cap on imported file size (25 MB).
 pub(crate) const MAX_UPLOAD_BYTES: u64 = 25 * 1024 * 1024;
+/// Hard cap on imported EPUB file size (100 MB).
+pub(crate) const MAX_EPUB_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 
-/// Derive a stable hex id from a document's title, import time, and the text of
-/// its first 16 sections, so re-importing identical content reuses the same id.
-pub(crate) fn upload_id(title: &str, sections: &[ParsedSection], imported_at_ms: u128) -> String {
+/// Derive a stable hex id from a document's format, title, import time, and the text
+/// of its first 16 sections.
+pub(crate) fn upload_id(
+    format: &str,
+    title: &str,
+    sections: &[ParsedSection],
+    imported_at_ms: u128,
+) -> String {
     let mut hasher = DefaultHasher::new();
+    format.hash(&mut hasher);
     title.hash(&mut hasher);
     imported_at_ms.hash(&mut hasher);
     for section in sections.iter().take(16) {

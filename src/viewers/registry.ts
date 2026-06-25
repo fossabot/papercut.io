@@ -17,6 +17,7 @@ const viewerPlugins: ViewerPlugin[] = [
   htmlPlugin,
 ]
 
-export function resolveViewer(url: string): ViewerPlugin {
+export function resolveViewer(url: string, format?: string): ViewerPlugin {
+  if (format === 'epub' && /\.html(?:[#?].*)?$/i.test(url)) return htmlPlugin
   return viewerPlugins.find((p) => p.canHandle(url)) ?? htmlPlugin
 }

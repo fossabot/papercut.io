@@ -33,6 +33,11 @@ export async function importHtmlDocument(): Promise<UploadedDocument> {
   return invoke<UploadedDocument>('document_uploads_import_html')
 }
 
+export async function importEpubDocument(): Promise<UploadedDocument> {
+  const invoke = await loadTauriInvoke()
+  return invoke<UploadedDocument>('document_uploads_import_epub')
+}
+
 export async function listUploadedDocuments(): Promise<UploadedDocument[]> {
   if (!isTauriRuntime()) return []
   const invoke = await loadTauriInvoke()

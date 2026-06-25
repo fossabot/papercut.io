@@ -1,0 +1,156 @@
+.reader-settings {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.reader-settings-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #4b5563;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.reader-settings-btn:hover:not(:disabled),
+.reader-settings-btn[aria-expanded="true"] {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+}
+
+.reader-settings-btn:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+  background: #f9fafb;
+}
+
+.reader-settings-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 0.65rem;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.85rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  color: #1f2937;
+  text-align: left;
+}
+
+.reader-setting-row {
+  display: grid;
+  grid-template-columns: 3.4rem 1.6rem minmax(0, 1fr) 1.6rem 3.5rem;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.reader-setting-row span {
+  color: #4b5563;
+}
+
+.reader-setting-select {
+  grid-column: 2 / 6;
+  min-width: 0;
+  width: 100%;
+  min-height: 2.2rem;
+  padding: 0 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 0.82rem;
+}
+
+.reader-setting-slider {
+  min-width: 0;
+  width: 100%;
+  accent-color: #6366f1;
+}
+
+.reader-setting-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #4b5563;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.reader-setting-step:hover:not(:disabled),
+.reader-setting-step:focus-visible {
+  border-color: #6366f1;
+  color: #6366f1;
+  outline: none;
+}
+
+.reader-setting-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.reader-setting-row output {
+  justify-self: end;
+  color: #6b7280;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-settings-reset {
+  justify-self: end;
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reader-settings-reset:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+}
+
+@media (max-width: 767px) {
+  .reader-settings-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    font-size: 0.95rem;
+  }
+
+  .reader-settings-popover {
+    position: fixed;
+    top: calc(var(--mobile-safe-top-space) + 7.25rem);
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    max-height: calc(100vh - 7rem);
+    overflow-y: auto;
+  }
+}
