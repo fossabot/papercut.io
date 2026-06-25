@@ -61,3 +61,88 @@ pub(crate) struct UploadedDocumentSearchRequest {
 pub(crate) struct UploadedDocumentDeleteRequest {
     pub(crate) document_url: String,
 }
+
+/// A user-created library folder for organizing uploaded documents.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryFolder {
+    pub(crate) id: String,
+    pub(crate) parent_id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) depth: usize,
+    pub(crate) sort_order: i64,
+    pub(crate) created_at_ms: u128,
+    pub(crate) updated_at_ms: u128,
+}
+
+/// Folder placement and manual order for one uploaded document.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedDocumentLocation {
+    pub(crate) document_id: String,
+    pub(crate) folder_id: Option<String>,
+    pub(crate) sort_order: i64,
+}
+
+/// Complete uploaded-library organization metadata.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryOrganization {
+    pub(crate) folders: Vec<UploadedLibraryFolder>,
+    pub(crate) document_locations: Vec<UploadedDocumentLocation>,
+}
+
+/// Request to create a folder under a parent, or at the root when absent.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryCreateFolderRequest {
+    pub(crate) parent_id: Option<String>,
+    pub(crate) name: String,
+}
+
+/// Request to rename a user-created library folder.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryRenameFolderRequest {
+    pub(crate) folder_id: String,
+    pub(crate) name: String,
+}
+
+/// Request to delete an empty user-created library folder.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryDeleteFolderRequest {
+    pub(crate) folder_id: String,
+}
+
+/// Request to move uploaded documents into a target folder, or root when absent.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryMoveDocumentsRequest {
+    pub(crate) document_ids: Vec<String>,
+    pub(crate) folder_id: Option<String>,
+}
+
+/// Request to move one folder under another folder, or root when absent.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryMoveFolderRequest {
+    pub(crate) folder_id: String,
+    pub(crate) parent_id: Option<String>,
+}
+
+/// One item in a manual library ordering request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryOrderItem {
+    pub(crate) item_type: String,
+    pub(crate) id: String,
+}
+
+/// Request to assign sibling order for folders/documents in one folder.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UploadedLibraryReorderRequest {
+    pub(crate) parent_id: Option<String>,
+    pub(crate) items: Vec<UploadedLibraryOrderItem>,
+}

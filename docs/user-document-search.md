@@ -27,20 +27,22 @@ Frontend:
 
 - `src/uploads/DocumentUploads.ts` is the small client API for user-upload commands and shared TypeScript types.
 - `src/App.tsx` wires upload/search state into reusable hooks and components, and provides source loading for uploaded URLs.
-- `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the document dropdown UI, including the option-driven Import menu, Saved audio filtering, uploaded-document delete, and active filter chips. The HTML branch can pass only the HTML option; TTS branches can add the Audiobook option separately.
+- `src/components/DocumentsPanel/DocumentsPanel.tsx` owns the document dropdown UI, including the option-driven Import menu, Saved audio filtering, uploaded-document delete, and active filter chips. Uploaded documents can be rendered through the folder-aware tree UI, while bundled documents and audiobook imports keep the existing grouped list.
+- `src/components/UploadedLibraryTree/UploadedLibraryTree.tsx` renders uploaded-document organization using React Aria Components tree primitives. `src/components/SearchScope/SearchScope.tsx` reuses the same tree for the Search tab's **Filter By Document** panel, while Library mode owns organize actions such as create/rename/delete-empty/move. Drag-and-drop can be layered on later without changing the storage contract.
 - `src/components/DocumentViewer/DocumentViewer.tsx` owns the reader shell, viewer plugin resolution, in-document Find, same-document link scrolling, scroll-to-top behavior, and the slots used by TTS controls/diagnostics.
 - `src/hooks/useDocumentFilters.ts` owns document filter text, selected filters, author grouping, collapsed groups, and the optional inclusion predicate used by the Saved audio filter.
 - `src/hooks/useSearch.ts` owns the combined Pagefind + SQLite query flow and maps uploaded matches into the shared `SearchResult` shape.
 
 Rust:
 
-- `src-tauri/src/document_uploads/` owns the runtime upload feature, split one concern per file (dependencies point downward, currently `commands → pipeline → { epub, html, parsed, store, search, storage } → types`):
+- `src-tauri/src/document_uploads/` owns the runtime upload feature, split one concern per file (dependencies point downward, currently `commands → { pipeline, organization, search, store } → { epub, html, parsed, storage, types }`):
   - `commands.rs` — the `#[tauri::command]` edge; each command just moves the blocking work onto the thread pool and delegates.
   - `pipeline.rs` — import / get-source / delete orchestration (no SQL or parsing of its own).
   - `html/` — HTML-specific parsing (`parser.rs`), sanitization (`sanitize.rs`), and small shared HTML helpers (`util.rs`).
   - `epub/` — EPUB ZIP/container/OPF/spine parsing, with path resolution (`paths.rs`), bounded image inlining (`assets.rs`), DOM-based link/resource rewriting (`rewrite.rs`), and generated reading HTML assembly (`render.rs`) split into focused helpers.
   - `parsed.rs` — format-neutral `ParsedDocument` / `ParsedSection` shape used by HTML, EPUB, storage, and future PDF work.
   - `store.rs` — SQLite schema, the index write path, listing, and deletes.
+  - `organization.rs` — uploaded-document folder and manual ordering metadata. It never rewrites document URLs or stored source files, so folder moves do not invalidate search rows, saved audiobook ids, or TTS highlight mapping.
   - `search.rs` — FTS5 query building and execution (read-only).
   - `storage.rs` — app-data paths, upload ids, size accounting, clock, and the URL-prefix/size-limit constants.
   - `types.rs` — serde DTOs shared across the boundary.
@@ -52,6 +54,7 @@ Storage:
 - Sanitized uploaded HTML is stored under Tauri app data at `document_uploads/{upload_id}/source.html`.
 - EPUB stores a sanitized generated reading HTML copy at the same stored-source path. Search and TTS depend on the generated safe reading copy and normalized sections, not on rendering the raw EPUB archive in React. Local PNG, JPEG, GIF, and WebP manifest images referenced by retained reader content are inlined as data URLs with a 5 MB per-image cap and 30 MB total-image cap; remote images and SVG are skipped. The original EPUB archive is not retained by the current MVP.
 - The runtime search index lives at `document_uploads/search.sqlite3`.
+- Uploaded-document folders and manual order live in SQLite metadata tables beside the search index. Existing uploaded documents are assigned root-level locations automatically. Moving a document between folders changes only organization metadata, not the uploaded document URL, source HTML, FTS rows, or audiobook cache identity.
 
 ## Frontend And Viewer Architecture
 

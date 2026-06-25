@@ -7,12 +7,19 @@
 
 use tauri::Runtime;
 
+use super::organization::{
+    create_folder, delete_folder, list_organization, move_documents, move_folder, rename_folder,
+    reorder,
+};
 use super::pipeline::{delete_upload, get_source, import_epub, import_html};
 use super::search::search_uploads;
 use super::store::list_uploads;
 use super::types::{
     UploadedDocument, UploadedDocumentDeleteRequest, UploadedDocumentDeleteResult,
     UploadedDocumentSearchRequest, UploadedDocumentSearchResult, UploadedDocumentSourceRequest,
+    UploadedLibraryCreateFolderRequest, UploadedLibraryDeleteFolderRequest,
+    UploadedLibraryMoveDocumentsRequest, UploadedLibraryMoveFolderRequest,
+    UploadedLibraryOrganization, UploadedLibraryRenameFolderRequest, UploadedLibraryReorderRequest,
 };
 
 /// Open the native picker, import the chosen HTML file, and return its metadata.
@@ -76,4 +83,80 @@ pub async fn document_uploads_delete<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || delete_upload(&app, request))
         .await
         .map_err(|err| format!("Document upload delete task failed: {err}"))?
+}
+
+/// Return uploaded-document folder and manual ordering metadata.
+#[tauri::command]
+pub async fn document_uploads_library_organization<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<UploadedLibraryOrganization, String> {
+    tauri::async_runtime::spawn_blocking(move || list_organization(&app))
+        .await
+        .map_err(|err| format!("Document library organization task failed: {err}"))?
+}
+
+/// Create a user folder for uploaded documents.
+#[tauri::command]
+pub async fn document_uploads_create_folder<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryCreateFolderRequest,
+) -> Result<super::types::UploadedLibraryFolder, String> {
+    tauri::async_runtime::spawn_blocking(move || create_folder(&app, request))
+        .await
+        .map_err(|err| format!("Document folder create task failed: {err}"))?
+}
+
+/// Rename a user folder without changing contained document URLs.
+#[tauri::command]
+pub async fn document_uploads_rename_folder<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryRenameFolderRequest,
+) -> Result<super::types::UploadedLibraryFolder, String> {
+    tauri::async_runtime::spawn_blocking(move || rename_folder(&app, request))
+        .await
+        .map_err(|err| format!("Document folder rename task failed: {err}"))?
+}
+
+/// Delete an empty user folder.
+#[tauri::command]
+pub async fn document_uploads_delete_folder<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryDeleteFolderRequest,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_folder(&app, request))
+        .await
+        .map_err(|err| format!("Document folder delete task failed: {err}"))?
+}
+
+/// Move uploaded documents between folders by metadata only.
+#[tauri::command]
+pub async fn document_uploads_move_documents<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryMoveDocumentsRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    tauri::async_runtime::spawn_blocking(move || move_documents(&app, request))
+        .await
+        .map_err(|err| format!("Document move task failed: {err}"))?
+}
+
+/// Move a folder while preserving document URLs and preventing cycles.
+#[tauri::command]
+pub async fn document_uploads_move_folder<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryMoveFolderRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    tauri::async_runtime::spawn_blocking(move || move_folder(&app, request))
+        .await
+        .map_err(|err| format!("Document folder move task failed: {err}"))?
+}
+
+/// Persist manual sibling order for one uploaded-library folder/root.
+#[tauri::command]
+pub async fn document_uploads_reorder_library<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: UploadedLibraryReorderRequest,
+) -> Result<UploadedLibraryOrganization, String> {
+    tauri::async_runtime::spawn_blocking(move || reorder(&app, request))
+        .await
+        .map_err(|err| format!("Document library reorder task failed: {err}"))?
 }

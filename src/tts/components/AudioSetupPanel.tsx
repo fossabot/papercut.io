@@ -110,7 +110,7 @@ export function AudioSetupPanel({
           </select>
         </label>
 
-        <label className="audio-field">
+        <label className="audio-field audio-field-speed">
           <span>Speed</span>
           <div className="audio-speed-row">
             <button

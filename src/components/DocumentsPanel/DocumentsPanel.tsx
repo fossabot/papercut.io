@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import type { DocumentInfo } from '../../types/search'
 import type { AuthorGroup } from '../../hooks/useDocumentFilters'
+import type { UploadedLibraryOrganization } from '../../uploads/DocumentUploads'
 import { Panel } from '../Panel/Panel'
 import { DocumentList } from '../DocumentList/DocumentList'
+import { UploadedLibraryTree } from '../UploadedLibraryTree/UploadedLibraryTree'
 
 interface DocumentsPanelStatus {
   status: string
@@ -29,12 +31,17 @@ interface DocumentsPanelProps {
   groupedDocs: AuthorGroup[]
   importOptions?: DocumentImportOption[]
   importStatuses?: DocumentsPanelStatus[]
+  libraryOrganization?: UploadedLibraryOrganization
   documentOpening?: boolean
   openingDocumentUrl?: string
   showDocuments: boolean
   onAudioSavedOnlyChange?: (enabled: boolean) => void
+  onCreateLibraryFolder?: (parentId: string | null, name: string) => void | Promise<void>
   onDeleteDocument?: (doc: DocumentInfo) => void | Promise<void>
+  onDeleteLibraryFolder?: (folderId: string) => void | Promise<void>
   onFilterChange: (value: string) => void
+  onMoveLibraryDocuments?: (documentIds: string[], folderId: string | null) => void | Promise<void>
+  onRenameLibraryFolder?: (folderId: string, name: string) => void | Promise<void>
   onToggleAuthor: (author: string) => void
   onToggleShow: () => void
   onViewDocument: (url: string) => void
@@ -50,12 +57,17 @@ export function DocumentsPanel({
   groupedDocs,
   importOptions = [],
   importStatuses = [],
+  libraryOrganization,
   documentOpening = false,
   openingDocumentUrl,
   showDocuments,
   onAudioSavedOnlyChange,
+  onCreateLibraryFolder,
   onDeleteDocument,
+  onDeleteLibraryFolder,
   onFilterChange,
+  onMoveLibraryDocuments,
+  onRenameLibraryFolder,
   onToggleAuthor,
   onToggleShow,
   onViewDocument,
@@ -64,6 +76,17 @@ export function DocumentsPanel({
   const activeImport = importOptions.find((option) => option.statusLabel)
   const hasImportOptions = importOptions.length > 0
   const deleteDisabled = importStatuses.some((item) => item.status === 'deleting')
+  const uploadDocs = groupedDocs.flatMap((group) => group.docs.filter((doc) => doc.source === 'upload'))
+  const nonUploadGroups = groupedDocs
+    .map((group) => ({ ...group, docs: group.docs.filter((doc) => doc.source !== 'upload') }))
+    .filter((group) => group.docs.length > 0)
+  const canShowUploadedTree = Boolean(
+    libraryOrganization &&
+    onCreateLibraryFolder &&
+    onDeleteLibraryFolder &&
+    onMoveLibraryDocuments &&
+    onRenameLibraryFolder,
+  )
 
   if (documentsLoading) {
     return (
@@ -145,18 +168,35 @@ export function DocumentsPanel({
         </div>
       ) : null)}
 
-      <DocumentList
-        groupedDocs={groupedDocs}
-        collapsedAuthors={collapsedAuthors}
-        docFilterLower={docFilterLower}
-        emptyMessage={getEmptyMessage(allDocuments.length, audioSavedOnly, documentFilter)}
-        onToggleAuthor={onToggleAuthor}
-        onViewDocument={onViewDocument}
-        onDeleteDocument={onDeleteDocument}
-        deleteDisabled={deleteDisabled || documentOpening}
-        openingDocumentUrl={openingDocumentUrl}
-        viewDisabled={documentOpening}
-      />
+      {canShowUploadedTree && libraryOrganization && (
+        <UploadedLibraryTree
+          documents={uploadDocs}
+          organization={libraryOrganization}
+          documentOpening={documentOpening}
+          openingDocumentUrl={openingDocumentUrl}
+          onCreateFolder={onCreateLibraryFolder!}
+          onDeleteDocument={onDeleteDocument}
+          onDeleteFolder={onDeleteLibraryFolder!}
+          onMoveDocuments={onMoveLibraryDocuments!}
+          onRenameFolder={onRenameLibraryFolder!}
+          onViewDocument={onViewDocument}
+        />
+      )}
+
+      {(!canShowUploadedTree || nonUploadGroups.length > 0 || uploadDocs.length === 0) && (
+        <DocumentList
+          groupedDocs={canShowUploadedTree ? nonUploadGroups : groupedDocs}
+          collapsedAuthors={collapsedAuthors}
+          docFilterLower={docFilterLower}
+          emptyMessage={getEmptyMessage(allDocuments.length, audioSavedOnly, documentFilter)}
+          onToggleAuthor={onToggleAuthor}
+          onViewDocument={onViewDocument}
+          onDeleteDocument={onDeleteDocument}
+          deleteDisabled={deleteDisabled || documentOpening}
+          openingDocumentUrl={openingDocumentUrl}
+          viewDisabled={documentOpening}
+        />
+      )}
     </Panel>
   )
 }
