@@ -202,40 +202,44 @@ pub(crate) fn move_folder<R: Runtime>(
     request: UploadedLibraryMoveFolderRequest,
 ) -> Result<UploadedLibraryOrganization, String> {
     let mut db = open_db(app)?;
-    let folder = load_folder(&db, &request.folder_id)?;
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(db_err)?;
+    let folder = load_folder(&tx, &request.folder_id)?;
     if request.parent_id.as_deref() == Some(folder.id.as_str()) {
         return Err("A folder cannot be moved inside itself".into());
     }
 
-    let new_depth = match request.parent_id.as_deref() {
+    let new_parent_id = request.parent_id.as_deref();
+    let new_depth = match new_parent_id {
         Some(parent_id) => {
-            if is_descendant(&db, parent_id, &folder.id)? {
+            if is_descendant(&tx, parent_id, &folder.id)? {
                 return Err("A folder cannot be moved inside one of its child folders".into());
             }
-            load_folder(&db, parent_id)?.depth + 1
+            load_folder(&tx, parent_id)?.depth + 1
         }
         None => 0,
     };
-    let max_subtree_depth = max_subtree_depth(&db, &folder.id)?;
+    let max_subtree_depth = max_subtree_depth(&tx, &folder.id)?;
     let deepest_after_move = new_depth + max_subtree_depth.saturating_sub(folder.depth);
     if deepest_after_move > MAX_FOLDER_DEPTH {
         return Err("Uploaded document folders can be nested up to 5 levels deep".into());
     }
+    ensure_unique_folder_name(&tx, new_parent_id, &folder.name, Some(&folder.id))?;
 
     let now = now_ms()?;
-    let sort_order = next_sort_order(&db, request.parent_id.as_deref())?;
+    let sort_order = next_sort_order(&tx, new_parent_id)?;
     let depth_delta = new_depth as i64 - folder.depth as i64;
-    let tx = db.transaction().map_err(db_err)?;
     tx.execute(
         "UPDATE uploaded_folders \
          SET parent_id = ?1, depth = ?2, sort_order = ?3, updated_at_ms = ?4 \
          WHERE id = ?5",
         params![
-            request.parent_id,
+            new_parent_id,
             new_depth as i64,
             sort_order,
             now as i64,
-            folder.id,
+            folder.id.as_str(),
         ],
     )
     .map_err(db_err)?;
@@ -249,7 +253,7 @@ pub(crate) fn move_folder<R: Runtime>(
          UPDATE uploaded_folders
          SET depth = depth + ?2, updated_at_ms = ?3
          WHERE id IN (SELECT id FROM descendants)",
-        params![folder.id, depth_delta, now as i64],
+        params![folder.id.as_str(), depth_delta, now as i64],
     )
     .map_err(db_err)?;
     tx.commit().map_err(db_err)?;
