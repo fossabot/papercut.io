@@ -18,6 +18,8 @@ interface DocumentListProps {
   onViewDocument?: (url: string) => void
   onDeleteDocument?: (doc: DocumentInfo) => void | Promise<void>
   deleteDisabled?: boolean
+  openingDocumentUrl?: string
+  viewDisabled?: boolean
 }
 
 /**
@@ -37,6 +39,8 @@ export function DocumentList({
   onViewDocument,
   onDeleteDocument,
   deleteDisabled = false,
+  openingDocumentUrl,
+  viewDisabled = false,
 }: DocumentListProps) {
   if (groupedDocs.length === 0) {
     return (
@@ -81,6 +85,8 @@ export function DocumentList({
                 onViewDocument={onViewDocument}
                 onDeleteDocument={onDeleteDocument}
                 deleteDisabled={deleteDisabled}
+                openingDocumentUrl={openingDocumentUrl}
+                viewDisabled={viewDisabled}
               />
             ))}
           </div>
@@ -98,6 +104,8 @@ interface DocumentRowProps {
   onViewDocument?: (url: string) => void
   onDeleteDocument?: (doc: DocumentInfo) => void | Promise<void>
   deleteDisabled: boolean
+  openingDocumentUrl?: string
+  viewDisabled: boolean
 }
 
 function DocumentRow({
@@ -108,6 +116,8 @@ function DocumentRow({
   onViewDocument,
   onDeleteDocument,
   deleteDisabled,
+  openingDocumentUrl,
+  viewDisabled,
 }: DocumentRowProps) {
   const sourceIcon = doc.source === 'audiobook-upload' && (
     <span
@@ -119,12 +129,15 @@ function DocumentRow({
     </span>
   )
 
+  const opening = openingDocumentUrl === doc.url
+  const disabled = viewDisabled || opening
   const view = onViewDocument && (
     <button
       className="document-view-btn"
-      onClick={(e) => { e.preventDefault(); onViewDocument(doc.url) }}
+      disabled={disabled}
+      onClick={(e) => { e.preventDefault(); if (!disabled) onViewDocument(doc.url) }}
     >
-      View
+      {opening ? 'Opening...' : 'View'}
     </button>
   )
   const remove = doc.source === 'upload' && onDeleteDocument && (

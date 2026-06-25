@@ -2,7 +2,8 @@ import {
   useState,
   useEffect,
   useCallback,
-  useMemo
+  useMemo,
+  useRef
 } from 'react'
 import './App.css'
 import papercutIcon from './assets/papercut-icon.png'
@@ -27,15 +28,24 @@ import { useAudiobookManager } from './tts/hooks/useAudiobookManager'
 import {
   deleteUploadedDocument,
   getUploadedDocumentSource,
+  importEpubDocument,
   importHtmlDocument,
   isUploadedDocumentUrl,
   listUploadedDocuments,
   type UploadedDocument,
 } from './uploads/DocumentUploads'
 
+type DocumentLoadState =
+  | { status: 'idle' }
+  | { status: 'loading'; url: string; message: string }
+  | { status: 'error'; url: string; message: string }
+
 function App() {
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [docContent, setDocContent] = useState('')
+  const [documentLoad, setDocumentLoad] = useState<DocumentLoadState>({ status: 'idle' })
+  const openDocumentRequestRef = useRef(0)
+  const documentOpeningRef = useRef(false)
   const [activeTab, setActiveTab] = useState<AppTab>('search')
   const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
@@ -74,8 +84,11 @@ function App() {
   }, [])
 
   const clearSelectedDocument = useCallback(() => {
+    openDocumentRequestRef.current += 1
+    documentOpeningRef.current = false
     setSelectedDoc(null)
     setDocContent('')
+    setDocumentLoad({ status: 'idle' })
   }, [])
 
   const handleUserUploadsChanged = useCallback(() => {
@@ -110,9 +123,9 @@ function App() {
   } = audiobook
 
   const libraryDocuments = useMemo<DocumentInfo[]>(() => [
-    ...allDocuments.map((doc) => ({ ...doc, source: 'bundled' as const })),
-    ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, source: 'upload' as const })),
-    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, source: 'audiobook-upload' as const })),
+    ...allDocuments.map((doc) => ({ ...doc, format: 'html', source: 'bundled' as const })),
+    ...uploadedDocuments.map((upload) => ({ title: upload.title, url: upload.url, format: upload.format, source: 'upload' as const })),
+    ...userUploads.map((upload) => ({ title: upload.title, url: upload.url, format: 'html', source: 'audiobook-upload' as const })),
   ], [allDocuments, uploadedDocuments, userUploads]) 
 
   const searchFilters = useDocumentFilters(libraryDocuments, { includeDocument: includeDocumentInList })
@@ -144,15 +157,31 @@ function App() {
   } = libraryFilters 
 
   const audioFilteredResults = filterResults(results)
+  const documentOpening = documentLoad.status === 'loading'
 
   const handleViewDocument = useCallback(async (url: string) => {
+    if (documentOpeningRef.current) return
+    documentOpeningRef.current = true
+    const requestId = openDocumentRequestRef.current + 1
+    openDocumentRequestRef.current = requestId
+    prepareDocumentOpen()
+    setSelectedDoc(url)
+    setDocContent('')
+    setDocumentLoad({ status: 'loading', url, message: 'Opening Document...' })
+    window.scrollTo({ top: 0 })
+
     try {
       const html = await loadHtmlDocument(url)
-      prepareDocumentOpen()
+      if (openDocumentRequestRef.current !== requestId) return
+      documentOpeningRef.current = false
       setDocContent(html)
-      setSelectedDoc(url)
-      window.scrollTo({ top: 0 })
+      setDocumentLoad({ status: 'idle' })
     } catch (err) {
+      if (openDocumentRequestRef.current !== requestId) return
+      const message = err instanceof Error ? err.message : String(err)
+      documentOpeningRef.current = false
+      setDocContent('')
+      setDocumentLoad({ status: 'error', url, message })
       console.error('Failed to load document:', err)
     }
   }, [loadHtmlDocument, prepareDocumentOpen]) // 
@@ -166,15 +195,20 @@ function App() {
     setActiveTab(tab)
   }, [])
 
-  const selectedTitle = useMemo(
-    () => (selectedDoc ? libraryDocuments.find((doc) => doc.url === selectedDoc)?.title : undefined),
+  const selectedDocument = useMemo(
+    () => (selectedDoc ? libraryDocuments.find((doc) => doc.url === selectedDoc) : undefined),
     [selectedDoc, libraryDocuments],
   )
+  const selectedTitle = selectedDocument?.title
+  const selectedFormat = selectedDocument?.format
 
-  const handleImportHtmlDocument = useCallback(async () => {
-    setDocumentImport({ status: 'importing', message: 'Importing HTML document' })
+  const runDocumentImport = useCallback(async (
+    importingMessage: string,
+    importer: () => Promise<UploadedDocument>,
+  ) => {
+    setDocumentImport({ status: 'importing', message: importingMessage })
     try {
-      const result = await importHtmlDocument()
+      const result = await importer()
       setUploadedDocuments(await listUploadedDocuments())
       setShowDocuments(true)
       setDocumentImport({ status: 'imported', message: 'Imported ' + result.title })
@@ -188,6 +222,16 @@ function App() {
       })
     }
   }, [handleViewDocument, setShowDocuments])
+
+  const handleImportHtmlDocument = useCallback(
+    () => runDocumentImport('⏳ Importing HTML Document...', importHtmlDocument),
+    [runDocumentImport],
+  )
+
+  const handleImportEpubDocument = useCallback(
+    () => runDocumentImport('⏳ Importing EPUB Book...', importEpubDocument),
+    [runDocumentImport],
+  )
 
   const handleImportAudiobook = useCallback(async () => {
     await importAudiobookBundle(handleViewDocument)
@@ -227,11 +271,14 @@ function App() {
       <DocumentViewer
         url={selectedDoc}
         title={selectedTitle}
+        format={selectedFormat}
         content={docContent}
         className={hasFloatingAudioControls ? 'app-audio-floating' : ''}
         headerControls={<AudioControls {...audioControlsProps} />}
         beforeDocument={<TtsDiagnosticsPanel />}
         ttsHighlight={ttsHighlight}
+        loading={documentLoad.status === 'loading' && documentLoad.url === selectedDoc}
+        loadError={documentLoad.status === 'error' && documentLoad.url === selectedDoc ? documentLoad.message : undefined}
         onClose={handleCloseDocument}
       />
     )
@@ -281,6 +328,8 @@ function App() {
             submittedQuery={submittedQuery}
             lastSearchInfo={lastSearchInfo}
             selectedFilters={selectedFilters}
+            openingDisabled={documentOpening}
+            openingDocumentUrl={documentLoad.status === 'loading' ? documentLoad.url : undefined}
             onViewResult={(result) => handleViewDocument(result.url)}
           />
         </section>
@@ -301,14 +350,23 @@ function App() {
                 id: 'html',
                 label: 'HTML',
                 detail: 'Import a local .html or .htm document',
-                statusLabel: documentImport.status === 'importing' ? 'Importing HTML' : undefined,
+                statusLabel: documentImport.status === 'importing' && documentImport.message.includes('HTML') ? 'Importing HTML' : undefined,
                 disabled: documentImport.status === 'importing',
                 onSelect: handleImportHtmlDocument,
               },
-              // { id: 'epub', label: 'EPUB', detail: 'Import EPUB books when parser support lands', future: true },
+              {
+                id: 'epub',
+                label: 'EPUB',
+                detail: 'Import a local .epub book',
+                statusLabel: documentImport.status === 'importing' && documentImport.message.includes('EPUB') ? 'Importing EPUB' : undefined,
+                disabled: documentImport.status === 'importing',
+                onSelect: handleImportEpubDocument,
+              },
               // { id: 'pdf', label: 'PDF', detail: 'Import PDFs when text extraction support lands', future: true },
             ]}
             importStatuses={[documentImport]}
+            documentOpening={documentOpening}
+            openingDocumentUrl={documentLoad.status === 'loading' ? documentLoad.url : undefined}
             collapsedAuthors={libraryCollapsedAuthors}
             onToggleShow={() => setShowDocuments((v) => !v)}
             onFilterChange={setLibraryDocumentFilter}
@@ -326,6 +384,7 @@ function App() {
             {...audiobooksPanelProps}
             audioSetup={audioSetupProps}
             importState={audiobookImport}
+            documentOpening={documentOpening}
             onImportAudiobook={handleImportAudiobook}
             onOpenSaved={(record) => {
               void openSavedAudiobook(record, handleViewDocument)

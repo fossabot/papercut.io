@@ -1,18 +1,27 @@
 //! HTML structure extraction: title + ordered readable sections.
 //!
-//! Deliberately a lightweight, dependency-free scanner (not a full DOM parser).
-//! It sanitizes first, then walks block-level tags to build sections, attaching
-//! each block to the most recent heading.
+//! Deliberately a lightweight scanner (not a full DOM parser). It sanitizes
+//! first, then walks block-level tags to build sections, attaching each block to
+//! the most recent heading.
 
-use super::sanitize::{decode_entities, normalize_text, sanitize_html, strip_tags};
-use super::{ParsedHtmlDocument, ParsedSection};
+use super::{decode_entities, extract_body_inner, normalize_text, sanitize_html, strip_tags};
+use crate::document_uploads::parsed::{ParsedDocument, ParsedSection};
 
 /// Parse raw HTML into a sanitized document: title, sanitized source, and the
 /// ordered sections fed to the FTS index. Each block inherits the current heading.
-pub(crate) fn parse_html_document(html: &str) -> ParsedHtmlDocument {
+pub(crate) fn parse_html_document(html: &str) -> ParsedDocument {
     let sanitized = sanitize_html(html);
     let title = extract_title(&sanitized).unwrap_or_else(|| "Imported HTML Document".into());
-    let blocks = extract_text_blocks(&sanitized);
+    parsed_html_document(title, "html", sanitized)
+}
+
+/// Convert already-sanitized HTML into the shared parsed document shape.
+pub(crate) fn parsed_html_document(
+    title: String,
+    format: impl Into<String>,
+    sanitized_html: String,
+) -> ParsedDocument {
+    let blocks = extract_text_blocks(&sanitized_html);
     let mut sections = Vec::new();
     let mut current_heading: Option<String> = None;
 
@@ -31,9 +40,10 @@ pub(crate) fn parse_html_document(html: &str) -> ParsedHtmlDocument {
         }
     }
 
-    ParsedHtmlDocument {
+    ParsedDocument {
         title,
-        sanitized_html: sanitized,
+        format: format.into(),
+        view_html: sanitized_html,
         sections,
     }
 }
@@ -44,13 +54,13 @@ struct TextBlock {
     text: String,
 }
 
-/// Scan the body for block-level tags (h1-h6, p, li, blockquote) and return their
-/// normalized text in document order; falls back to the whole body if none match.
+/// Scan the body for block-level tags and return normalized text in document
+/// order; falls back to the whole body if none match.
 fn extract_text_blocks(html: &str) -> Vec<TextBlock> {
-    let body = extract_body(html).unwrap_or(html);
+    let body = extract_body_inner(html).unwrap_or(html);
     let mut blocks = Vec::new();
     let mut pos = 0usize;
-    let lower = body.to_lowercase();
+    let lower = body.to_ascii_lowercase();
 
     while let Some(start_rel) = lower[pos..].find('<') {
         let start = pos + start_rel;
@@ -107,20 +117,28 @@ fn extract_title(html: &str) -> Option<String> {
         .filter(|title| !title.is_empty())
 }
 
-/// Return the inner HTML of `<body>...</body>` (case-insensitive), if present.
-fn extract_body(html: &str) -> Option<&str> {
-    let lower = html.to_lowercase();
-    let body_start = lower.find("<body")?;
-    let open_end = lower[body_start..].find('>')? + body_start + 1;
-    let body_end = lower[open_end..].find("</body>")? + open_end;
-    Some(&html[open_end..body_end])
-}
-
 /// Return the slice between the first case-insensitive `open` and `close` markers,
 /// indexing back into the original (case-preserving) string.
 fn extract_between_case_insensitive<'a>(html: &'a str, open: &str, close: &str) -> Option<&'a str> {
-    let lower = html.to_lowercase();
+    let lower = html.to_ascii_lowercase();
     let start = lower.find(open)?;
     let end = lower[start..].find(close)? + start;
     Some(&html[start..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_title_and_body_when_unicode_precedes_tags() {
+        let html = "<html><head>İ<TITLE>Expected Title</TITLE></head><body>İ<P>Readable text</P></body></html>";
+        let parsed = parse_html_document(html);
+
+        assert_eq!(parsed.title, "Expected Title");
+        assert!(parsed
+            .sections
+            .iter()
+            .any(|section| section.text == "Readable text"));
+    }
 }

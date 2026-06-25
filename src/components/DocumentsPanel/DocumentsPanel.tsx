@@ -29,6 +29,8 @@ interface DocumentsPanelProps {
   groupedDocs: AuthorGroup[]
   importOptions?: DocumentImportOption[]
   importStatuses?: DocumentsPanelStatus[]
+  documentOpening?: boolean
+  openingDocumentUrl?: string
   showDocuments: boolean
   onAudioSavedOnlyChange?: (enabled: boolean) => void
   onDeleteDocument?: (doc: DocumentInfo) => void | Promise<void>
@@ -48,6 +50,8 @@ export function DocumentsPanel({
   groupedDocs,
   importOptions = [],
   importStatuses = [],
+  documentOpening = false,
+  openingDocumentUrl,
   showDocuments,
   onAudioSavedOnlyChange,
   onDeleteDocument,
@@ -149,7 +153,9 @@ export function DocumentsPanel({
         onToggleAuthor={onToggleAuthor}
         onViewDocument={onViewDocument}
         onDeleteDocument={onDeleteDocument}
-        deleteDisabled={deleteDisabled}
+        deleteDisabled={deleteDisabled || documentOpening}
+        openingDocumentUrl={openingDocumentUrl}
+        viewDisabled={documentOpening}
       />
     </Panel>
   )

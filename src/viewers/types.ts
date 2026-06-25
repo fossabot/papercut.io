@@ -2,9 +2,9 @@ import type React from 'react'
 
 export interface ViewerProps {
   url: string
+  format?: string
   content?: string
-  iframeRef?: React.RefObject<HTMLIFrameElement | null>
-  onLoad?: () => void
+  contentRef?: React.RefObject<HTMLElement | null>
 }
 
 export interface ViewerPlugin {

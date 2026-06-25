@@ -1,9 +1,8 @@
 //! Import / get-source / delete orchestration.
 //!
 //! These functions sequence the parser, storage, and SQLite store together but
-//! contain no parsing, SQL, or path logic themselves — that lives in [`super::html`],
-//! [`super::store`], and [`super::storage`]. They run on the blocking thread pool
-//! (see [`super::commands`]).
+//! contain no parsing, SQL, or path logic themselves. They run on the blocking
+//! thread pool (see [`super::commands`]).
 
 use std::fs;
 use std::io::Read;
@@ -12,12 +11,15 @@ use tauri::Runtime;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
+use super::epub::parse_epub_document;
 use super::html::parse_html_document;
+use super::parsed::ParsedDocument;
+use super::storage::directory_size;
 use super::storage::{
-    now_ms, upload_dir, upload_id, upload_id_from_url, MAX_UPLOAD_BYTES, UPLOAD_URL_PREFIX,
+    now_ms, upload_dir, upload_id, upload_id_from_url, MAX_EPUB_UPLOAD_BYTES, MAX_UPLOAD_BYTES,
+    UPLOAD_URL_PREFIX,
 };
 use super::store::{delete_document_rows, open_db, upsert_document};
-use super::storage::directory_size;
 use super::types::{
     UploadedDocument, UploadedDocumentDeleteRequest, UploadedDocumentDeleteResult,
     UploadedDocumentSourceRequest,
@@ -28,28 +30,16 @@ use super::types::{
 pub(crate) fn import_html<R: Runtime>(
     app: tauri::AppHandle<R>,
 ) -> Result<UploadedDocument, String> {
-    let source = app
-        .dialog()
-        .file()
-        .set_title("Import HTML Document")
-        .add_filter("HTML Document", &["html", "htm"])
-        .blocking_pick_file()
-        .ok_or_else(|| "Document import cancelled".to_string())?;
-
-    let mut options = tauri_plugin_fs::OpenOptions::new();
-    options.read(true);
-    let mut file = app
-        .fs()
-        .open(source, options)
-        .map_err(|err| format!("Failed to open selected HTML document: {err}"))?;
-    let mut bytes = Vec::new();
-    file.by_ref()
-        .take(MAX_UPLOAD_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|err| format!("Failed to read selected HTML document: {err}"))?;
-    if bytes.len() as u64 > MAX_UPLOAD_BYTES {
-        return Err("HTML document is larger than the 25 MB import limit".into());
-    }
+    let bytes = pick_and_read_file(
+        &app,
+        "Import HTML Document",
+        "HTML Document",
+        &["html", "htm"],
+        MAX_UPLOAD_BYTES,
+        "HTML document is larger than the 25 MB import limit",
+        "Failed to open selected HTML document",
+        "Failed to read selected HTML document",
+    )?;
     let html = String::from_utf8(bytes)
         .map_err(|_| "HTML document must be valid UTF-8 for this first import path".to_string())?;
 
@@ -58,33 +48,99 @@ pub(crate) fn import_html<R: Runtime>(
         return Err("HTML document did not contain readable text".into());
     }
 
+    persist_document(&app, parsed, html.len() as u64)
+}
+
+/// Pick, parse, store, and index a local EPUB file.
+pub(crate) fn import_epub<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<UploadedDocument, String> {
+    let bytes = pick_and_read_file(
+        &app,
+        "Import EPUB Book",
+        "EPUB Book",
+        &["epub"],
+        MAX_EPUB_UPLOAD_BYTES,
+        "EPUB file is larger than the 100 MB import limit",
+        "Failed to open selected EPUB file",
+        "Failed to read selected EPUB file",
+    )?;
+    let parsed = parse_epub_document(&bytes, "Imported EPUB Book")?;
+    if parsed.sections.is_empty() {
+        return Err("EPUB did not contain readable text".into());
+    }
+
+    persist_document(&app, parsed, bytes.len() as u64)
+}
+
+fn pick_and_read_file<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    title: &str,
+    filter_name: &str,
+    extensions: &[&str],
+    max_bytes: u64,
+    too_large_message: &str,
+    open_error_prefix: &str,
+    read_error_prefix: &str,
+) -> Result<Vec<u8>, String> {
+    let source = app
+        .dialog()
+        .file()
+        .set_title(title)
+        .add_filter(filter_name, extensions)
+        .blocking_pick_file()
+        .ok_or_else(|| "Document import cancelled".to_string())?;
+
+    let mut options = tauri_plugin_fs::OpenOptions::new();
+    options.read(true);
+    let mut file = app
+        .fs()
+        .open(source, options)
+        .map_err(|err| format!("{open_error_prefix}: {err}"))?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("{read_error_prefix}: {err}"))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(too_large_message.into());
+    }
+    Ok(bytes)
+}
+
+fn persist_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    parsed: ParsedDocument,
+    bytes: u64,
+) -> Result<UploadedDocument, String> {
     let imported_at_ms = now_ms()?;
-    let id = upload_id(&parsed.title, &parsed.sections, imported_at_ms);
+    let id = upload_id(
+        &parsed.format,
+        &parsed.title,
+        &parsed.sections,
+        imported_at_ms,
+    );
     let url = format!("{UPLOAD_URL_PREFIX}{id}.html");
-    let dir = upload_dir(&app, &id)?;
+    let dir = upload_dir(app, &id)?;
     fs::create_dir_all(&dir)
         .map_err(|err| format!("Failed to create upload directory {}: {err}", dir.display()))?;
-    fs::write(dir.join("source.html"), parsed.sanitized_html.as_bytes())
-        .map_err(|err| format!("Failed to write imported HTML document: {err}"))?;
+    fs::write(dir.join("source.html"), parsed.view_html.as_bytes())
+        .map_err(|err| format!("Failed to write imported document source: {err}"))?;
 
-    let mut db = open_db(&app)?;
-    upsert_document(
-        &mut db,
-        &id,
-        &url,
-        &parsed,
-        imported_at_ms,
-        html.len() as u64,
-    )?;
+    let sections = parsed.sections.len();
+    let title = parsed.title.clone();
+    let format = parsed.format.clone();
+    let mut db = open_db(app)?;
+    upsert_document(&mut db, &id, &url, &parsed, imported_at_ms, bytes)?;
 
     Ok(UploadedDocument {
         id,
         url,
-        title: parsed.title,
-        format: "html".into(),
+        title,
+        format,
         imported_at_ms,
-        bytes: html.len() as u64,
-        sections: parsed.sections.len(),
+        bytes,
+        sections,
     })
 }
 
