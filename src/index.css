@@ -1,12 +1,69 @@
 :root {
-  color-scheme: light;
-  background: #f9fafb;
-  color: #1a1a2e;
+  --color-scheme: light;
+  --app-bg: #f9fafb;
+  --app-bg-alt: #f1f2f6;
+  --surface: #fff;
+  --surface-strong: #ffffff;
+  --surface-subtle: #fafafa;
+  --surface-muted: #f9fafb;
+  --surface-hover: #f3f4f6;
+  --surface-accent: #eef2ff;
+  --surface-success: #f0fdf4;
+  --surface-danger: #fef2f2;
+  --surface-warning: #fffbeb;
+  --surface-raised: rgba(255, 255, 255, 0.96);
+  --surface-panel-subtle: #fbfbfd;
+  --surface-success-strong: #ecfdf5;
+  --surface-accent-strong: #e0e7ff;
+  --text: #1a1a2e;
+  --text-strong: #111827;
+  --text-heading: #1f2937;
+  --text-body: #374151;
+  --text-muted: #6b7280;
+  --text-soft: #9ca3af;
+  --text-inverse: #fff;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-ink: #1e1b4b;
+  --accent-border: #c7d2fe;
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+  --danger: #b91c1c;
+  --danger-strong: #991b1b;
+  --danger-accent: #dc2626;
+  --danger-bright: #e11d48;
+  --danger-border: #fecaca;
+  --success: #166534;
+  --success-ink: #065f46;
+  --success-border: #bbf7d0;
+  --warning: #b45309;
+  --warning-strong: #92400e;
+  --warning-border: #fef3c7;
+  --warning-accent: #d97706;
+  --highlight-find: #fef08a;
+  --highlight-current: #f97316;
+  --backdrop: rgba(15, 23, 42, 0.35);
+  --shadow-soft: rgba(0, 0, 0, 0.1);
+  --shadow-subtle: rgba(0, 0, 0, 0.06);
+  --shadow-accent-soft: rgba(99, 102, 241, 0.1);
+  --shadow-accent-strong: rgba(99, 102, 241, 0.3);
+  --shadow-focus: rgba(99, 102, 241, 0.14);
+  --shadow-focus-strong: rgba(99, 102, 241, 0.16);
+  --shadow-popover: rgba(15, 23, 42, 0.16);
+  --shadow-dialog: rgba(15, 23, 42, 0.22);
+  --shadow-panel: rgba(31, 41, 55, 0.18);
+
+  color-scheme: var(--color-scheme);
+  background: var(--app-bg);
+  color: var(--text);
 }
 
 html {
-  background: #f9fafb;
-  color: #1a1a2e;
+  background: var(--app-bg);
+  color: var(--text);
 }
 
 button,
@@ -19,14 +76,14 @@ textarea {
 input,
 select,
 textarea {
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--text-heading);
 }
 
 body {
   margin: 0;
-  background: #f9fafb;
-  color: #1a1a2e;
+  background: var(--app-bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
