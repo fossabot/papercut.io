@@ -183,7 +183,7 @@ export function DocumentsPanel({
         />
       )}
 
-      {(nonUploadGroups.length > 0 || uploadDocs.length === 0) && (
+      {(!canShowUploadedTree || nonUploadGroups.length > 0 || uploadDocs.length === 0) && (
         <DocumentList
           groupedDocs={canShowUploadedTree ? nonUploadGroups : groupedDocs}
           collapsedAuthors={collapsedAuthors}
