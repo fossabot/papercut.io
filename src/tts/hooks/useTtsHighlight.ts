@@ -384,7 +384,7 @@ function ensureTtsHighlightStyles(doc: Document): void {
   style.id = 'tts-current-styles'
   style.textContent = `
     ::highlight(${TTS_HIGHLIGHT_NAME}) {
-      background-color: #c7f9cc;
+      background-color: var(--highlight-tts, #c7f9cc);
       color: inherit;
     }
   `

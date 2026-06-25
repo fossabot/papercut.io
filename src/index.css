@@ -45,6 +45,8 @@
   --warning-accent: #d97706;
   --highlight-find: #fef08a;
   --highlight-current: #f97316;
+  --highlight-current-text: #fff;
+  --highlight-tts: #c7f9cc;
   --backdrop: rgba(15, 23, 42, 0.35);
   --shadow-soft: rgba(0, 0, 0, 0.1);
   --shadow-subtle: rgba(0, 0, 0, 0.06);
@@ -108,6 +110,8 @@ html[data-theme="dark"] {
   --warning-accent: #f59e0b;
   --highlight-find: #7c6515;
   --highlight-current: #f59e0b;
+  --highlight-current-text: #111318;
+  --highlight-tts: #1e5b3a;
   --backdrop: rgba(3, 7, 18, 0.62);
   --shadow-soft: rgba(0, 0, 0, 0.38);
   --shadow-subtle: rgba(0, 0, 0, 0.28);
