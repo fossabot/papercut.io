@@ -16,6 +16,9 @@ export interface ReaderRangeConfig {
   suffix: string
 }
 
+// Keep the CSS @font-face names internal and user labels plain. Naskh Arabic is
+// an explicit reader choice rather than a universal fallback because Arabic
+// font metrics can noticeably change spacing in mixed-language documents.
 const READER_FONT_STACKS = {
   literata: '"Papercut Literata", serif',
   atkinson: '"Papercut Atkinson Hyperlegible", sans-serif',
