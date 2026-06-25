@@ -46,6 +46,11 @@ type DocumentLoadState =
   | { status: 'loading'; url: string; message: string }
   | { status: 'error'; url: string; message: string }
 
+type UploadedLibraryState = {
+  documents: UploadedDocument[]
+  organization: UploadedLibraryOrganization
+}
+
 function App() {
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [docContent, setDocContent] = useState('')
@@ -79,20 +84,36 @@ function App() {
     removeResultsForUrl,
   } = useSearch(pagefindRef, { loadDocumentSource: loadHtmlDocument })
 
-  const refreshUploadedLibrary = useCallback(async () => {
+  const loadUploadedLibrary = useCallback(async (): Promise<UploadedLibraryState> => {
     const [documents, organization] = await Promise.all([
       listUploadedDocuments(),
       getUploadedLibraryOrganization(),
     ])
-    setUploadedDocuments(documents)
-    setUploadedLibraryOrganization(organization)
+    return { documents, organization }
   }, [])
 
+  const applyUploadedLibrary = useCallback((library: UploadedLibraryState) => {
+    setUploadedDocuments(library.documents)
+    setUploadedLibraryOrganization(library.organization)
+  }, [])
+
+  const refreshUploadedLibrary = useCallback(async () => {
+    applyUploadedLibrary(await loadUploadedLibrary())
+  }, [applyUploadedLibrary, loadUploadedLibrary])
+
   useEffect(() => {
-    refreshUploadedLibrary().catch((err) => {
+    let cancelled = false
+    loadUploadedLibrary().then((library) => {
+      if (!cancelled) applyUploadedLibrary(library)
+    }).catch((err) => {
       console.warn('Unable to load uploaded documents:', err)
     })
-  }, [refreshUploadedLibrary])
+
+    return () => {
+      cancelled = true
+    }
+  }, [applyUploadedLibrary, loadUploadedLibrary])
+
 
   const clearSelectedDocument = useCallback(() => {
     openDocumentRequestRef.current += 1
