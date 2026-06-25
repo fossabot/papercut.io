@@ -489,10 +489,14 @@
   color: var(--accent);
 }
 
-.document-view-btn:disabled,
 .document-delete-btn:hover:not(:disabled) {
   border-color: var(--danger-accent);
   color: var(--danger-accent);
+}
+
+.document-view-btn:disabled {
+  color: var(--text-soft);
+  cursor: wait;
 }
 
 .document-delete-btn:disabled {
