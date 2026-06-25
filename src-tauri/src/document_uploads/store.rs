@@ -127,8 +127,12 @@ pub(crate) fn delete_document_rows(db: &mut Connection, id: &str) -> Result<(), 
     tx.commit().map_err(db_err)
 }
 
-/// Insert or replace a parsed document and all of its sections atomically,
-/// rewriting the metadata, section, and FTS rows for the given id.
+/// Insert or update a parsed document and all of its sections atomically.
+///
+/// This deliberately avoids `INSERT OR REPLACE` because SQLite implements that
+/// as delete-then-insert, which would cascade-delete the document's library
+/// location. The document row updates in place while section and FTS rows are
+/// rebuilt from the latest parsed content.
 pub(crate) fn upsert_document(
     db: &mut Connection,
     id: &str,
@@ -146,9 +150,16 @@ pub(crate) fn upsert_document(
     tx.execute("DELETE FROM uploaded_sections WHERE document_id = ?1", [id])
         .map_err(db_err)?;
     tx.execute(
-        "INSERT OR REPLACE INTO uploaded_documents \
+        "INSERT INTO uploaded_documents \
          (id, url, title, format, imported_at_ms, bytes, sections) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(id) DO UPDATE SET \
+           url = excluded.url, \
+           title = excluded.title, \
+           format = excluded.format, \
+           imported_at_ms = excluded.imported_at_ms, \
+           bytes = excluded.bytes, \
+           sections = excluded.sections",
         params![
             id,
             url,
@@ -189,4 +200,138 @@ pub(crate) fn upsert_document(
 /// Format a rusqlite error into the feature's user-facing error string.
 pub(crate) fn db_err(err: rusqlite::Error) -> String {
     format!("Document upload database error: {err}")
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use super::upsert_document;
+    use crate::document_uploads::parsed::{ParsedDocument, ParsedSection};
+
+    #[test]
+    fn upsert_document_preserves_existing_library_location() {
+        let mut db = test_db();
+        let first = parsed_document("First Title", &["Old body"]);
+        upsert_document(&mut db, "abc123", "/uploads/abc123.html", &first, 100, 10)
+            .expect("initial insert");
+        db.execute(
+            "INSERT INTO uploaded_folders \
+             (id, parent_id, name, depth, sort_order, created_at_ms, updated_at_ms) \
+             VALUES ('folder1', NULL, 'Reading', 0, 1000, 100, 100)",
+            [],
+        )
+        .expect("insert folder");
+        db.execute(
+            "UPDATE uploaded_document_locations SET folder_id = 'folder1', sort_order = 42 \
+             WHERE document_id = 'abc123'",
+            [],
+        )
+        .expect("move document");
+
+        let second = parsed_document("Second Title", &["New body", "Another section"]);
+        upsert_document(&mut db, "abc123", "/uploads/abc123.html", &second, 200, 20)
+            .expect("update existing document");
+
+        let location: (Option<String>, i64) = db
+            .query_row(
+                "SELECT folder_id, sort_order FROM uploaded_document_locations WHERE document_id = 'abc123'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("document location");
+        assert_eq!(location, (Some("folder1".to_string()), 42));
+
+        let metadata: (String, i64, i64, i64) = db
+            .query_row(
+                "SELECT title, imported_at_ms, bytes, sections FROM uploaded_documents WHERE id = 'abc123'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("document metadata");
+        assert_eq!(metadata, ("Second Title".to_string(), 200, 20, 2));
+
+        let section_count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM uploaded_sections WHERE document_id = 'abc123'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("section count");
+        let fts_count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM uploaded_document_fts WHERE document_id = 'abc123'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts count");
+        assert_eq!(section_count, 2);
+        assert_eq!(fts_count, 2);
+    }
+
+    fn test_db() -> Connection {
+        let db = Connection::open_in_memory().expect("open test db");
+        db.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE uploaded_documents (
+               id TEXT PRIMARY KEY,
+               url TEXT NOT NULL UNIQUE,
+               title TEXT NOT NULL,
+               format TEXT NOT NULL,
+               imported_at_ms INTEGER NOT NULL,
+               bytes INTEGER NOT NULL,
+               sections INTEGER NOT NULL
+             );
+             CREATE TABLE uploaded_sections (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               document_id TEXT NOT NULL,
+               ordinal INTEGER NOT NULL,
+               heading TEXT,
+               text TEXT NOT NULL,
+               FOREIGN KEY(document_id) REFERENCES uploaded_documents(id) ON DELETE CASCADE
+             );
+             CREATE VIRTUAL TABLE uploaded_document_fts USING fts5(
+               document_id UNINDEXED,
+               section_id UNINDEXED,
+               title,
+               heading,
+               text
+             );
+             CREATE TABLE uploaded_folders (
+               id TEXT PRIMARY KEY,
+               parent_id TEXT,
+               name TEXT NOT NULL,
+               depth INTEGER NOT NULL,
+               sort_order INTEGER NOT NULL,
+               created_at_ms INTEGER NOT NULL,
+               updated_at_ms INTEGER NOT NULL,
+               FOREIGN KEY(parent_id) REFERENCES uploaded_folders(id) ON DELETE CASCADE
+             );
+             CREATE TABLE uploaded_document_locations (
+               document_id TEXT PRIMARY KEY,
+               folder_id TEXT,
+               sort_order INTEGER NOT NULL,
+               FOREIGN KEY(document_id) REFERENCES uploaded_documents(id) ON DELETE CASCADE,
+               FOREIGN KEY(folder_id) REFERENCES uploaded_folders(id) ON DELETE SET NULL
+             );",
+        )
+        .expect("create schema");
+        db
+    }
+
+    fn parsed_document(title: &str, texts: &[&str]) -> ParsedDocument {
+        ParsedDocument {
+            title: title.to_string(),
+            format: "html".to_string(),
+            view_html: format!("<html><body><h1>{title}</h1></body></html>"),
+            sections: texts
+                .iter()
+                .enumerate()
+                .map(|(index, text)| ParsedSection {
+                    heading: Some(format!("Section {}", index + 1)),
+                    text: (*text).to_string(),
+                })
+                .collect(),
+        }
+    }
 }
