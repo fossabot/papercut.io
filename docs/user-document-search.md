@@ -13,7 +13,7 @@ The current upload branch supports local HTML and EPUB files:
 
 - Users open **Import** from the document list and choose **HTML** or **EPUB**.
 - Tauri opens the native filesystem picker for `.html`/`.htm` or `.epub` files.
-- Rust reads the selected HTML file, enforces a 25 MB limit, requires UTF-8, sanitizes the HTML, extracts readable sections, stores the sanitized source, and indexes the sections into SQLite FTS5.
+- Rust reads the selected HTML file, enforces a 25 MB limit, decodes UTF-8 or declared legacy browser encodings, sanitizes the HTML, extracts readable sections, stores the sanitized source, and indexes the sections into SQLite FTS5.
 - Rust reads the selected EPUB file, enforces a 100 MB limit, validates the EPUB ZIP/container, follows OPF spine order, sanitizes XHTML chapters into generated reading HTML, rewrites and target-validates local chapter, TOC, and footnote links, retains supported local raster images within safety caps, extracts readable sections, and indexes the sections into SQLite FTS5.
 - React lists imported files under **User Uploads** and opens them through the shared document reader. EPUB uses the generated reading HTML for the first release.
 - Search queries run through `src/hooks/useSearch.ts`, which queries Pagefind and SQLite FTS in parallel and returns one shared result shape.
@@ -79,7 +79,7 @@ This keeps the runtime upload pipeline independent from the viewer shell. The up
 The runtime upload path follows a parser pipeline that can be reused for future formats:
 
 1. **Pick file**: native Tauri dialog selects a local file.
-2. **Validate input**: enforce size and encoding limits before parsing.
+2. **Validate input**: enforce size limits and decode HTML bytes before parsing.
 3. **Parse format**: HTML is parsed into a title and readable content blocks.
 4. **Sanitize source**: remove active or risky HTML before storing/rendering it.
 5. **Normalize sections**: convert the document into title + ordered text sections with optional headings.
@@ -139,7 +139,7 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 ## Current Limitations
 
 - Runtime import supports HTML and EPUB; PDF is not implemented yet.
-- HTML files must be UTF-8 and at most 25 MB.
+- HTML files must be at most 25 MB. UTF-8 is used directly; non-UTF-8 HTML can import when it declares a supported browser charset such as Windows-1252.
 - EPUB files must be readable ZIP-based EPUB archives with a valid container and OPF spine, and must be at most 100 MB. Only local PNG, JPEG, GIF, and WebP images are retained, with 5 MB per image and 30 MB total image caps.
 - The HTML sanitizer is a conservative first pass; EPUB XHTML uses `ammonia` plus the EPUB DOM rewrite/generation path before storage. Because stored sources render into the app DOM, sanitizer regressions are higher risk than they were with an iframe surface and should be covered by parser fixtures. The HTML upload path still needs explicit sanitizer regression tests for scripts, event handlers, inline styles, `javascript:` URLs, and URL-bearing attributes before further sanitizer refactors.
 - Uploaded-document search only runs inside the Tauri app, not plain browser preview.

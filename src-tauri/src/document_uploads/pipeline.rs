@@ -12,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 
 use super::epub::parse_epub_document;
-use super::html::parse_html_document;
+use super::html::{decode_html_bytes, parse_html_document};
 use super::parsed::ParsedDocument;
 use super::storage::directory_size;
 use super::storage::{
@@ -25,7 +25,7 @@ use super::types::{
     UploadedDocumentSourceRequest,
 };
 
-/// Full import path: pick a file, enforce size/UTF-8 limits, parse and sanitize
+/// Full import path: pick a file, enforce size limits, decode HTML bytes, parse and sanitize
 /// it, store the sanitized source under app data, and index it into SQLite.
 pub(crate) fn import_html<R: Runtime>(
     app: tauri::AppHandle<R>,
@@ -40,8 +40,7 @@ pub(crate) fn import_html<R: Runtime>(
         "Failed to open selected HTML document",
         "Failed to read selected HTML document",
     )?;
-    let html = String::from_utf8(bytes)
-        .map_err(|_| "HTML document must be valid UTF-8 for this first import path".to_string())?;
+    let html = decode_html_bytes(&bytes)?;
 
     let parsed = parse_html_document(&html);
     if parsed.sections.is_empty() {
