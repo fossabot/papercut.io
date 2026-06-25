@@ -259,7 +259,7 @@ Richer EPUB reader:
 - Evaluate foliate-js, `epub.js`, or Readium only after normalized import ships.
 - Keep search/TTS source independent from the renderer.
 - Add TOC, pagination, theme, typography, and location restore as reader-quality work.
-- Keep Arabic typography script-aware. Bundled Naskh Arabic should remain an explicit reader choice unless a future per-script font setting proves safe across mixed-language books.
+- Keep Arabic typography script-aware. Bundled Arabic-focused fonts should remain explicit reader choices unless a future per-script font setting proves safe across mixed-language books.
 - For very large books, bound reader work by rendering/indexing the active chapter or page instead of one generated DOM for the whole book. TTS chunk highlighting should then map through stored locators rather than scanning every rendered text node after a large mutation.
 
 PDF:

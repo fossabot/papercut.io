@@ -25,6 +25,9 @@ const READER_FONT_STACKS = {
   systemSerif: 'ui-serif, Georgia, "Times New Roman", serif',
   systemSans: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   naskhArabic: '"Papercut Noto Naskh Arabic", serif',
+  droidArabicNaskh: '"Papercut Droid Arabic Naskh", serif',
+  scheherazadeNew: '"Papercut Scheherazade New", serif',
+  readexPro: '"Papercut Readex Pro", sans-serif',
 } as const
 
 export const DEFAULT_READER_SETTINGS: ReaderSettingsState = {
@@ -47,6 +50,9 @@ export const FONT_FAMILY_OPTIONS = [
   { label: 'System Serif', value: READER_FONT_STACKS.systemSerif },
   { label: 'System Sans', value: READER_FONT_STACKS.systemSans },
   { label: 'Naskh Arabic', value: READER_FONT_STACKS.naskhArabic },
+  { label: 'Droid Arabic Naskh', value: READER_FONT_STACKS.droidArabicNaskh },
+  { label: 'Scheherazade New', value: READER_FONT_STACKS.scheherazadeNew },
+  { label: 'Readex Pro', value: READER_FONT_STACKS.readexPro },
 ]
 
 const LEGACY_FONT_FAMILY_MAP = new Map([

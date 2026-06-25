@@ -55,6 +55,46 @@
   unicode-range: U+0600-06FF, U+0750-077F, U+0870-089F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
 }
 
+@font-face {
+  font-family: "Papercut Droid Arabic Naskh";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/droid-arabic-naskh/DroidNaskh-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Droid Arabic Naskh";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/droid-arabic-naskh/DroidNaskh-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Scheherazade New";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/reader/scheherazade-new/ScheherazadeNew-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Scheherazade New";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/reader/scheherazade-new/ScheherazadeNew-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Papercut Readex Pro";
+  font-style: normal;
+  font-weight: 200 700;
+  font-display: swap;
+  src: url("/fonts/reader/readex-pro/ReadexPro.ttf") format("truetype");
+}
+
 :root {
   color-scheme: light;
   background: #f9fafb;
