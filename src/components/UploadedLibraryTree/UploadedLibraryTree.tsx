@@ -69,6 +69,7 @@ export function UploadedLibraryTree({
   const [editMode, setEditMode] = useState(false)
   const [selectedKeys, setSelectedKeys] = useState<Set<Key>>(new Set())
   const [expandedKeys, setExpandedKeys] = useState<Set<Key>>(new Set())
+  const [rootCollapsed, setRootCollapsed] = useState(false)
   const [folderDialog, setFolderDialog] = useState<FolderDialogState | null>(null)
   const [folderDialogError, setFolderDialogError] = useState('')
   const [deleteInfoOpen, setDeleteInfoOpen] = useState(false)
@@ -210,10 +211,16 @@ export function UploadedLibraryTree({
   return (
     <section className="uploaded-library" aria-label={filterMode ? 'Uploaded document filters' : 'Uploaded library organization'}>
       <div className="uploaded-library-toolbar">
-        <div className="uploaded-library-heading">
+        <button
+          className="uploaded-library-heading"
+          type="button"
+          aria-expanded={!rootCollapsed}
+          onClick={() => setRootCollapsed((value) => !value)}
+        >
+          <span className={'toggle-arrow ' + (rootCollapsed ? '' : 'open')}>&#9662;</span>
           <span className="uploaded-library-title">User Uploads</span>
           <span className="uploaded-library-count">({documents.length})</span>
-        </div>
+        </button>
         {filterMode ? (
           <button
             className="uploaded-library-edit-btn"
@@ -242,7 +249,7 @@ export function UploadedLibraryTree({
         )}
       </div>
 
-      {organizing && (
+      {!rootCollapsed && organizing && (
         <div className="uploaded-library-actions" aria-label="Library edit actions">
           <div className="uploaded-library-action-group">
             <span className="uploaded-library-action-label">Folders</span>
@@ -315,34 +322,36 @@ export function UploadedLibraryTree({
         </div>
       )}
 
-      <Tree
-        aria-label="Uploaded documents"
-        className="uploaded-library-tree"
-        keyboardNavigationBehavior="tab"
-        selectionMode="none"
-        expandedKeys={expandedKeys}
-        onExpandedChange={setExpandedKeys}
-        onAction={handleAction}
-        disabledKeys={documentOpening ? Array.from(nodeByKey.keys()) : undefined}
-        renderEmptyState={() => <p className="uploaded-library-empty">No uploaded documents match.</p>}
-      >
-        {nodes.map((node) => renderNode(node, {
-          documentOpening,
-          editMode,
-          filterMode,
-          expandedKeys,
-          onDeleteDocument,
-          onToggleFolderExpanded: toggleFolderExpanded,
-          onToggleAllInGroup,
-          onToggleFilter,
-          onToggleSelection: toggleSelection,
-          onViewDocument,
-          openingDocumentUrl,
-          selectedFilters,
-          selectedKeys,
-          openFolderDialog,
-        }))}
-      </Tree>
+      {!rootCollapsed && (
+        <Tree
+          aria-label="Uploaded documents"
+          className="uploaded-library-tree"
+          keyboardNavigationBehavior="tab"
+          selectionMode="none"
+          expandedKeys={expandedKeys}
+          onExpandedChange={setExpandedKeys}
+          onAction={handleAction}
+          disabledKeys={documentOpening ? Array.from(nodeByKey.keys()) : undefined}
+          renderEmptyState={() => <p className="uploaded-library-empty">No uploaded documents match.</p>}
+        >
+          {nodes.map((node) => renderNode(node, {
+            documentOpening,
+            editMode,
+            filterMode,
+            expandedKeys,
+            onDeleteDocument,
+            onToggleFolderExpanded: toggleFolderExpanded,
+            onToggleAllInGroup,
+            onToggleFilter,
+            onToggleSelection: toggleSelection,
+            onViewDocument,
+            openingDocumentUrl,
+            selectedFilters,
+            selectedKeys,
+            openFolderDialog,
+          }))}
+        </Tree>
+      )}
       {folderDialog && (
         <TextInputDialog
           title={folderDialog.kind === 'rename' ? 'Rename Folder' : folderDialog.parentName ? 'New Subfolder' : 'New Folder'}

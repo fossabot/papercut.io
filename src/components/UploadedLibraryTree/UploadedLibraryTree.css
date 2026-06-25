@@ -33,6 +33,10 @@
   gap: 0.5rem;
   min-width: 0;
   padding: 0.5rem 1rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
 }
 
 .uploaded-library-title {
