@@ -44,7 +44,7 @@ export function useDocumentFilters(
     for (const doc of allDocuments) {
       if (includeDocument && !includeDocument(doc)) continue
 
-      const author = deriveAuthor(doc.url)
+      const author = doc.source === 'audiobook-upload' ? 'Imported Audiobooks' : deriveAuthor(doc.url)
       if (
         docFilterLower.length > 0 &&
         !doc.title.toLowerCase().includes(docFilterLower) &&
