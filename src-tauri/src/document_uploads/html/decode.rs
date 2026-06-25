@@ -16,7 +16,7 @@ const TAG_END: u8 = b">"[0];
 /// honors BOM/meta charset declarations before the parser/sanitizer sees text.
 pub(crate) fn decode_html_bytes(bytes: &[u8]) -> Result<String, String> {
     if let Ok(html) = std::str::from_utf8(bytes) {
-        return Ok(html.to_owned());
+        return Ok(html.strip_prefix('\u{feff}').unwrap_or(html).to_owned());
     }
     let Some(encoding) = sniff_html_encoding(bytes) else {
         return Err(
@@ -189,5 +189,13 @@ mod encoding_tests {
     fn keeps_valid_utf8_on_fast_path() {
         let html = "<html><body><p>Plain UTF-8</p></body></html>";
         assert_eq!(decode_html_bytes(html.as_bytes()).unwrap(), html);
+    }
+
+    #[test]
+    fn strips_utf8_bom_on_fast_path() {
+        let html = "\u{feff}<html><body><p>Plain UTF-8</p></body></html>";
+        let decoded = decode_html_bytes(html.as_bytes()).expect("decode UTF-8 BOM html");
+
+        assert_eq!(decoded, "<html><body><p>Plain UTF-8</p></body></html>");
     }
 }
