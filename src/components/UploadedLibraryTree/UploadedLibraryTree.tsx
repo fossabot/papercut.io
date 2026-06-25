@@ -412,6 +412,12 @@ interface RenderNodeOptions {
   openFolderDialog: (parentId: string | null, parentName?: string) => void
 }
 
+/**
+ * Render one React Aria tree node for both Library and Search filter modes.
+ *
+ * The mode branches are kept here so the tree shape stays shared while browse,
+ * organize, and filter actions remain visually scoped to their owning surfaces.
+ */
 function renderNode(node: LibraryNode, options: RenderNodeOptions): ReactNode {
   const opening = node.kind === 'document' && options.openingDocumentUrl === node.url
   const expanded = node.kind === 'folder' && options.expandedKeys.has(node.key)
@@ -535,6 +541,12 @@ function renderNode(node: LibraryNode, options: RenderNodeOptions): ReactNode {
   )
 }
 
+/**
+ * Merge uploaded-document metadata with folder locations into one render tree.
+ *
+ * The backend stores folders and document locations separately; this function
+ * joins them in memory so Library and Search can share identical hierarchy.
+ */
 function buildLibraryTree(
   documents: DocumentInfo[],
   organization: UploadedLibraryOrganization,
@@ -609,11 +621,13 @@ function buildLibraryTree(
   }
 }
 
+/** Collect descendant documents for folder-level search filter toggles. */
 function collectDocuments(node: LibraryNode): DocumentInfo[] {
   if (node.kind === 'document') return [node.doc]
   return node.children.flatMap(collectDocuments)
 }
 
+/** Group folders by parent id, using an empty string as the root bucket key. */
 function groupFoldersByParent(folders: UploadedLibraryFolder[]): Map<string, UploadedLibraryFolder[]> {
   const groups = new Map<string, UploadedLibraryFolder[]>()
   for (const folder of folders) {
@@ -625,16 +639,19 @@ function groupFoldersByParent(folders: UploadedLibraryFolder[]): Map<string, Upl
   return groups
 }
 
+/** Count only document descendants, not folders, for folder count badges. */
 function countDocuments(nodes: LibraryNode[]): number {
   return nodes.reduce((total, node) => (
     total + (node.kind === 'document' ? 1 : countDocuments(node.children))
   ), 0)
 }
 
+/** Preserve manual folder order, with name as a stable tie-breaker. */
 function sortFolders(folders: UploadedLibraryFolder[]): UploadedLibraryFolder[] {
   return folders.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
 }
 
+/** Preserve manual document order, with title as a stable tie-breaker. */
 function sortDocuments(
   docs: (DocumentInfo & { uploadId: string })[],
   locations: Map<string, { sortOrder: number }>,
@@ -644,6 +661,7 @@ function sortDocuments(
     .sort((a, b) => (locations.get(a.uploadId)?.sortOrder ?? 0) - (locations.get(b.uploadId)?.sortOrder ?? 0) || a.title.localeCompare(b.title))
 }
 
+/** Build move-target labels that include parent path context for duplicate names elsewhere. */
 function buildFolderOptions(folders: UploadedLibraryFolder[]): { id: string; label: string }[] {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   return sortFolders(folders).map((folder) => ({
@@ -652,6 +670,7 @@ function buildFolderOptions(folders: UploadedLibraryFolder[]): { id: string; lab
   }))
 }
 
+/** Walk parent pointers to display a folder path like `Parent / Child`. */
 function folderPath(folder: UploadedLibraryFolder, byId: Map<string, UploadedLibraryFolder>): string {
   const parts = [folder.name]
   let parentId = folder.parentId
@@ -664,15 +683,18 @@ function folderPath(folder: UploadedLibraryFolder, byId: Map<string, UploadedLib
   return parts.join(' / ')
 }
 
+/** Extract the backend upload id from the app-local uploaded document URL. */
 function uploadIdFromUrl(url: string): string | null {
   const match = url.match(/^\/uploads\/([a-fA-F0-9]+)\.html(?:[#?].*)?$/)
   return match?.[1] ?? null
 }
 
+/** Prefix ids so React Aria keys cannot collide between folders and documents. */
 function folderKey(id: string): string {
   return 'folder:' + id
 }
 
+/** Prefix ids so React Aria keys cannot collide between documents and folders. */
 function documentKey(id: string): string {
   return 'document:' + id
 }

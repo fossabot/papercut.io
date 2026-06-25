@@ -209,6 +209,8 @@ mod tests {
     use super::upsert_document;
     use crate::document_uploads::parsed::{ParsedDocument, ParsedSection};
 
+    /// Regression test for SQLite's `INSERT OR REPLACE` footgun:
+    /// same-id document updates must not delete library placement metadata.
     #[test]
     fn upsert_document_preserves_existing_library_location() {
         let mut db = test_db();
@@ -269,6 +271,7 @@ mod tests {
         assert_eq!(fts_count, 2);
     }
 
+    /// Minimal in-memory schema for `upsert_document` without booting a Tauri app.
     fn test_db() -> Connection {
         let db = Connection::open_in_memory().expect("open test db");
         db.execute_batch(
@@ -319,6 +322,7 @@ mod tests {
         db
     }
 
+    /// Build small parsed documents whose section count/text can prove FTS rebuild behavior.
     fn parsed_document(title: &str, texts: &[&str]) -> ParsedDocument {
         ParsedDocument {
             title: title.to_string(),

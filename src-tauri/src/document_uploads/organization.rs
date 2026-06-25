@@ -26,6 +26,7 @@ const MAX_FOLDER_DEPTH: usize = 4;
 const MAX_FOLDER_NAME_CHARS: usize = 80;
 const ORDER_STEP: i64 = 1000;
 
+/// Internal row shape with DB-only fields before converting to the serde DTO.
 #[derive(Clone)]
 struct FolderRow {
     id: String,
@@ -38,6 +39,7 @@ struct FolderRow {
 }
 
 impl From<FolderRow> for UploadedLibraryFolder {
+    /// Drop no fields during conversion; this exists only to keep SQL row loading private.
     fn from(row: FolderRow) -> Self {
         Self {
             id: row.id,
@@ -304,6 +306,7 @@ pub(crate) fn reorder<R: Runtime>(
     })
 }
 
+/// Load all folder metadata in stable display order.
 fn list_folders(db: &Connection) -> Result<Vec<UploadedLibraryFolder>, String> {
     let mut stmt = db
         .prepare(
@@ -327,6 +330,7 @@ fn list_folders(db: &Connection) -> Result<Vec<UploadedLibraryFolder>, String> {
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
 }
 
+/// Load document-to-folder placements without joining document payload rows.
 fn list_document_locations(db: &Connection) -> Result<Vec<UploadedDocumentLocation>, String> {
     let mut stmt = db
         .prepare(
@@ -346,6 +350,7 @@ fn list_document_locations(db: &Connection) -> Result<Vec<UploadedDocumentLocati
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
 }
 
+/// Fetch one folder row and translate a missing row into a user-facing error.
 fn load_folder(db: &Connection, id: &str) -> Result<FolderRow, String> {
     db.query_row(
         "SELECT id, parent_id, name, depth, sort_order, created_at_ms, updated_at_ms \
@@ -368,6 +373,7 @@ fn load_folder(db: &Connection, id: &str) -> Result<FolderRow, String> {
     .ok_or_else(|| "Uploaded document folder was not found".to_string())
 }
 
+/// Validate a document id from the UI before using it in move/reorder operations.
 fn ensure_document_exists(db: &Connection, id: &str) -> Result<(), String> {
     if !is_valid_id(id) {
         return Err("Uploaded document id is invalid".into());
@@ -385,6 +391,7 @@ fn ensure_document_exists(db: &Connection, id: &str) -> Result<(), String> {
         .ok_or_else(|| "Uploaded document was not found".to_string())
 }
 
+/// Trim and validate names before uniqueness checks so visually empty names cannot persist.
 fn normalize_folder_name(name: &str) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -398,6 +405,9 @@ fn normalize_folder_name(name: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// Enforce case-insensitive sibling uniqueness.
+///
+/// `except_id` lets rename/move check the destination while ignoring the folder being edited.
 fn ensure_unique_folder_name(
     db: &Connection,
     parent_id: Option<&str>,
@@ -430,6 +440,9 @@ fn ensure_unique_folder_name(
     Ok(())
 }
 
+/// Append new folders/documents after existing siblings in the same root/folder.
+///
+/// Folders and documents share one visual list, so both tables contribute to the max order.
 fn next_sort_order(db: &Connection, parent_id: Option<&str>) -> Result<i64, String> {
     let folder_max: Option<i64> = match parent_id {
         Some(parent_id) => db
@@ -472,6 +485,9 @@ fn next_sort_order(db: &Connection, parent_id: Option<&str>) -> Result<i64, Stri
         + ORDER_STEP)
 }
 
+/// Return whether `candidate_id` is already inside `folder_id`'s subtree.
+///
+/// Used before moving folders so a parent cannot be moved into its own child.
 fn is_descendant(db: &Connection, candidate_id: &str, folder_id: &str) -> Result<bool, String> {
     let found: Option<String> = db
         .query_row(
@@ -490,6 +506,7 @@ fn is_descendant(db: &Connection, candidate_id: &str, folder_id: &str) -> Result
     Ok(found.is_some())
 }
 
+/// Find deepest folder depth within a subtree before applying a move depth delta.
 fn max_subtree_depth(db: &Connection, folder_id: &str) -> Result<usize, String> {
     let max_depth: i64 = db
         .query_row(
@@ -507,6 +524,9 @@ fn max_subtree_depth(db: &Connection, folder_id: &str) -> Result<usize, String> 
     Ok(max_depth as usize)
 }
 
+/// Ensure reorder payload exactly matches current siblings in one location.
+///
+/// This prevents partial reorder requests from dropping hidden folders/documents.
 fn validate_reorder_items(
     db: &Connection,
     parent_id: Option<&str>,
@@ -537,6 +557,7 @@ fn validate_reorder_items(
     Ok(())
 }
 
+/// Build comparable `folder:{id}` / `document:{id}` keys for reorder validation.
 fn sibling_keys(db: &Connection, parent_id: Option<&str>) -> Result<HashSet<String>, String> {
     let mut keys = HashSet::new();
     match parent_id {
@@ -593,6 +614,7 @@ fn sibling_keys(db: &Connection, parent_id: Option<&str>) -> Result<HashSet<Stri
     Ok(keys)
 }
 
+/// Deduplicate selected document ids while preserving first-seen order.
 fn unique_ids(ids: &[String]) -> Result<Vec<String>, String> {
     let mut seen = HashSet::new();
     let mut unique = Vec::new();
@@ -607,10 +629,12 @@ fn unique_ids(ids: &[String]) -> Result<Vec<String>, String> {
     Ok(unique)
 }
 
+/// Accept only upload ids generated by this feature, currently lowercase/uppercase hex.
 fn is_valid_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
+/// Generate an opaque folder id; uniqueness does not depend on folder name alone.
 fn folder_id(parent_id: Option<&str>, name: &str, created_at_ms: u128) -> String {
     let mut hasher = DefaultHasher::new();
     parent_id.hash(&mut hasher);
