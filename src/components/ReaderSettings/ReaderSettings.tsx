@@ -22,6 +22,28 @@ export function ReaderSettings({
   onChange,
   onReset,
 }: ReaderSettingsProps) {
+  if (disabled) {
+    return (
+      <div className="reader-settings">
+        <ReaderSettingsButton disabled open={false} onClick={() => {}} />
+      </div>
+    )
+  }
+
+  return (
+    <EnabledReaderSettings
+      settings={settings}
+      onChange={onChange}
+      onReset={onReset}
+    />
+  )
+}
+
+function EnabledReaderSettings({
+  settings,
+  onChange,
+  onReset,
+}: Omit<ReaderSettingsProps, 'disabled'>) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -48,18 +70,11 @@ export function ReaderSettings({
 
   return (
     <div className="reader-settings" ref={rootRef}>
-      <button
-        className="reader-settings-btn"
-        aria-label="Reader settings"
-        aria-expanded={open}
-        title="Reader settings"
-        disabled={disabled}
+      <ReaderSettingsButton
+        open={open}
         onClick={() => setOpen((value) => !value)}
-        type="button"
-      >
-        <span aria-hidden="true">⚙</span>
-      </button>
-      {open && !disabled && (
+      />
+      {open && (
         <div className="reader-settings-popover" role="dialog" aria-label="Reader settings">
           <label className="reader-setting-row">
             <span>Font</span>
@@ -97,6 +112,30 @@ export function ReaderSettings({
         </div>
       )}
     </div>
+  )
+}
+
+function ReaderSettingsButton({
+  disabled = false,
+  open,
+  onClick,
+}: {
+  disabled?: boolean
+  open: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      className="reader-settings-btn"
+      aria-label="Reader settings"
+      aria-expanded={!disabled && open}
+      title="Reader settings"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      <span aria-hidden="true">⚙</span>
+    </button>
   )
 }
 
