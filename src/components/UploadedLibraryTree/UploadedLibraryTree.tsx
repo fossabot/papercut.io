@@ -73,6 +73,7 @@ export function UploadedLibraryTree({
   const [folderDialog, setFolderDialog] = useState<FolderDialogState | null>(null)
   const [folderDialogError, setFolderDialogError] = useState('')
   const [deleteInfoOpen, setDeleteInfoOpen] = useState(false)
+  const [actionError, setActionError] = useState('')
   const [busy, setBusy] = useState(false)
   const filterMode = mode === 'filter'
   const organizing = mode === 'library' && editMode
@@ -106,6 +107,7 @@ export function UploadedLibraryTree({
 
   useEffect(() => {
     setDeleteInfoOpen(false)
+    setActionError('')
   }, [selectedKeys, editMode])
 
   const runEditAction = async (action: () => Promise<void> | void) => {
@@ -144,6 +146,7 @@ export function UploadedLibraryTree({
 
   const openFolderDialog = (parentId: string | null, parentName?: string) => {
     setFolderDialogError('')
+    setActionError('')
     setDeleteInfoOpen(false)
     setFolderDialog({ kind: 'create', parentId, parentName })
   }
@@ -177,6 +180,7 @@ export function UploadedLibraryTree({
     if (!selectedSingleFolder) return
     const folder = selectedFolders[0]
     setFolderDialogError('')
+    setActionError('')
     setDeleteInfoOpen(false)
     setFolderDialog({ kind: 'rename', folderId: folder.id, initialName: folder.title })
   }
@@ -192,13 +196,27 @@ export function UploadedLibraryTree({
     const confirmed = window.confirm('Delete this empty folder? Documents inside folders are never deleted by this action.')
     if (!confirmed) return
     if (!onDeleteFolder) return
-    void runEditAction(() => onDeleteFolder(folder.id))
+    setActionError('')
+    void (async () => {
+      try {
+        await runEditAction(() => onDeleteFolder(folder.id))
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err))
+      }
+    })()
   }
 
   const moveSelectedDocuments = (folderId: string | null) => {
     if (!canMoveDocuments) return
     if (!onMoveDocuments) return
-    void runEditAction(() => onMoveDocuments(selectedDocumentIds, folderId))
+    setActionError('')
+    void (async () => {
+      try {
+        await runEditAction(() => onMoveDocuments(selectedDocumentIds, folderId))
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err))
+      }
+    })()
   }
 
   const toggleAllRootDocuments = () => {
@@ -319,6 +337,11 @@ export function UploadedLibraryTree({
               </select>
             </label>
           </div>
+          {actionError && (
+            <p className="uploaded-library-action-error" role="alert">
+              {actionError}
+            </p>
+          )}
         </div>
       )}
 
