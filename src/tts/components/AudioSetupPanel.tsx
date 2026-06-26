@@ -26,12 +26,14 @@ function snapSpeed(value: number): number {
 
 export interface AudioSetupPanelProps {
   appliedThreadCount: number | null
+  debugEnabled?: boolean
   defaultThreadCount: number
   maxThreadCount: number
   modelId: string
   models: TtsModelInfo[]
   modelInstallProgress: NativeTtsModelInstallProgress | null
   modelStatus: NativeTtsModelStatus | null
+  onDiagnosticsChange?: (enabled: boolean) => void
   onInstallModel: () => void
   onModelChange: (modelId: string) => void
   onSpeedChange: (speed: number) => void
@@ -48,12 +50,14 @@ export interface AudioSetupPanelProps {
 
 export function AudioSetupPanel({
   appliedThreadCount,
+  debugEnabled = false,
   defaultThreadCount,
   maxThreadCount,
   modelId,
   models,
   modelInstallProgress,
   modelStatus,
+  onDiagnosticsChange,
   onInstallModel,
   onModelChange,
   onSpeedChange,
@@ -107,10 +111,12 @@ export function AudioSetupPanel({
                 </option>
               ))}
             </select>
-            <div className="audio-model-source" title={modelStatus?.sourceUrl}>
-              <span>{modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS'}</span>
-              <span>{modelSize ? modelSize + ' GitHub release' : 'GitHub release asset'}</span>
-            </div>
+            {debugEnabled && (
+              <div className="audio-model-source" title={modelStatus?.sourceUrl}>
+                <span>{modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS'}</span>
+                <span>{modelSize ? modelSize + ' GitHub release' : 'GitHub release asset'}</span>
+              </div>
+            )}
             {!modelInstalled && (
               <button
                 type="button"
@@ -188,7 +194,9 @@ export function AudioSetupPanel({
       </section>
 
       <section className="audio-setup-group audio-setup-advanced" aria-label="Advanced audio settings">
-        <h4 className="audio-setup-group-title">Advanced</h4>
+        <div className="audio-setup-group-heading">
+          <h4 className="audio-setup-group-title">Advanced</h4>
+        </div>
         {hasTextProcessing && (
           <SelectField
             className="audio-field-text-processing"
@@ -225,6 +233,19 @@ export function AudioSetupPanel({
             </span>
           )}
         </SelectField>
+        <label className="audio-field audio-field-diagnostics" title="Show TTS diagnostic events and model source details">
+          <span>Diagnostics</span>
+          <span className="audio-diagnostics-control">
+            <span className="audio-diagnostics-value">{debugEnabled ? 'On' : 'Off'}</span>
+            <input
+              type="checkbox"
+              checked={debugEnabled}
+              onChange={(event) => onDiagnosticsChange?.(event.target.checked)}
+              disabled={!onDiagnosticsChange}
+            />
+            <span className="audio-diagnostics-switch" aria-hidden="true" />
+          </span>
+        </label>
       </section>
     </div>
   )

@@ -8,10 +8,14 @@ import {
 import { isDebugEnabled } from '../../utils/debugFlags'
 import { Panel } from '../../components/Panel/Panel'
 
-export function TtsDiagnosticsPanel() {
-  // Developer-only panel; hidden unless debug mode is on (see utils/debugFlags).
-  // Guard runs before hooks so the gate is stable for a given session.
-  if (!isDebugEnabled()) return null
+interface TtsDiagnosticsPanelProps {
+  enabled?: boolean
+}
+
+export function TtsDiagnosticsPanel({ enabled = isDebugEnabled() }: TtsDiagnosticsPanelProps) {
+  // Developer-only panel; hidden unless debug mode is enabled by the app state
+  // or the URL/localStorage gate in utils/debugFlags.
+  if (!enabled) return null
 
   return <TtsDiagnosticsPanelBody />
 }
