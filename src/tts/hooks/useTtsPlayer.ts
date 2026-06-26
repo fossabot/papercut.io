@@ -6,7 +6,7 @@ import {
   type NativeAudiobookPlayback,
   resetNativeTtsCapabilities,
 } from '../api/nativeTts'
-import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
+import { logTtsDiagnostic, summarizeTtsCapabilities } from '../diagnostics/TtsDiagnostics'
 import {
   disposeNativeAudio,
   getNativeAudioState,
@@ -735,7 +735,7 @@ export function useTtsPlayer() {
       : prev))
 
     void getNativeTtsCapabilities().then((capabilities) => {
-      logTtsDiagnostic('[tts-native] capabilities', { ...capabilities })
+      logTtsDiagnostic('[tts-native] capabilities', summarizeTtsCapabilities(capabilities))
       nativeMobilePlatformRef.current = isNativeMobilePlatform(capabilities.platform)
       setState((prev) => ({
         ...prev,
