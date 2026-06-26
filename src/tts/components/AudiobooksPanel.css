@@ -342,20 +342,6 @@
   color: var(--danger-strong);
 }
 
-.audio-filter-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-  font-size: 0.8rem;
-  color: var(--text-body);
-  white-space: nowrap;
-}
-
-.audio-filter-toggle input {
-  accent-color: var(--accent);
-}
-
 .audiobooks-panel {
   margin-bottom: 1.5rem;
   border: 1px solid var(--border-strong);
@@ -565,14 +551,14 @@
   flex: 1 1 100%;
 }
 
-.audiobook-export,
-.audiobook-delete {
+.audiobook-text-action {
   border: none;
   background: none;
   color: var(--accent);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .audiobook-delete {
@@ -582,11 +568,9 @@
 .audiobook-export,
 .audiobook-delete {
   min-height: 2rem;
-  white-space: nowrap;
 }
 
-.audiobook-export:hover:not(:disabled),
-.audiobook-delete:hover:not(:disabled) {
+.audiobook-text-action:hover:not(:disabled) {
   color: var(--accent-strong);
   text-decoration: underline;
 }
@@ -595,8 +579,7 @@
   color: var(--danger-strong);
 }
 
-.audiobook-export:disabled,
-.audiobook-delete:disabled {
+.audiobook-text-action:disabled {
   color: var(--text-soft);
   cursor: wait;
 }
@@ -652,16 +635,14 @@
   overflow-wrap: anywhere;
 }
 
-.audiobook-meter,
-.download-meter {
+.audio-progress-meter {
   height: 0.35rem;
   overflow: hidden;
   border-radius: 999px;
   background: var(--surface-accent-strong);
 }
 
-.audiobook-meter span,
-.download-meter span {
+.audio-progress-meter span {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -689,18 +670,6 @@
 .audiobook-resume,
 .audiobook-secondary {
   justify-self: end;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.audiobook-resume:hover,
-.audiobook-secondary:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
 }
 
 @media (max-width: 767px) {

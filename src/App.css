@@ -260,6 +260,20 @@
   cursor: wait;
 }
 
+.audio-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-body);
+  white-space: nowrap;
+}
+
+.audio-filter-toggle input {
+  accent-color: var(--accent);
+}
+
 .document-import-options {
   position: absolute;
   top: calc(100% + 0.35rem);

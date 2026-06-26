@@ -129,7 +129,7 @@ export function AudioSetupPanel({
                   <span>{modelPercent}%</span>
                 </div>
                 {!modelInstalled && modelInstallProgress?.status !== 'error' && (
-                  <div className="download-meter" aria-label={'Voice model download ' + modelPercent + '% complete'}>
+                  <div className="audio-progress-meter" aria-label={'Voice model download ' + modelPercent + '% complete'}>
                     <span style={{ width: modelPercent + '%' }} />
                   </div>
                 )}

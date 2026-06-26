@@ -154,10 +154,10 @@ export function AudiobooksPanel({
               <div className="audiobook-status-text">
                 {activeDownload ? formatAudiobookVoiceMeta(activeDownload.modelId, activeDownload.voice, activeDownload.speed, activeDownload.dtype, activeDownload.textPreprocessor) + ' - ' : ''}{formatDownloadSavedStatus(downloadState.audioDurationSec, activePercent, downloadState.wavBytes)}
               </div>
-              <div className="audiobook-meter" aria-label={'Saving audiobook ' + activePercent + '% complete'}>
+              <div className="audio-progress-meter" aria-label={'Saving audiobook ' + activePercent + '% complete'}>
                 <span style={{ width: activePercent + '%' }} />
               </div>
-              <button className="audiobook-secondary" onClick={onCancelSave}>Pause</button>
+              <button className="audiobook-text-action audiobook-secondary" onClick={onCancelSave}>Pause</button>
             </div>
           </section>
         )}
@@ -176,15 +176,15 @@ export function AudiobooksPanel({
                   <div className="audiobook-status-text">
                     {formatAudiobookVoiceMeta(record.modelId, record.voice, record.speed, record.dtype, record.textPreprocessor) + ' - ' + formatDownloadSavedStatus(record.audioDurationSec, percent, record.wavBytes)}
                   </div>
-                  <div className="audiobook-meter" aria-label={'Audiobook save ' + percent + '% complete'}>
+                  <div className="audio-progress-meter" aria-label={'Audiobook save ' + percent + '% complete'}>
                     <span style={{ width: percent + '%' }} />
                   </div>
                   <div className="audiobook-actions">
                     <span className="audiobook-status-text">{record.message || record.status}</span>
-                    <button className="audiobook-resume" onClick={() => onResumeQueued(record)}>
+                    <button className="audiobook-text-action audiobook-resume" onClick={() => onResumeQueued(record)}>
                       {record.status === 'error' ? 'Retry' : 'Resume'}
                     </button>
-                    <button className="audiobook-secondary" onClick={() => onRemoveQueued(record.id)}>Remove</button>
+                    <button className="audiobook-text-action audiobook-secondary" onClick={() => onRemoveQueued(record.id)}>Remove</button>
                   </div>
                 </div>
               )
@@ -217,14 +217,14 @@ export function AudiobooksPanel({
                     </span>
                   </button>
                   <button
-                    className="audiobook-export"
+                    className="audiobook-text-action audiobook-export"
                     disabled={exporting || deleting}
                     onClick={() => onExportSaved(record)}
                   >
                     {exporting ? 'Exporting' : 'Export Bundle'}
                   </button>
                   <button
-                    className="audiobook-delete"
+                    className="audiobook-text-action audiobook-delete"
                     disabled={exporting || deleting}
                     onClick={() => onDeleteSaved(record)}
                   >
