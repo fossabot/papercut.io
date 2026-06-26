@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { NativeTtsModelInstallProgress, NativeTtsModelStatus } from '../api/nativeTts'
 import type { TextPreprocessorInfo, TtsModelInfo, TtsVoice, TtsVoiceInfo } from '../types'
 import { formatSpeedLabel } from '../utils/format'
@@ -7,6 +8,11 @@ const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
 const SPEED_MIN = 0.5
 const SPEED_MAX = 2
 const SPEED_STEP = 0.05
+
+interface SelectOption {
+  label: string
+  value: string | number
+}
 
 // Snap to the slider step and clamp to range. The saved-audiobook cache id buckets
 // speed to 2 decimals on both the JS and Rust side, so values must round-trip cleanly
@@ -131,21 +137,14 @@ export function AudioSetupPanel({
             )}
           </div>
 
-          <label className="audio-field audio-field-voice">
-            <span>Voice</span>
-            <select
-              className="tts-select"
-              value={voice}
-              onChange={(event) => onVoiceChange(event.target.value as TtsVoice)}
-              title="Voice"
-            >
-              {voices.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            className="audio-field-voice"
+            label="Voice"
+            title="Voice"
+            value={voice}
+            options={voices.map((item) => ({ label: item.name, value: item.id }))}
+            onChange={(value) => onVoiceChange(value as TtsVoice)}
+          />
 
           <label className="audio-field audio-field-speed">
             <span>Speed</span>
@@ -190,39 +189,31 @@ export function AudioSetupPanel({
       <section className="audio-setup-group audio-setup-advanced" aria-label="Advanced audio settings">
         <h4 className="audio-setup-group-title">Advanced</h4>
         {hasTextProcessing && (
-          <label className="audio-field audio-field-text-processing">
-            <span>Text Processing</span>
-            <select
-              className="tts-select"
-              value={textPreprocessor}
-              onChange={(event) => onTextPreprocessorChange(event.target.value)}
-              title="Optional language preprocessing before speech synthesis"
-            >
-              {textPreprocessors.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+          <SelectField
+            className="audio-field-text-processing"
+            label="Text Processing"
+            title="Optional language preprocessing before speech synthesis"
+            value={textPreprocessor}
+            options={textPreprocessors.map((item) => ({ label: item.name, value: item.id }))}
+            onChange={onTextPreprocessorChange}
+          >
             <span className="audio-thread-meta">
               {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
             </span>
-          </label>
+          </SelectField>
         )}
-        <label className="audio-field audio-field-threads">
-          <span>Threads</span>
-          <select
-            className="tts-select tts-threads"
-            value={threadCount}
-            onChange={(event) => onThreadCountChange(Number(event.target.value))}
-            title="Native TTS threads"
-          >
-            {threadOptions.map((count) => (
-              <option key={count} value={count}>
-                {count} {count === 1 ? 'thread' : 'threads'}
-              </option>
-            ))}
-          </select>
+        <SelectField
+          className="audio-field-threads"
+          label="Threads"
+          selectClassName="tts-threads"
+          title="Native TTS threads"
+          value={threadCount}
+          options={threadOptions.map((count) => ({
+            label: count + ' ' + (count === 1 ? 'thread' : 'threads'),
+            value: count,
+          }))}
+          onChange={(value) => onThreadCountChange(Number(value))}
+        >
           <span className="audio-thread-meta">
             Default {defaultThreadCount}, detected max {maxThreadCount}
             {appliedThreadCount !== null ? `, save applied ${appliedThreadCount}` : ''}
@@ -232,9 +223,48 @@ export function AudioSetupPanel({
               High thread counts can increase memory use, heat, battery drain, and thermal throttling. More threads may be slower.
             </span>
           )}
-        </label>
+        </SelectField>
       </section>
     </div>
+  )
+}
+
+function SelectField({
+  children,
+  className,
+  label,
+  onChange,
+  options,
+  selectClassName,
+  title,
+  value,
+}: {
+  children?: ReactNode
+  className: string
+  label: string
+  onChange: (value: string) => void
+  options: SelectOption[]
+  selectClassName?: string
+  title: string
+  value: string | number
+}) {
+  return (
+    <label className={'audio-field ' + className}>
+      <span>{label}</span>
+      <select
+        className={'tts-select' + (selectClassName ? ' ' + selectClassName : '')}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        title={title}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {children}
+    </label>
   )
 }
 
