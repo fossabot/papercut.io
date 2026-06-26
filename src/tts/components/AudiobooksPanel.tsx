@@ -11,6 +11,7 @@ import {
 } from '../utils/format'
 import { Panel } from '../../components/Panel/Panel'
 import { AudioSetupPanel, type AudioSetupPanelProps } from './AudioSetupPanel'
+import './AudiobooksPanel.css'
 
 interface ActiveAudiobookSave {
   title: string
@@ -86,6 +87,7 @@ export function AudiobooksPanel({
   const queueCount = queuedDownloads.length
   const meta = formatAudiobookMeta(isSaving, queueCount, savedCount)
   const hasAudiobooks = isSaving || queueCount > 0 || savedCount > 0
+  const setupSummary = formatAudioSetupSummary(audioSetup)
 
   return (
     <Panel
@@ -95,7 +97,7 @@ export function AudiobooksPanel({
       meta={meta}
       defaultOpen
     >
-      <div className="audiobooks-toolbar">
+      <div className="audiobooks-actions-row">
         <button
           type="button"
           className="audiobooks-import-btn"
@@ -104,15 +106,20 @@ export function AudiobooksPanel({
         >
           {importState.status === 'importing' ? '📂 Importing Bundle' : '📁 Import Bundle'}
         </button>
+
         <button
           type="button"
-          className={'audiobooks-setup-btn' + (setupOpen ? ' audiobooks-setup-btn-open' : '')}
+          className={'audiobooks-setup-disclosure' + (setupOpen ? ' audiobooks-setup-disclosure-open' : '')}
           aria-expanded={setupOpen}
-          aria-label={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
-          title={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
+          aria-controls="audiobooks-audio-setup"
           onClick={() => setSetupOpen((value) => !value)}
         >
-          <span aria-hidden="true">⚙</span>
+          <span className="audiobooks-setup-disclosure-icon" aria-hidden="true">⚙</span>
+          <span className="audiobooks-setup-disclosure-main">
+            <span className="audiobooks-setup-disclosure-title">Audio Setup</span>
+            <span className="audiobooks-setup-disclosure-summary">{setupSummary}</span>
+          </span>
+          <span className="audiobooks-setup-disclosure-chevron" aria-hidden="true">{setupOpen ? '▲' : '▼'}</span>
         </button>
         {importState.message && importState.status !== 'idle' && (
           <span className={'audiobooks-import-status document-import-' + importState.status}>
@@ -122,8 +129,7 @@ export function AudiobooksPanel({
       </div>
 
       {setupOpen && (
-        <section className="audiobooks-section audiobooks-setup" aria-label="Audio setup">
-          <h3 className="audiobooks-section-title">Audio setup</h3>
+        <section id="audiobooks-audio-setup" className="audiobooks-section audiobooks-setup" aria-label="Audio Setup">
           <AudioSetupPanel {...audioSetup} />
         </section>
       )}
@@ -266,4 +272,27 @@ function formatAudiobookMeta(isSaving: boolean, queueCount: number, savedCount: 
 function getDownloadPercent(cachedChunks: number, totalChunks: number): number {
   if (totalChunks <= 0) return 0
   return Math.round((cachedChunks / totalChunks) * 100)
+}
+
+function formatAudioSetupSummary(audioSetup: AudioSetupPanelProps): string {
+  const model = audioSetup.models.find((item) => item.id === audioSetup.modelId)
+  const voice = audioSetup.voices.find((item) => item.id === audioSetup.voice)
+  const pieces = [
+    model?.name ?? 'Model',
+    voice?.name ?? audioSetup.voice,
+    formatSetupSpeed(audioSetup.speed),
+  ]
+
+  if (audioSetup.modelInstallProgress && audioSetup.modelInstallProgress.status !== 'installed') {
+    pieces.push('Downloading ' + audioSetup.modelInstallProgress.percent + '%')
+  } else if (audioSetup.modelStatus?.installed) {
+    pieces.push('Installed')
+  }
+
+  return pieces.join(' · ')
+}
+
+function formatSetupSpeed(speed: number): string {
+  if (!Number.isFinite(speed)) return '1x'
+  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
 }
