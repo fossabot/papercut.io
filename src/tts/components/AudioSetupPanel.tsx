@@ -105,8 +105,8 @@ export function AudioSetupPanel({
               ))}
             </select>
             <div className="audio-model-source" title={modelStatus?.sourceUrl}>
-              <span>{'Source: ' + (modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS')}</span>
-              <span>{modelSize ? modelSize + ' archive from k2-fsa/sherpa-onnx GitHub release' : 'Official k2-fsa/sherpa-onnx GitHub release asset'}</span>
+              <span>{modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS'}</span>
+              <span>{modelSize ? modelSize + ' GitHub release' : 'GitHub release asset'}</span>
             </div>
             {!modelInstalled && (
               <button
