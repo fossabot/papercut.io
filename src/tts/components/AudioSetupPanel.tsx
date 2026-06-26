@@ -146,8 +146,8 @@ export function AudioSetupPanel({
             onChange={(value) => onVoiceChange(value as TtsVoice)}
           />
 
-          <label className="audio-field audio-field-speed">
-            <span>Speed</span>
+          <div className="audio-field audio-field-speed">
+            <span id="tts-speed-label">Speed</span>
             <div className="audio-speed-row">
               <button
                 type="button"
@@ -168,7 +168,7 @@ export function AudioSetupPanel({
                 value={speed}
                 onChange={(event) => onSpeedChange(snapSpeed(Number(event.target.value)))}
                 title="Playback Speed"
-                aria-label="Playback Speed"
+                aria-labelledby="tts-speed-label"
               />
               <button
                 type="button"
@@ -182,7 +182,7 @@ export function AudioSetupPanel({
               </button>
               <span className="audio-speed-value">{formatSpeedLabel(speed)}</span>
             </div>
-          </label>
+          </div>
         </div>
       </section>
 

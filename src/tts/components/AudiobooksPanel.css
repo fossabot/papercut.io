@@ -140,10 +140,15 @@
   transition: border-color 0.15s, color 0.15s;
 }
 
-.audio-speed-step:hover:not(:disabled),
+.audio-speed-step:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .audio-speed-step:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 0 3px var(--shadow-focus);
   outline: none;
 }
 
