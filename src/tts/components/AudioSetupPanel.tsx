@@ -86,13 +86,14 @@ export function AudioSetupPanel({
         <div className="audio-settings-grid audio-settings-grid-main">
           <div className="audio-field audio-field-model">
             <div className="audio-field-heading">
-              <span>Model</span>
-              {modelInstalled && (
-                <span className="audio-model-state audio-model-state-installed">
-                  <CheckIcon />
-                  <span>Installed</span>
-                </span>
-              )}
+              <span>
+                Model
+                {modelInstalled && (
+                  <span className="audio-model-state audio-model-state-installed">
+                    (<CheckIcon /><span>Installed</span>)
+                  </span>
+                )}
+              </span>
             </div>
             <select
               className="tts-select"
