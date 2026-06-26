@@ -89,6 +89,14 @@ export interface NativeAudiobookSaveProgress {
   textChars?: number | null
   textPreview?: string | null
   generateMs?: number | null
+  preprocessMs?: number | null
+  synthesisMs?: number | null
+  writeMs?: number | null
+  validateMs?: number | null
+  indexingMs?: number | null
+  synthesisTextChars?: number | null
+  totalSourceChars?: number | null
+  totalSynthesisChars?: number | null
   audioDurationSec?: number | null
   wavBytes?: number | null
   totalAudioDurationSec: number

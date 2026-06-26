@@ -191,6 +191,7 @@ The native path emits:
 - `[tts-native] capabilities`
 - `[tts-save] native chunk start`
 - `[tts-save] native chunk`
+- `[tts-save] native performance summary`
 - `[tts-save] completed`
 - `[tts-save] failed`
 - `[tts-playback] native preparation completed`
@@ -199,12 +200,14 @@ The native path emits:
 - `[tts-highlight] slow chunk range built`
 - `[tts-highlight] chunk range unavailable`
 
-Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, source and synthesis previews, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
+Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, source and synthesis previews, `generateMs`, `preprocessMs`, `synthesisMs`, `writeMs`, `validateMs`, `indexingMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `totalSourceChars`, `totalSynthesisChars`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
 
 Interpretation guide:
 
 - High first-chunk time usually means native model load plus first inference warmup.
 - High `realTimeFactor` after warmup means synthesis is the bottleneck.
+- Compare `synthesisMs` and `preprocessMs` before blaming model speed; Arabic diacritization can add preprocessing time while Kokoro/Piper inference shows up under synthesis time.
+- High `writeMs`, `validateMs`, or `indexingMs` points to disk or manifest-index work rather than model inference, especially on very large saved books.
 - If a higher `threadCount` improves `realTimeFactor`, keep it for that device; if it crashes, heats up, or throttles during long saves, return to 1 thread on Android.
 - If Resume crashes at the same point, inspect the last `[tts-save] native chunk start` entry. The `chunkNumber`, `chunkId`, and `textPreview` identify the text range being passed to native synthesis when the process died.
 - Repeated cache misses usually mean the document, chunk text, voice, speed, model id, text preprocessor, or audiobook cache version changed.

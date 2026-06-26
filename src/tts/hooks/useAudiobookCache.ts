@@ -248,11 +248,40 @@ export function useAudiobookCache() {
         textChars: progress.textChars,
         textPreview: progress.textPreview,
         generateMs: progress.generateMs,
+        preprocessMs: progress.preprocessMs ?? 0,
+        synthesisMs: progress.synthesisMs ?? 0,
+        writeMs: progress.writeMs ?? 0,
+        validateMs: progress.validateMs ?? 0,
+        synthesisTextChars: progress.synthesisTextChars ?? 0,
         audioDurationSec: progress.audioDurationSec ? Number(progress.audioDurationSec.toFixed(2)) : 0,
         realTimeFactor: progress.audioDurationSec && progress.audioDurationSec > 0
           ? Number((progress.generateMs / 1000 / progress.audioDurationSec).toFixed(2))
           : 0,
         wavBytes: progress.wavBytes,
+        backend: progress.backend,
+        dtype: resolveTtsDtype(options),
+        threadCount: options.threadCount,
+        appliedThreadCount: progress.appliedThreadCount,
+      })
+    }
+
+    if (progress.status === 'saved' && progress.generateMs) {
+      logTtsDiagnostic('[tts-save] native performance summary', {
+        generatedChunks: progress.generatedChunks,
+        totalChunks: progress.totalChunks,
+        generateMs: progress.generateMs,
+        preprocessMs: progress.preprocessMs ?? 0,
+        synthesisMs: progress.synthesisMs ?? 0,
+        writeMs: progress.writeMs ?? 0,
+        validateMs: progress.validateMs ?? 0,
+        indexingMs: progress.indexingMs ?? 0,
+        totalSourceChars: progress.totalSourceChars ?? 0,
+        totalSynthesisChars: progress.totalSynthesisChars ?? 0,
+        audioDurationSec: Number(progress.totalAudioDurationSec.toFixed(2)),
+        realTimeFactor: progress.totalAudioDurationSec > 0
+          ? Number((progress.generateMs / 1000 / progress.totalAudioDurationSec).toFixed(2))
+          : 0,
+        wavBytes: progress.totalWavBytes,
         backend: progress.backend,
         dtype: resolveTtsDtype(options),
         threadCount: options.threadCount,
