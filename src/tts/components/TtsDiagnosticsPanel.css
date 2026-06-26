@@ -126,51 +126,32 @@
   white-space: nowrap;
 }
 
-.tts-diagnostic-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0.4rem 0.7rem;
-}
-
-.tts-diagnostic-field {
-  min-width: 0;
-}
-
-.tts-diagnostic-field dt {
+.tts-diagnostic-summary {
+  margin: 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tts-diagnostic-field dd {
-  overflow-wrap: anywhere;
-  color: var(--text-heading);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.74rem;
-  line-height: 1.3;
-}
-
-.tts-diagnostic-value-details {
-  max-width: 100%;
-}
-
-.tts-diagnostic-value-details summary {
+.tts-diagnostic-json summary {
   display: inline-flex;
   max-width: 100%;
   color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 700;
   cursor: pointer;
   list-style-position: inside;
   white-space: nowrap;
 }
 
-.tts-diagnostic-value-details summary:hover {
+.tts-diagnostic-json summary:hover {
   text-decoration: underline;
 }
 
-.tts-diagnostic-value-details pre {
-  max-height: 11rem;
+.tts-diagnostic-json pre {
+  max-height: 14rem;
   max-width: 100%;
   margin: 0.35rem 0 0;
   padding: 0.5rem;

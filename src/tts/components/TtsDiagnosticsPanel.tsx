@@ -110,14 +110,11 @@ function TtsDiagnosticsPanelBody() {
                   </span>
                   <time>{formatTime(event.timestamp)}</time>
                 </div>
-                <dl className="tts-diagnostic-grid">
-                  {Object.entries(event.data).map(([key, value]) => (
-                    <div key={key} className="tts-diagnostic-field">
-                      <dt>{key}</dt>
-                      <dd>{renderDiagnosticValue(value)}</dd>
-                    </div>
-                  ))}
-                </dl>
+                <p className="tts-diagnostic-summary">{summarizeEvent(event)}</p>
+                <details className="tts-diagnostic-json">
+                  <summary>Details</summary>
+                  <pre>{stringifyDiagnosticValue(event)}</pre>
+                </details>
               </article>
             ))}
           </div>
@@ -161,34 +158,28 @@ function formatValue(value: unknown): string {
   return String(value)
 }
 
-function renderDiagnosticValue(value: unknown) {
-  if (Array.isArray(value) || (value && typeof value === 'object')) {
-    return (
-      <details className="tts-diagnostic-value-details">
-        <summary>{previewDiagnosticValue(value)}</summary>
-        <pre>{stringifyDiagnosticValue(value)}</pre>
-      </details>
-    )
-  }
-  return formatValue(value)
-}
+function summarizeEvent(event: TtsDiagnosticEvent): string {
+  const preferredKeys = [
+    'reason',
+    'error',
+    'actualDevice',
+    'realTimeFactor',
+    'chunkNumber',
+    'totalChunks',
+    'cachedChunks',
+    'generatedChunks',
+    'modelCount',
+    'modelIds',
+    'threadCount',
+    'appliedThreadCount',
+    'elapsedMs',
+  ]
+  const parts = preferredKeys
+    .filter((key) => key in event.data)
+    .slice(0, 3)
+    .map((key) => key + ': ' + formatValue(event.data[key]))
 
-function previewDiagnosticValue(value: unknown): string {
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '[]'
-    if (value.every((item) => ['string', 'number', 'boolean'].includes(typeof item))) {
-      const joined = value.map(String).join(', ')
-      return joined.length > 80 ? joined.slice(0, 77) + '...' : joined
-    }
-    return '[' + value.length + ' item' + (value.length === 1 ? '' : 's') + ']'
-  }
-  if (value && typeof value === 'object') {
-    const keys = Object.keys(value)
-    if (keys.length === 0) return '{}'
-    const keyPreview = keys.slice(0, 3).join(', ')
-    return '{' + keyPreview + (keys.length > 3 ? ', ...' : '') + '}'
-  }
-  return formatValue(value)
+  return parts.length > 0 ? parts.join(' · ') : 'Open details for full event JSON'
 }
 
 function stringifyDiagnosticValue(value: unknown): string {
