@@ -7,6 +7,7 @@ import {
   formatAudiobookVoiceMeta,
   formatDownloadSavedStatus,
   formatDuration,
+  formatSpeedLabel,
   formatStorageSize,
 } from '../utils/format'
 import { Panel } from '../../components/Panel/Panel'
@@ -280,7 +281,7 @@ function formatAudioSetupSummary(audioSetup: AudioSetupPanelProps): string {
   const pieces = [
     model?.name ?? 'Model',
     voice?.name ?? audioSetup.voice,
-    formatSetupSpeed(audioSetup.speed),
+    formatSpeedLabel(audioSetup.speed),
   ]
 
   if (audioSetup.modelInstallProgress && audioSetup.modelInstallProgress.status !== 'installed') {
@@ -290,9 +291,4 @@ function formatAudioSetupSummary(audioSetup: AudioSetupPanelProps): string {
   }
 
   return pieces.join(' · ')
-}
-
-function formatSetupSpeed(speed: number): string {
-  if (!Number.isFinite(speed)) return '1x'
-  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
 }

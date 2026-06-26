@@ -1,5 +1,6 @@
 import type { NativeTtsModelInstallProgress, NativeTtsModelStatus } from '../api/nativeTts'
 import type { TextPreprocessorInfo, TtsModelInfo, TtsVoice, TtsVoiceInfo } from '../types'
+import { formatSpeedLabel } from '../utils/format'
 
 const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
 
@@ -15,11 +16,6 @@ function snapSpeed(value: number): number {
   const snapped = Math.round(value / SPEED_STEP) * SPEED_STEP
   const clamped = Math.min(SPEED_MAX, Math.max(SPEED_MIN, snapped))
   return Number(clamped.toFixed(2))
-}
-
-function formatSpeedLabel(speed: number): string {
-  if (!Number.isFinite(speed)) return '1x'
-  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
 }
 
 export interface AudioSetupPanelProps {
