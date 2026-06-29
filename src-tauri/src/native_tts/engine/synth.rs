@@ -10,6 +10,7 @@
 //! UI messages isn't blocked. A `Mutex` is a lock guaranteeing one thread
 //! touches the engine at a time; `.lock()` is like awaiting that lock.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -17,7 +18,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use num2words::{Currency, Num2Words};
 use sherpa_onnx::{
     write as write_wav_file, GeneratedAudio, GenerationConfig, OfflineTts, OfflineTtsConfig,
-    OfflineTtsKokoroModelConfig, OfflineTtsModelConfig, OfflineTtsVitsModelConfig,
+    OfflineTtsKokoroModelConfig, OfflineTtsModelConfig, OfflineTtsSupertonicModelConfig,
+    OfflineTtsVitsModelConfig,
 };
 
 use super::cache::wav_info;
@@ -206,9 +208,15 @@ fn generate_audio(
     } else {
         1.0
     };
+    let extra = engine.model.supertonic_lang.map(|lang| {
+        let mut extra = HashMap::new();
+        extra.insert("lang".to_string(), serde_json::json!(lang));
+        extra
+    });
     let generation = GenerationConfig {
         speed,
         sid: engine.model.speaker_id(voice)?,
+        extra,
         ..Default::default()
     };
 
@@ -1037,6 +1045,32 @@ fn create_engine(
                 lexicon: (!lexicon.is_empty()).then_some(lexicon),
                 lang: Some("en-us".into()),
                 ..Default::default()
+            };
+        }
+        SherpaModelFamily::Supertonic => {
+            model_config.supertonic = OfflineTtsSupertonicModelConfig {
+                duration_predictor: Some(
+                    model_dir
+                        .join("duration_predictor.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                text_encoder: Some(
+                    model_dir
+                        .join("text_encoder.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                vector_estimator: Some(
+                    model_dir
+                        .join("vector_estimator.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                vocoder: Some(model_dir.join("vocoder.int8.onnx").display().to_string()),
+                tts_json: Some(model_dir.join("tts.json").display().to_string()),
+                unicode_indexer: Some(model_dir.join("unicode_indexer.bin").display().to_string()),
+                voice_style: Some(model_dir.join("voice.bin").display().to_string()),
             };
         }
         SherpaModelFamily::Vits => {

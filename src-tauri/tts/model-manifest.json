@@ -23,6 +23,30 @@
       "archiveBytes": 67177830,
       "platforms": ["desktop", "android"],
       "licenseNote": "Model repository is MIT; training-dataset license/provenance needs review before redistribution."
+    },
+    {
+      "id": "sherpa-onnx/supertonic-3-en",
+      "family": "supertonic",
+      "language": "en-US",
+      "modelName": "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+      "sourceLabel": "k2-fsa/sherpa-onnx SupertonicTTS 3 int8",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+      "sha256": "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427",
+      "archiveBytes": 123000000,
+      "platforms": ["desktop", "android"],
+      "licenseNote": "Experimental multilingual SupertonicTTS 3 entry; performance and quality should be benchmarked per device."
+    },
+    {
+      "id": "sherpa-onnx/supertonic-3-ar",
+      "family": "supertonic",
+      "language": "ar",
+      "modelName": "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+      "sourceLabel": "k2-fsa/sherpa-onnx SupertonicTTS 3 int8",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+      "sha256": "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427",
+      "archiveBytes": 123000000,
+      "platforms": ["desktop", "android"],
+      "licenseNote": "Experimental multilingual SupertonicTTS 3 entry; performance and quality should be benchmarked per device."
     }
   ],
   "notes": [
