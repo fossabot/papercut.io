@@ -422,7 +422,10 @@ Each stage should be easy to review and commit independently.
 - Add named-entity consistency checks:
   - Current first slice treats glossary entries as explicit protected entities.
   - Future automatic NER should be model/library-backed; do not hand-roll broad multilingual NER with regexes.
-- Add section regeneration.
+- Add section regeneration foundation:
+  - Keep quality failures internally structured by issue kind and optional source section ordinal.
+  - Continue returning user-readable errors at the command/storage boundary for now.
+  - Future retry loop can use those section ids to regenerate only failed sections instead of rerunning a whole book.
 - Add optional chapter repair pass.
 
 ### Stage 8: Quality Model Spikes

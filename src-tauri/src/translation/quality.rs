@@ -19,6 +19,43 @@ const MAX_REPEAT_COUNT: usize = 5;
 const MIN_LENGTH_RATIO: f32 = 0.05;
 const MAX_LENGTH_RATIO: f32 = 8.0;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TranslationQualityIssue {
+    pub(crate) kind: TranslationQualityIssueKind,
+    pub(crate) source_ordinal: Option<usize>,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TranslationQualityIssueKind {
+    EmptyOutput,
+    LengthRatio,
+    RepeatedOutput,
+    GlossaryTarget,
+    BrokenInternalLink,
+}
+
+impl TranslationQualityIssue {
+    fn new(
+        kind: TranslationQualityIssueKind,
+        source_ordinal: Option<usize>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            source_ordinal,
+            message: message.into(),
+        }
+    }
+
+    fn to_user_message(&self) -> String {
+        match self.source_ordinal {
+            Some(ordinal) => format!("source section {}: {}", ordinal + 1, self.message),
+            None => self.message.clone(),
+        }
+    }
+}
+
 /// Validate generated translated HTML before it is promoted into reader/search storage.
 ///
 /// This runs after rendering because some problems only exist in final HTML.
@@ -30,12 +67,12 @@ pub(crate) fn validate_translated_output(
     sections: &[PersistTranslationSection],
     glossary: &[TranslationGlossaryEntry],
 ) -> Result<(), String> {
-    validate_non_empty_sections(sections)?;
-    validate_length_ratios(source_blocks, sections)?;
-    validate_repeated_outputs(sections)?;
-    validate_glossary_terms(source_blocks, sections, glossary)?;
+    validate_non_empty_sections(sections).map_err(format_quality_issue)?;
+    validate_length_ratios(source_blocks, sections).map_err(format_quality_issue)?;
+    validate_repeated_outputs(sections).map_err(format_quality_issue)?;
+    validate_glossary_terms(source_blocks, sections, glossary).map_err(format_quality_issue)?;
     let document = parse_html().one(html.to_string());
-    validate_internal_links(&document)?;
+    validate_internal_links(&document).map_err(format_quality_issue)?;
     Ok(())
 }
 
@@ -44,14 +81,20 @@ pub(crate) fn validate_translated_output(
 /// Native engines can fail softly by returning empty strings for all segments.
 /// That should be reported as a translation failure, not stored as a valid
 /// translated document with empty search rows.
-fn validate_non_empty_sections(sections: &[PersistTranslationSection]) -> Result<(), String> {
+fn validate_non_empty_sections(
+    sections: &[PersistTranslationSection],
+) -> Result<(), TranslationQualityIssue> {
     if sections
         .iter()
         .any(|section| !section.text.trim().is_empty())
     {
         Ok(())
     } else {
-        Err("Translation output was empty".into())
+        Err(TranslationQualityIssue::new(
+            TranslationQualityIssueKind::EmptyOutput,
+            None,
+            "Translation output was empty",
+        ))
     }
 }
 
@@ -63,7 +106,7 @@ fn validate_non_empty_sections(sections: &[PersistTranslationSection]) -> Result
 fn validate_length_ratios(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
-) -> Result<(), String> {
+) -> Result<(), TranslationQualityIssue> {
     for (index, section) in sections.iter().enumerate() {
         let Some(source) = source_block_for_section(source_blocks, section, index) else {
             continue;
@@ -75,11 +118,13 @@ fn validate_length_ratios(
         }
         let ratio = translated_chars as f32 / source_chars as f32;
         if !(MIN_LENGTH_RATIO..=MAX_LENGTH_RATIO).contains(&ratio) {
-            return Err(format!(
-                "Translation output length looks unsafe at source section {}: source {} chars, translated {} chars",
-                source.ordinal + 1,
-                source_chars,
-                translated_chars
+            return Err(TranslationQualityIssue::new(
+                TranslationQualityIssueKind::LengthRatio,
+                Some(source.ordinal),
+                format!(
+                    "Translation output length looks unsafe: source {} chars, translated {} chars",
+                    source_chars, translated_chars
+                ),
             ));
         }
     }
@@ -91,19 +136,27 @@ fn validate_length_ratios(
 /// A common local-model failure mode is returning the same generic sentence for
 /// every segment. This does not block repeated short labels/headings; it only
 /// catches long repeated bodies that would make a book unusable.
-fn validate_repeated_outputs(sections: &[PersistTranslationSection]) -> Result<(), String> {
-    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+fn validate_repeated_outputs(
+    sections: &[PersistTranslationSection],
+) -> Result<(), TranslationQualityIssue> {
+    let mut counts = std::collections::BTreeMap::<String, (usize, usize)>::new();
     for section in sections.iter().filter(|section| !section.is_heading) {
         let normalized = normalize_quality_text(&section.text);
         if normalized.chars().count() < MIN_TRANSLATED_REPEAT_CHARS {
             continue;
         }
-        let count = counts.entry(normalized.clone()).or_insert(0);
+        let (count, first_ordinal) = counts
+            .entry(normalized.clone())
+            .or_insert((0, section.source_ordinal));
         *count += 1;
         if *count >= MAX_REPEAT_COUNT {
-            return Err(format!(
-                "Translation output repeats the same long text across {MAX_REPEAT_COUNT} sections: {}",
-                truncate_quality_preview(&normalized, 80)
+            return Err(TranslationQualityIssue::new(
+                TranslationQualityIssueKind::RepeatedOutput,
+                Some(*first_ordinal),
+                format!(
+                    "Translation output repeats the same long text across {MAX_REPEAT_COUNT} sections: {}",
+                    truncate_quality_preview(&normalized, 80)
+                ),
             ));
         }
     }
@@ -120,7 +173,7 @@ fn validate_glossary_terms(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
     glossary: &[TranslationGlossaryEntry],
-) -> Result<(), String> {
+) -> Result<(), TranslationQualityIssue> {
     if glossary.is_empty() {
         return Ok(());
     }
@@ -132,11 +185,14 @@ fn validate_glossary_terms(
             if contains_case_insensitive(&source.text, &entry.source)
                 && !contains_case_insensitive(&section.text, &entry.target)
             {
-                return Err(format!(
-                    "Translation output missed glossary target {:?} for source term {:?} at source section {}",
-                    entry.target.trim(),
-                    entry.source.trim(),
-                    source.ordinal + 1
+                return Err(TranslationQualityIssue::new(
+                    TranslationQualityIssueKind::GlossaryTarget,
+                    Some(source.ordinal),
+                    format!(
+                        "Translation output missed glossary target {:?} for source term {:?}",
+                        entry.target.trim(),
+                        entry.source.trim()
+                    ),
                 ));
             }
         }
@@ -149,10 +205,16 @@ fn validate_glossary_terms(
 /// This catches the common preservation regression: footnote/table-of-contents
 /// links survive as `href="#note"` but the target id is lost during rendering.
 /// External links and empty page-top anchors are ignored here.
-fn validate_internal_links(document: &NodeRef) -> Result<(), String> {
+fn validate_internal_links(document: &NodeRef) -> Result<(), TranslationQualityIssue> {
     let ids = document
         .select("[id]")
-        .map_err(|_| "Failed to inspect translated HTML ids".to_string())?
+        .map_err(|_| {
+            TranslationQualityIssue::new(
+                TranslationQualityIssueKind::BrokenInternalLink,
+                None,
+                "Failed to inspect translated HTML ids",
+            )
+        })?
         .filter_map(|node| {
             node.attributes
                 .borrow()
@@ -163,10 +225,13 @@ fn validate_internal_links(document: &NodeRef) -> Result<(), String> {
         .collect::<HashSet<_>>();
 
     let mut missing = Vec::new();
-    for node in document
-        .select("a[href]")
-        .map_err(|_| "Failed to inspect translated HTML links".to_string())?
-    {
+    for node in document.select("a[href]").map_err(|_| {
+        TranslationQualityIssue::new(
+            TranslationQualityIssueKind::BrokenInternalLink,
+            None,
+            "Failed to inspect translated HTML links",
+        )
+    })? {
         let href = node
             .attributes
             .borrow()
@@ -189,11 +254,19 @@ fn validate_internal_links(document: &NodeRef) -> Result<(), String> {
     if missing.is_empty() {
         Ok(())
     } else {
-        Err(format!(
-            "Translation output has broken internal link target(s): {}",
-            missing.join(", ")
+        Err(TranslationQualityIssue::new(
+            TranslationQualityIssueKind::BrokenInternalLink,
+            None,
+            format!(
+                "Translation output has broken internal link target(s): {}",
+                missing.join(", ")
+            ),
         ))
     }
+}
+
+fn format_quality_issue(issue: TranslationQualityIssue) -> String {
+    issue.to_user_message()
 }
 
 fn source_block_for_section<'a>(
