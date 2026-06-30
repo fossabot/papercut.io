@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Emitter;
 
+use super::cache::{load_segment_cache, save_segment_cache};
 use super::config::{
     DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
     TRANSLATION_BACKEND_UNAVAILABLE, TRANSLATION_JOB_PROGRESS_EVENT,
@@ -16,7 +17,7 @@ use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
     TranslationBatchInput, TranslationEngine, TranslationSegmentContext, TranslationSegmentInput,
 };
-use super::job::{plan_translation_job, TranslationJobPlan};
+use super::job::{plan_translation_job, TranslationBatchPlan, TranslationJobPlan};
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
 use super::source::{load_translation_source_document, TranslationSourceDocument};
@@ -267,6 +268,7 @@ fn run_translation_batches<R: tauri::Runtime>(
     let mut completed_segments = 0;
     let mut preview = String::new();
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
+    let mut cache = load_segment_cache(app, plan)?;
     for batch in &plan.batches {
         if is_cancelled(&state.cancelled_jobs, job_id)? {
             emit_translation_progress(
@@ -285,23 +287,45 @@ fn run_translation_batches<R: tauri::Runtime>(
             return Err("Translation cancelled".into());
         }
 
-        let outputs = engine.translate_batch(batch_input(plan, batch))?;
-        completed_segments += outputs.len();
-        for (segment, output) in batch.segments.iter().zip(outputs.iter()) {
-            if let Some(block_text) = translated_blocks.get_mut(segment.source_block_index) {
-                if !block_text.is_empty() {
-                    block_text.push(' ');
+        let mut pending_batch = TranslationBatchPlan {
+            index: batch.index,
+            segments: Vec::new(),
+        };
+        for segment in &batch.segments {
+            if let Some(cached_text) = cache.translated_text_for(segment) {
+                completed_segments += 1;
+                append_translated_segment(
+                    &mut translated_blocks,
+                    segment.source_block_index,
+                    cached_text,
+                );
+                if preview.is_empty() && !cached_text.trim().is_empty() {
+                    preview = cached_text.trim().to_string();
                 }
-                block_text.push_str(output.text.trim());
+            } else {
+                pending_batch.segments.push(segment.clone());
             }
         }
-        if preview.is_empty() {
-            preview = outputs
-                .iter()
-                .map(|output| output.text.trim())
-                .find(|text| !text.is_empty())
-                .unwrap_or("")
-                .to_string();
+
+        let reused_only = pending_batch.segments.is_empty();
+        if !reused_only {
+            let outputs = engine.translate_batch(batch_input(plan, &pending_batch))?;
+            let mut translated_count = 0;
+            for (segment, output) in pending_batch.segments.iter().zip(outputs.iter()) {
+                translated_count += 1;
+                let translated_text = output.text.trim().to_string();
+                append_translated_segment(
+                    &mut translated_blocks,
+                    segment.source_block_index,
+                    &translated_text,
+                );
+                if preview.is_empty() && !translated_text.is_empty() {
+                    preview = translated_text.clone();
+                }
+                cache.store_translation(segment, translated_text);
+            }
+            completed_segments += translated_count;
+            save_segment_cache(app, plan, &cache)?;
         }
 
         emit_translation_progress(
@@ -309,7 +333,11 @@ fn run_translation_batches<R: tauri::Runtime>(
             progress(
                 job_id,
                 "translating",
-                "Translated batch",
+                if reused_only {
+                    "Reused cached batch"
+                } else {
+                    "Translated batch"
+                },
                 plan,
                 completed_segments,
                 batch.index + 1,
@@ -352,6 +380,20 @@ fn run_translation_batches<R: tauri::Runtime>(
         preview: truncate_preview(preview.trim(), 240),
         sections,
     })
+}
+
+fn append_translated_segment(blocks: &mut [String], source_block_index: usize, text: &str) {
+    let Some(block_text) = blocks.get_mut(source_block_index) else {
+        return;
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    if !block_text.is_empty() {
+        block_text.push(' ');
+    }
+    block_text.push_str(text);
 }
 
 fn batch_input(

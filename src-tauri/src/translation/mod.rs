@@ -7,6 +7,7 @@
 //! capabilities so frontend work can integrate against stable command names
 //! before any native translation engine is chosen.
 
+mod cache;
 pub(crate) mod commands;
 mod config;
 mod ctranslate2;

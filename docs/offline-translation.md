@@ -368,9 +368,14 @@ Each stage should be easy to review and commit independently.
   - Record translation provenance in `translated_documents`.
   - Delete translated variants without mutating the original uploaded document.
   - Refresh Library/Search state after translation create/delete so the generated document list stays in sync outside the Translation tab.
+- Add resume-safe per-segment cache manifests:
+  - Store completed segment translations under `<app-data>/translation/segment-cache/{cache-key}/segments.json`.
+  - Key cache compatibility by model, language pair, quality mode, segment limits, and source text hash.
+  - Reuse cached segments before calling the native engine so cancelled or failed large-book runs do not throw away completed batches.
+  - Save the manifest after each completed batch to keep retries useful without waiting for the whole book to finish.
 - Next implementation steps:
-  - Add resume-safe per-segment cache manifests before large-book retries ship.
   - Add staged writes/cleanup for interrupted persistence so very large translated books never leave confusing partial variants.
+  - Add visible resumed/cached segment counts to the Translation progress UI.
 
 ### Stage 6: HTML/EPUB Preservation
 
