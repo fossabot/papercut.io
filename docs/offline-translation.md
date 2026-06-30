@@ -378,8 +378,7 @@ Each stage should be easy to review and commit independently.
   - Remove promoted generated files if upload/search indexing fails.
   - Remove the generated upload if translation provenance metadata fails to commit.
   - Keep original source documents untouched throughout cleanup.
-- Next implementation steps:
-  - Add visible resumed/cached segment counts to the Translation progress UI.
+- Add visible resumed/cached segment counts to the Translation progress UI.
 
 ### Stage 6: HTML/EPUB Preservation
 

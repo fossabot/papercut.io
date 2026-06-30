@@ -74,6 +74,9 @@ export interface TranslationJobProgress {
   message: string
   completedSegments: number
   totalSegments: number
+  cachedSegments: number
+  translatedSegments: number
+  reusedSegmentsInBatch: number
   completedBatches: number
   totalBatches: number
   percent: number

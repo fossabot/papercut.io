@@ -164,6 +164,8 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                             "Storing translated document",
                             &plan,
                             plan.total_segments,
+                            summary.cached_segments,
+                            0,
                             plan.batches.len(),
                             &summary.preview,
                         ),
@@ -188,6 +190,8 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                             "Translated document stored",
                             &plan,
                             plan.total_segments,
+                            summary.cached_segments,
+                            0,
                             plan.batches.len(),
                             &summary.preview,
                         ),
@@ -236,6 +240,7 @@ pub(super) fn cancel_translation(
 
 struct TranslationRunSummary {
     preview: String,
+    cached_segments: usize,
     sections: Vec<PersistTranslationSection>,
 }
 
@@ -261,11 +266,14 @@ fn run_translation_batches<R: tauri::Runtime>(
             plan,
             0,
             0,
+            0,
+            0,
             "",
         ),
     )?;
 
     let mut completed_segments = 0;
+    let mut cached_segments = 0;
     let mut preview = String::new();
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
     let mut cache = load_segment_cache(app, plan)?;
@@ -279,6 +287,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                     "Translation cancelled",
                     plan,
                     completed_segments,
+                    cached_segments,
+                    0,
                     batch.index,
                     &preview,
                 ),
@@ -291,9 +301,12 @@ fn run_translation_batches<R: tauri::Runtime>(
             index: batch.index,
             segments: Vec::new(),
         };
+        let mut reused_segments_in_batch = 0;
         for segment in &batch.segments {
             if let Some(cached_text) = cache.translated_text_for(segment) {
                 completed_segments += 1;
+                cached_segments += 1;
+                reused_segments_in_batch += 1;
                 append_translated_segment(
                     &mut translated_blocks,
                     segment.source_block_index,
@@ -340,6 +353,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                 },
                 plan,
                 completed_segments,
+                cached_segments,
+                reused_segments_in_batch,
                 batch.index + 1,
                 &preview,
             ),
@@ -354,6 +369,8 @@ fn run_translation_batches<R: tauri::Runtime>(
             "Translation completed in memory",
             plan,
             completed_segments,
+            cached_segments,
+            0,
             plan.batches.len(),
             &preview,
         ),
@@ -378,6 +395,7 @@ fn run_translation_batches<R: tauri::Runtime>(
         .collect();
     Ok(TranslationRunSummary {
         preview: truncate_preview(preview.trim(), 240),
+        cached_segments,
         sections,
     })
 }
@@ -423,6 +441,8 @@ fn progress(
     message: &str,
     plan: &TranslationJobPlan,
     completed_segments: usize,
+    cached_segments: usize,
+    reused_segments_in_batch: usize,
     completed_batches: usize,
     preview: &str,
 ) -> TranslationJobProgress {
@@ -437,6 +457,9 @@ fn progress(
         message: message.into(),
         completed_segments,
         total_segments: plan.total_segments,
+        cached_segments,
+        translated_segments: completed_segments.saturating_sub(cached_segments),
+        reused_segments_in_batch,
         completed_batches,
         total_batches: plan.batches.len(),
         percent,

@@ -378,6 +378,13 @@ function TranslationProgressMeter({ progress }: { progress: TranslationJobProgre
       <small>
         {progress.completedSegments} of {progress.totalSegments} segments · {progress.completedBatches} of {progress.totalBatches} batches
       </small>
+      {progress.cachedSegments > 0 && (
+        <small>
+          Reused {progress.cachedSegments} cached segment{progress.cachedSegments === 1 ? '' : 's'}
+          {progress.translatedSegments > 0 ? ' · Translated ' + progress.translatedSegments + ' fresh' : ''}
+          {progress.reusedSegmentsInBatch > 0 ? ' · Current batch reused ' + progress.reusedSegmentsInBatch : ''}
+        </small>
+      )}
       {progress.preview && <small>Preview: {progress.preview}</small>}
     </div>
   )
