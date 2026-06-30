@@ -102,12 +102,10 @@ pub(crate) fn installed_translation_model_dir<R: Runtime>(
     Ok(translation_models_root(app)?.join(manifest.directory_name))
 }
 
-/// Scratch root for future downloads/extraction work.
+/// Scratch root for downloads and staged install work.
 ///
-/// This is not used to download anything yet, but defining it now keeps the
-/// eventual installer aligned with TTS: work happens in cache, then a verified
-/// model is promoted into app data.
-#[allow(dead_code)]
+/// Keeping partial downloads in cache mirrors the TTS installer: work happens
+/// outside durable app data, then a complete verified model is promoted.
 pub(crate) fn translation_model_work_dir<R: Runtime>(
     app: &tauri::AppHandle<R>,
     manifest: TranslationModelManifest,

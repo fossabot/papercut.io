@@ -355,7 +355,12 @@ Each stage should be easy to review and commit independently.
   - Load per-model status lazily with the Translation tab.
   - Show install buttons only for pinned file manifests.
   - Display download progress and installed badges in the candidate model cards.
-- Keep `translation_start` unavailable until the CTranslate2 engine and tokenizer are wired.
+- Wire installed models into translation preflight:
+  - Reject unknown models and unsupported language pairs before reading large documents.
+  - Require the selected pinned CTranslate2 model to be installed before job planning.
+  - Build the future CTranslate2 engine config from the verified model directory.
+  - Still stop before inference until CTranslate2 loading and tokenization are wired.
+- Keep translated output unavailable until the CTranslate2 engine and tokenizer are wired.
 - Translate bounded text segments.
 - Emit progress events.
 - Store translated output and index it.

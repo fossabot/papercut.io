@@ -7,9 +7,10 @@ use super::config::{
     DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
     TRANSLATION_BACKEND_UNAVAILABLE,
 };
+use super::ctranslate2::CTranslate2Engine;
 use super::job::plan_translation_job;
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
-use super::models::{find_planned_model, planned_models};
+use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
 use super::source::load_translation_source_document;
 use super::state::TranslationState;
 use super::types::{
@@ -98,6 +99,27 @@ pub(super) fn start_translation<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     request: TranslationStartRequest,
 ) -> Result<TranslationStartResponse, String> {
+    let model = find_planned_model(&request.model_id).ok_or_else(|| {
+        format!(
+            "Translation model {:?} is not in the planned catalog",
+            request.model_id
+        )
+    })?;
+    validate_language_pair(model, &request)?;
+    let manifest = manifest_for(model);
+    if !manifest.installable {
+        return Err(format!(
+            "{} is still a planning candidate and cannot run translation preflight yet.",
+            model.name
+        ));
+    }
+    let model_dir = resolve_translation_model_dir(app, manifest).map_err(|_| {
+        format!(
+            "{} must be installed before translation can run. Open the Translation tab and install the model first.",
+            model.name
+        )
+    })?;
+
     let source = load_translation_source_document(app, &request.document_url)?;
     let source_blocks = source.blocks.iter().map(|block| block.text.as_str());
     let plan = plan_translation_job(
@@ -107,17 +129,57 @@ pub(super) fn start_translation<R: tauri::Runtime>(
         DEFAULT_BATCH_SEGMENT_LIMIT,
     );
     match plan {
-        Ok(plan) => Err(format!(
-            "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}'.",
-            plan.total_segments,
-            plan.batches.len(),
-            source.title
-        )),
+        Ok(plan) => {
+            let engine =
+                CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir);
+            Err(format!(
+                "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native CTranslate2 inference is not wired yet.",
+                plan.total_segments,
+                plan.batches.len(),
+                source.title,
+                engine.config().model_id,
+                engine.config().model_dir.display()
+            ))
+        }
         Err(err) => Err(err),
     }
 }
 
 pub(super) fn cancel_translation(request: TranslationCancelRequest) -> Result<(), String> {
     let _ = request.job_id;
+    Ok(())
+}
+
+fn validate_language_pair(
+    model: TranslationModelDefinition,
+    request: &TranslationStartRequest,
+) -> Result<(), String> {
+    let source_ok = request.source_language == "auto"
+        || model
+            .source_languages
+            .iter()
+            .any(|language| *language == request.source_language);
+    if !source_ok {
+        return Err(format!(
+            "{} does not support source language {:?}. Supported: {}",
+            model.name,
+            request.source_language,
+            model.source_languages.join(", ")
+        ));
+    }
+
+    if !model
+        .target_languages
+        .iter()
+        .any(|language| *language == request.target_language)
+    {
+        return Err(format!(
+            "{} does not support target language {:?}. Supported: {}",
+            model.name,
+            request.target_language,
+            model.target_languages.join(", ")
+        ));
+    }
+
     Ok(())
 }

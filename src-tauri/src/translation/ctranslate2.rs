@@ -29,6 +29,22 @@ pub(crate) struct CTranslate2Engine {
 }
 
 impl CTranslate2Engine {
+    /// Prepare the future native runtime from a verified on-disk model folder.
+    ///
+    /// This still does not load CTranslate2. It is the handoff point between
+    /// model-install validation and the eventual native binding/wrapper, so
+    /// `translation_start` can prove it has a real model directory before
+    /// returning the current "inference not wired" response.
+    pub(crate) fn for_installed_model(model_id: impl Into<String>, model_dir: PathBuf) -> Self {
+        Self::new(CTranslate2EngineConfig {
+            model_id: model_id.into(),
+            model_dir,
+            device: CTranslate2Device::Cpu,
+            inter_threads: 1,
+            intra_threads: default_intra_threads(),
+        })
+    }
+
     /// Create the future CTranslate2 engine adapter without loading native code.
     ///
     /// The real implementation should validate converted model files here, then
@@ -55,6 +71,12 @@ impl TranslationEngine for CTranslate2Engine {
     }
 }
 
+fn default_intra_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get().clamp(1, 8))
+        .unwrap_or(1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -73,5 +95,17 @@ mod tests {
 
         assert_eq!(engine.config().model_id, "opus-mt-es-en-ctranslate2");
         assert_eq!(engine.config().device, CTranslate2Device::Cpu);
+    }
+
+    #[test]
+    fn prepares_engine_from_installed_model_dir() {
+        let engine = CTranslate2Engine::for_installed_model(
+            "opus-mt-fr-en-ctranslate2",
+            PathBuf::from("/tmp/fr-en"),
+        );
+
+        assert_eq!(engine.config().model_id, "opus-mt-fr-en-ctranslate2");
+        assert_eq!(engine.config().model_dir, PathBuf::from("/tmp/fr-en"));
+        assert!(engine.config().intra_threads >= 1);
     }
 }
