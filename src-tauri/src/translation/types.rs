@@ -52,7 +52,7 @@ pub(crate) struct TranslationModelStatusRequest {
     pub(crate) model_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TranslationStartRequest {
     pub(crate) document_url: String,

@@ -316,8 +316,10 @@ Each stage should be easy to review and commit independently.
 
 - Add a native translation engine boundary without pulling in CTranslate2 yet.
 - Add deterministic text segmentation with bounded segment sizes, stable ids, and unit tests.
+- Add a job planner that validates request shape, batches bounded segments, and creates a deterministic settings cache key.
 - Keep this stage dependency-free so the branch stays easy to build/review before native packaging decisions.
 - Treat segment context as quality hints only; translated output must map back by segment id, not by prompt text.
+- Use per-segment content hashes in the future cache manifest before resume/regeneration ships; the current job key only separates incompatible settings.
 - Document the CTranslate2 integration decision: Rust bindings exist, but choosing one affects native library packaging, Android support, tokenizer handling, and model cache layout.
 
 ### Stage 5B: CTranslate2 MVP

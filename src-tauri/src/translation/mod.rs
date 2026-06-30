@@ -10,6 +10,7 @@
 pub(crate) mod commands;
 mod config;
 mod engine;
+mod job;
 mod models;
 mod segment;
 mod storage;
