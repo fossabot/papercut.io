@@ -805,11 +805,13 @@ mod tests {
                 id: "a".into(),
                 text: "First".into(),
                 text_hash: Some("hash-a".into()),
+                source_span: None,
             },
             NativeTtsInputChunk {
                 id: "b".into(),
                 text: "Second".into(),
                 text_hash: Some("hash-b".into()),
+                source_span: None,
             },
         ]
     }
