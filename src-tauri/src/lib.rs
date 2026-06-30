@@ -1,5 +1,6 @@
 mod document_uploads;
 mod native_tts;
+mod translation;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +36,12 @@ pub fn run() {
             native_tts::commands::tts_get_imported_audiobook_source,
             native_tts::commands::tts_get_imported_audiobook_metadata,
             native_tts::commands::tts_delete_audiobook_native,
+            translation::commands::translation_capabilities,
+            translation::commands::translation_model_status,
+            translation::commands::translation_start,
+            translation::commands::translation_cancel,
+            translation::commands::translation_list_documents,
+            translation::commands::translation_delete_document,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

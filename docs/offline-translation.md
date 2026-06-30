@@ -295,6 +295,7 @@ Each stage should be easy to review and commit independently.
 - Add `src-tauri/src/translation/` with `types`, `models`, `config`, `commands`, and a stub engine.
 - Register commands behind a disabled or stubbed feature.
 - Return deterministic "translation unavailable" capabilities in browser/non-native paths.
+- Keep planned model entries as inert metadata until checksum, license, required-file, and platform-gating review is complete.
 - Add unit tests for model lookup and cache-key construction.
 
 ### Stage 3: Translated Variant Storage
