@@ -4,6 +4,10 @@ import type {
   TranslatedDocumentInfo,
   TranslationCapabilities,
   TranslationDeleteResult,
+  TranslationModelInstallProgress,
+  TranslationModelInstallResult,
+  TranslationModelInfo,
+  TranslationModelStatus,
   TranslationStartRequest,
   TranslationStartResult,
 } from '../api/nativeTranslation'
@@ -19,6 +23,13 @@ interface TranslationPanelProps {
   deleteState: TranslationDeleteResult | null
   error: string
   loading: boolean
+  modelInstallState: {
+    installingModelId: string
+    progress: TranslationModelInstallProgress | null
+    result: TranslationModelInstallResult | null
+    message: string
+  }
+  modelStatuses: Record<string, TranslationModelStatus>
   selectedDocument: TranslationSeedDocument | null
   startState: {
     checking: boolean
@@ -27,6 +38,7 @@ interface TranslationPanelProps {
   }
   translatedDocuments: TranslatedDocumentInfo[]
   onDeleteTranslatedDocument: (id: string) => Promise<void>
+  onInstallTranslationModel: (modelId: string) => Promise<void>
   onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -36,10 +48,13 @@ export function TranslationPanel({
   deleteState,
   error,
   loading,
+  modelInstallState,
+  modelStatuses,
   selectedDocument,
   startState,
   translatedDocuments,
   onDeleteTranslatedDocument,
+  onInstallTranslationModel,
   onStartTranslationPreflight,
   refresh,
 }: TranslationPanelProps) {
@@ -212,6 +227,21 @@ export function TranslationPanel({
         </div>
       )}
 
+      {modelInstallState.message && (
+        <div
+          className={'translation-alert' + (modelInstallState.result ? '' : ' translation-alert-neutral')}
+          role="status"
+        >
+          <strong>{modelInstallState.result ? 'Model installed' : 'Model install'}</strong>
+          <span>{modelInstallState.message}</span>
+          {modelInstallState.progress && modelInstallState.progress.status !== 'installed' && (
+            <div className="translation-progress-meter" aria-label={'Translation model download ' + modelInstallState.progress.percent + '% complete'}>
+              <span style={{ width: modelInstallState.progress.percent + '%' }} />
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="translation-roadmap-grid">
         <article>
           <h3>Target Architecture</h3>
@@ -236,14 +266,26 @@ export function TranslationPanel({
           <div className="translation-model-list">
             {capabilities.models.map((model) => (
               <article key={model.id} className="translation-model-item">
-                <div>
-                  <strong>{model.name}</strong>
-                  <span>{model.engine} · {model.tier} · {model.manifestState}</span>
+                <div className="translation-model-item-header">
+                  <div>
+                    <strong>{model.name}</strong>
+                    <span>{model.engine} · {model.tier} · {model.manifestState}</span>
+                  </div>
+                  <TranslationModelInstallButton
+                    model={model}
+                    progress={modelInstallState.progress?.modelId === model.id ? modelInstallState.progress : null}
+                    status={modelStatuses[model.id]}
+                    disabled={Boolean(modelInstallState.installingModelId)}
+                    onInstall={onInstallTranslationModel}
+                  />
                 </div>
                 <p>{model.notes}</p>
                 <small>
                   {model.sourceLanguages.join(', ')} to {model.targetLanguages.join(', ')}
                 </small>
+                {modelStatuses[model.id] && (
+                  <small>{formatModelStatus(modelStatuses[model.id])}</small>
+                )}
                 <small>{model.licenseNotes}</small>
                 <small>{model.sizeNotes}</small>
               </article>
@@ -289,6 +331,41 @@ export function TranslationPanel({
   )
 }
 
+interface TranslationModelInstallButtonProps {
+  disabled: boolean
+  model: TranslationModelInfo
+  progress: TranslationModelInstallProgress | null
+  status?: TranslationModelStatus
+  onInstall: (modelId: string) => Promise<void>
+}
+
+function TranslationModelInstallButton({
+  disabled,
+  model,
+  progress,
+  status,
+  onInstall,
+}: TranslationModelInstallButtonProps) {
+  const installable = model.manifestState === 'pinned-file-manifest'
+  const installing = progress !== null || status?.installing
+  if (status?.installed) {
+    return <span className="translation-model-badge">Installed</span>
+  }
+  if (!installable) {
+    return <span className="translation-model-badge translation-model-badge-muted">Planned</span>
+  }
+  return (
+    <button
+      type="button"
+      className="translation-model-install-btn"
+      disabled={disabled || installing}
+      onClick={() => { void onInstall(model.id) }}
+    >
+      {installing ? 'Installing ' + (progress?.percent ?? 0) + '%' : 'Install'}
+    </button>
+  )
+}
+
 function formatDocumentFormat(format?: string): string {
   if (!format) return 'Document'
   return format.toUpperCase()
@@ -301,6 +378,27 @@ function formatLanguageLabel(language: string): string {
 
 function formatQualityLabel(mode: string): string {
   return mode.charAt(0).toUpperCase() + mode.slice(1)
+}
+
+function formatModelStatus(status: TranslationModelStatus): string {
+  if (status.installed) {
+    return 'Installed · ' + formatBytes(status.installedBytes)
+  }
+  if (status.installing) {
+    return 'Download in progress · ' + formatBytes(status.archiveBytes)
+  }
+  if (status.archiveBytes > 0) {
+    return 'Download size · ' + formatBytes(status.archiveBytes)
+  }
+  return status.message
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB'
+  const mb = bytes / (1024 * 1024)
+  if (mb < 1024) return mb.toFixed(mb >= 100 ? 0 : 1) + ' MB'
+  const gb = mb / 1024
+  return gb.toFixed(gb >= 10 ? 1 : 2) + ' GB'
 }
 
 function uniqueOptions(values: string[]): string[] {

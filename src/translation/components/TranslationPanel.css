@@ -70,6 +70,23 @@
   border-color: var(--border-strong);
 }
 
+.translation-progress-meter {
+  width: 100%;
+  height: 0.45rem;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.translation-progress-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
 .translation-selected-document,
 .translation-empty-state {
   display: grid;
@@ -231,10 +248,51 @@
   min-width: 0;
 }
 
+.translation-model-item .translation-model-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .translation-model-item p {
   margin: 0;
   color: var(--text-body);
   line-height: 1.4;
+}
+
+.translation-model-badge,
+.translation-model-install-btn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.translation-model-install-btn {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.translation-model-install-btn:hover:not(:disabled),
+.translation-model-install-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.translation-model-install-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.translation-model-badge-muted {
+  opacity: 0.78;
 }
 
 .translation-document-item button {
@@ -285,6 +343,16 @@
   .translation-document-item {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .translation-model-item .translation-model-item-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .translation-model-badge,
+  .translation-model-install-btn {
+    justify-self: start;
   }
 
   .translation-document-item button {

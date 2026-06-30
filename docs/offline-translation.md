@@ -351,6 +351,10 @@ Each stage should be easy to review and commit independently.
   - Promote the complete verified folder into app data only after all files pass validation.
   - Emit model-install progress events for future UI wiring.
   - Keep the install command separate from `translation_start`, because having model files on disk does not mean the translation engine can run yet.
+- Wire the Translation tab to model install state:
+  - Load per-model status lazily with the Translation tab.
+  - Show install buttons only for pinned file manifests.
+  - Display download progress and installed badges in the candidate model cards.
 - Keep `translation_start` unavailable until the CTranslate2 engine and tokenizer are wired.
 - Translate bounded text segments.
 - Emit progress events.
