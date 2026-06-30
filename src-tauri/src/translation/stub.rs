@@ -384,11 +384,18 @@ fn run_translation_batches<R: tauri::Runtime>(
             if text.is_empty() {
                 return None;
             }
+            let source_block = source.blocks.get(index);
+            let heading = source_block.and_then(|block| block.heading.clone());
+            let is_heading = source_block.is_some_and(|block| {
+                block
+                    .heading
+                    .as_deref()
+                    .is_some_and(|heading| heading.trim() == block.text.trim())
+            });
             Some(PersistTranslationSection {
-                heading: source
-                    .blocks
-                    .get(index)
-                    .and_then(|block| block.heading.clone()),
+                heading,
+                source_ordinal: source_block.map(|block| block.ordinal).unwrap_or(index),
+                is_heading,
                 text,
             })
         })

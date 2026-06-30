@@ -65,6 +65,8 @@ pub(crate) struct PersistTranslationRequest {
 
 pub(crate) struct PersistTranslationSection {
     pub(crate) heading: Option<String>,
+    pub(crate) source_ordinal: usize,
+    pub(crate) is_heading: bool,
     pub(crate) text: String,
 }
 
@@ -285,15 +287,30 @@ fn ensure_translation_schema(db: &rusqlite::Connection) -> Result<(), String> {
 fn render_translated_html(title: &str, request: &PersistTranslationRequest) -> String {
     let mut body = String::new();
     for section in &request.translated_sections {
-        body.push_str("<section>");
+        let section_id = format!("translation-section-{}", section.source_ordinal + 1);
+        body.push_str("<section id=\"");
+        body.push_str(&section_id);
+        body.push_str("\" data-source-ordinal=\"");
+        body.push_str(&section.source_ordinal.to_string());
+        body.push('"');
         if let Some(heading) = section
             .heading
             .as_deref()
             .filter(|heading| !heading.trim().is_empty())
         {
-            body.push_str("<h2>");
+            body.push_str(" data-source-heading=\"");
             body.push_str(&escape_html(heading));
+            body.push('"');
+        }
+        body.push('>');
+        if section.is_heading {
+            body.push_str("<h2 id=\"");
+            body.push_str(&section_id);
+            body.push_str("-heading\">");
+            body.push_str(&escape_html(section.text.trim()));
             body.push_str("</h2>");
+            body.push_str("</section>");
+            continue;
         }
         for paragraph in section
             .text
@@ -370,7 +387,11 @@ fn db_err(err: rusqlite::Error) -> String {
 mod tests {
     use rusqlite::Connection;
 
-    use super::ensure_translation_schema;
+    use super::{
+        ensure_translation_schema, render_translated_html, PersistTranslationRequest,
+        PersistTranslationSection,
+    };
+    use crate::translation::source::{TranslationSourceBlock, TranslationSourceDocument};
 
     #[test]
     fn schema_bootstrap_is_idempotent() {
@@ -403,5 +424,57 @@ mod tests {
             )
             .expect("version");
         assert_eq!(version, "1");
+    }
+
+    #[test]
+    fn translated_html_preserves_section_order_and_heading_shape() {
+        let request = PersistTranslationRequest {
+            source: TranslationSourceDocument {
+                document_id: "source1".into(),
+                document_url: "/uploads/source1.html".into(),
+                title: "Livre".into(),
+                format: "html".into(),
+                blocks: vec![
+                    TranslationSourceBlock {
+                        ordinal: 0,
+                        heading: Some("Chapitre".into()),
+                        text: "Chapitre".into(),
+                    },
+                    TranslationSourceBlock {
+                        ordinal: 1,
+                        heading: Some("Chapitre".into()),
+                        text: "Bonjour".into(),
+                    },
+                ],
+            },
+            source_language: "fr".into(),
+            target_language: "en".into(),
+            model_id: "opus-mt-fr-en-ctranslate2".into(),
+            quality_mode: "balanced".into(),
+            job_id: "job1".into(),
+            translated_sections: vec![
+                PersistTranslationSection {
+                    heading: Some("Chapitre".into()),
+                    source_ordinal: 0,
+                    is_heading: true,
+                    text: "Chapter".into(),
+                },
+                PersistTranslationSection {
+                    heading: Some("Chapitre".into()),
+                    source_ordinal: 1,
+                    is_heading: false,
+                    text: "Hello".into(),
+                },
+            ],
+        };
+
+        let html = render_translated_html("Livre (English translation)", &request);
+
+        assert!(html.contains("id=\"translation-section-1\""));
+        assert!(html.contains("data-source-ordinal=\"0\""));
+        assert!(html.contains("<h2 id=\"translation-section-1-heading\">Chapter</h2>"));
+        assert!(html.contains("id=\"translation-section-2\""));
+        assert!(html.contains("<p>Hello</p>"));
+        assert!(!html.contains("<h2>Chapitre</h2>"));
     }
 }

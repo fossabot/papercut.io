@@ -382,7 +382,14 @@ Each stage should be easy to review and commit independently.
 
 ### Stage 6: HTML/EPUB Preservation
 
-- Preserve anchors, headings, footnotes, images, and document order.
+- Preserve document order and heading shape from the existing section data:
+  - Carry source section ordinals into translated output.
+  - Render translated heading blocks as headings instead of duplicating original-language headings.
+  - Add stable translated-section anchors and source metadata attributes.
+- Next preservation work requires a section locator/DOM transform layer:
+  - Use the sanitized reader `view_html` as the source of truth.
+  - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
+  - Preserve TOC links, footnotes, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
 - Add fixtures for footnotes, links, RTL text, mixed-language paragraphs, and tables.
 - Add quality checks for broken links and empty output.
 
