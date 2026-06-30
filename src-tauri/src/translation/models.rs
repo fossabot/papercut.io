@@ -13,9 +13,12 @@ pub(crate) struct TranslationModelDefinition {
     pub(crate) name: &'static str,
     pub(crate) engine: &'static str,
     pub(crate) tier: &'static str,
+    pub(crate) manifest_state: &'static str,
     pub(crate) source_languages: &'static [&'static str],
     pub(crate) target_languages: &'static [&'static str],
     pub(crate) recommended_platforms: &'static [&'static str],
+    pub(crate) license_notes: &'static str,
+    pub(crate) size_notes: &'static str,
     pub(crate) notes: &'static str,
 }
 
@@ -31,6 +34,7 @@ impl TranslationModelDefinition {
             name: self.name.into(),
             engine: self.engine.into(),
             tier: self.tier.into(),
+            manifest_state: self.manifest_state.into(),
             source_languages: self
                 .source_languages
                 .iter()
@@ -47,6 +51,8 @@ impl TranslationModelDefinition {
                 .iter()
                 .map(|platform| (*platform).into())
                 .collect(),
+            license_notes: self.license_notes.into(),
+            size_notes: self.size_notes.into(),
             notes: self.notes.into(),
         }
     }
@@ -64,9 +70,12 @@ pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
         name: "OPUS-MT Pair Model",
         engine: "ctranslate2",
         tier: "fast",
+        manifest_state: "candidate-only",
         source_languages: &["ar", "de", "es", "fr", "ru", "zh"],
         target_languages: &["en"],
         recommended_platforms: &["desktop", "android"],
+        license_notes: "Requires pair-specific license and model-card review before download support.",
+        size_notes: "Varies by language pair; expected to be the smallest first spike.",
         notes: "Fast pair-specific baseline; each language pair needs license and quality review.",
     },
     TranslationModelDefinition {
@@ -74,9 +83,12 @@ pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
         name: "TranslateGemma 4B",
         engine: "llama.cpp",
         tier: "quality",
+        manifest_state: "candidate-only",
         source_languages: &["ar", "de", "es", "fr", "ru", "zh"],
         target_languages: &["en"],
         recommended_platforms: &["desktop"],
+        license_notes: "Requires Google model-license review and packaging approval.",
+        size_notes: "Large desktop candidate; mobile feasibility must be benchmarked before listing.",
         notes: "Quality-focused candidate; license, quantization, RAM, and mobile feasibility need review.",
     },
     TranslationModelDefinition {
@@ -84,9 +96,12 @@ pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
         name: "Qwen3 8B",
         engine: "llama.cpp",
         tier: "context",
+        manifest_state: "candidate-only",
         source_languages: &["ar", "de", "es", "fr", "ru", "zh"],
         target_languages: &["en"],
         recommended_platforms: &["desktop"],
+        license_notes: "Requires model-license, prompt-policy, and redistribution review.",
+        size_notes: "Large desktop experiment; not a default mobile candidate.",
         notes: "Context-rich academic-prose experiment; needs strict prompts and QA to avoid paraphrase drift.",
     },
 ];
@@ -101,4 +116,44 @@ pub(crate) fn planned_models() -> Vec<TranslationModelInfo> {
         .iter()
         .map(|model| model.to_info())
         .collect()
+}
+
+pub(crate) fn find_planned_model(id: &str) -> Option<TranslationModelDefinition> {
+    PLANNED_TRANSLATION_MODELS
+        .iter()
+        .copied()
+        .find(|model| model.id == id)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{find_planned_model, planned_models, PLANNED_TRANSLATION_MODELS};
+
+    #[test]
+    fn planned_model_ids_are_unique() {
+        let mut seen = HashSet::new();
+
+        for model in PLANNED_TRANSLATION_MODELS {
+            assert!(seen.insert(model.id), "duplicate model id {}", model.id);
+        }
+    }
+
+    #[test]
+    fn planned_models_remain_candidate_only() {
+        for model in planned_models() {
+            assert_eq!(model.manifest_state, "candidate-only");
+            assert!(!model.license_notes.is_empty());
+            assert!(!model.size_notes.is_empty());
+        }
+    }
+
+    #[test]
+    fn finds_planned_model_by_id() {
+        let model = find_planned_model("opus-mt-pair-ctranslate2").expect("model");
+
+        assert_eq!(model.engine, "ctranslate2");
+        assert!(find_planned_model("missing-model").is_none());
+    }
 }

@@ -12,10 +12,13 @@ export interface TranslationModelInfo {
   name: string
   engine: string
   tier: string
+  manifestState: string
   sourceLanguages: string[]
   targetLanguages: string[]
   defaultQualityMode: string
   recommendedPlatforms: string[]
+  licenseNotes: string
+  sizeNotes: string
   notes: string
 }
 

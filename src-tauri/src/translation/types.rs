@@ -24,10 +24,13 @@ pub(crate) struct TranslationModelInfo {
     pub(crate) name: String,
     pub(crate) engine: String,
     pub(crate) tier: String,
+    pub(crate) manifest_state: String,
     pub(crate) source_languages: Vec<String>,
     pub(crate) target_languages: Vec<String>,
     pub(crate) default_quality_mode: String,
     pub(crate) recommended_platforms: Vec<String>,
+    pub(crate) license_notes: String,
+    pub(crate) size_notes: String,
     pub(crate) notes: String,
 }
 

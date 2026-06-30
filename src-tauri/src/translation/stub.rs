@@ -8,7 +8,7 @@ use super::config::{
     TRANSLATION_BACKEND_UNAVAILABLE,
 };
 use super::job::plan_translation_job;
-use super::models::planned_models;
+use super::models::{find_planned_model, planned_models};
 use super::source::load_translation_source_document;
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationModelStatus,
@@ -33,17 +33,34 @@ pub(super) fn translation_capabilities() -> TranslationCapabilities {
 pub(super) fn translation_model_status(
     request: TranslationModelStatusRequest,
 ) -> TranslationModelStatus {
+    let Some(model) = find_planned_model(&request.model_id) else {
+        return TranslationModelStatus {
+            model_id: request.model_id,
+            installed: false,
+            installing: false,
+            model_dir: None,
+            source_url: String::new(),
+            source_label: "Unknown offline translation model".into(),
+            archive_bytes: 0,
+            installed_bytes: 0,
+            sha256: String::new(),
+            message: "Translation model is not in the planned catalog.".into(),
+        };
+    };
+
     TranslationModelStatus {
-        model_id: request.model_id,
+        model_id: model.id.into(),
         installed: false,
         installing: false,
         model_dir: None,
         source_url: String::new(),
-        source_label: "Offline translation model catalog".into(),
+        source_label: format!("{} ({})", model.name, model.manifest_state),
         archive_bytes: 0,
         installed_bytes: 0,
         sha256: String::new(),
-        message: NOT_IMPLEMENTED.into(),
+        message: format!(
+            "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
+        ),
     }
 }
 

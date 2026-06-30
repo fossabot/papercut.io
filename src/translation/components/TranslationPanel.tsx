@@ -131,12 +131,14 @@ export function TranslationPanel({
               <article key={model.id} className="translation-model-item">
                 <div>
                   <strong>{model.name}</strong>
-                  <span>{model.engine} · {model.tier}</span>
+                  <span>{model.engine} · {model.tier} · {model.manifestState}</span>
                 </div>
                 <p>{model.notes}</p>
                 <small>
                   {model.sourceLanguages.join(', ')} to {model.targetLanguages.join(', ')}
                 </small>
+                <small>{model.licenseNotes}</small>
+                <small>{model.sizeNotes}</small>
               </article>
             ))}
           </div>
