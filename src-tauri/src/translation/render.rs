@@ -56,6 +56,8 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
             section.text.trim(),
         ) {
             // The helper already replaced the deepest safe inline wrapper text.
+        } else if replace_text_projecting_inline_formatting(node.as_node(), section.text.trim()) {
+            // The helper projected safe source emphasis spans onto translated text.
         } else {
             replace_children_with_text(node.as_node(), section.text.trim());
         }
@@ -278,11 +280,275 @@ fn is_inline_formatting_element(node: &NodeRef) -> bool {
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InlineFormattingSpan {
+    start: usize,
+    end: usize,
+    tags: Vec<String>,
+}
+
+/// Project mixed inline emphasis spans onto translated text.
+///
+/// This is still conservative: source DOM text nodes give us inline span
+/// positions/tag stacks, then we map each span by relative character position
+/// snapped to translated word boundaries. If projected spans overlap or cannot
+/// land cleanly, we keep the plain-text fallback rather than drawing misleading
+/// emphasis.
+fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &str) -> bool {
+    let (source_text, spans) = source_text_and_inline_formatting_spans(node);
+    if source_text.is_empty() || translated_text.trim().is_empty() || spans.is_empty() {
+        return false;
+    }
+
+    let source_len = source_text.chars().count();
+    if source_len == 0
+        || spans
+            .iter()
+            .any(|span| span.start == 0 && span.end >= source_len)
+    {
+        return false;
+    }
+
+    let Some(projected_spans) = projected_translated_spans(&spans, source_len, translated_text)
+    else {
+        return false;
+    };
+    if projected_spans.is_empty() {
+        return false;
+    }
+
+    replace_children_with_projected_formatting(node, translated_text, &projected_spans);
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectedInlineSpan {
+    start: usize,
+    end: usize,
+    tags: Vec<String>,
+}
+
+fn source_text_and_inline_formatting_spans(node: &NodeRef) -> (String, Vec<InlineFormattingSpan>) {
+    let mut text = String::new();
+    let mut spans = Vec::new();
+    collect_inline_formatting_spans(node, &mut Vec::new(), &mut text, &mut spans);
+    (text, coalesce_inline_spans(spans))
+}
+
+fn collect_inline_formatting_spans(
+    node: &NodeRef,
+    active_tags: &mut Vec<String>,
+    text: &mut String,
+    spans: &mut Vec<InlineFormattingSpan>,
+) {
+    if let Some(value) = node.as_text() {
+        let start = text.chars().count();
+        append_normalized_text(text, &value.borrow());
+        let end = text.chars().count();
+        if start < end && !active_tags.is_empty() {
+            spans.push(InlineFormattingSpan {
+                start,
+                end,
+                tags: active_tags.clone(),
+            });
+        }
+        return;
+    }
+
+    let pushed_tag = inline_formatting_tag_name(node);
+    if let Some(tag) = pushed_tag.clone() {
+        active_tags.push(tag);
+    }
+    for child in node.children() {
+        collect_inline_formatting_spans(&child, active_tags, text, spans);
+    }
+    if pushed_tag.is_some() {
+        active_tags.pop();
+    }
+}
+
+fn append_normalized_text(output: &mut String, text: &str) {
+    for word in text.split_whitespace() {
+        if !output.is_empty() {
+            output.push(' ');
+        }
+        output.push_str(word);
+    }
+}
+
+fn inline_formatting_tag_name(node: &NodeRef) -> Option<String> {
+    let element = node.as_element()?;
+    let tag = element.name.local.as_ref();
+    if matches!(
+        tag,
+        "b" | "strong" | "i" | "em" | "u" | "s" | "sub" | "sup" | "code" | "mark"
+    ) {
+        Some(tag.to_string())
+    } else {
+        None
+    }
+}
+
+fn coalesce_inline_spans(spans: Vec<InlineFormattingSpan>) -> Vec<InlineFormattingSpan> {
+    let mut merged: Vec<InlineFormattingSpan> = Vec::new();
+    for span in spans {
+        if let Some(previous) = merged.last_mut() {
+            if previous.end == span.start && previous.tags == span.tags {
+                previous.end = span.end;
+                continue;
+            }
+        }
+        merged.push(span);
+    }
+    merged
+}
+
+fn projected_translated_byte_range(
+    span: &InlineFormattingSpan,
+    source_len: usize,
+    translated_text: &str,
+) -> Option<(usize, usize)> {
+    if source_len == 0 {
+        return None;
+    }
+    let translated_len = translated_text.chars().count();
+    if translated_len == 0 {
+        return None;
+    }
+
+    let start = span.start.saturating_mul(translated_len) / source_len;
+    let mut end = span.end.saturating_mul(translated_len).div_ceil(source_len);
+    if end <= start {
+        end = (start + 1).min(translated_len);
+    }
+    translated_word_byte_range(translated_text, start, end)
+}
+
+fn projected_translated_spans(
+    spans: &[InlineFormattingSpan],
+    source_len: usize,
+    translated_text: &str,
+) -> Option<Vec<ProjectedInlineSpan>> {
+    let mut projected = Vec::new();
+    for span in spans {
+        let (start, end) = projected_translated_byte_range(span, source_len, translated_text)?;
+        if start >= end {
+            return None;
+        }
+        projected.push(ProjectedInlineSpan {
+            start,
+            end,
+            tags: span.tags.clone(),
+        });
+    }
+
+    projected.sort_by_key(|span| (span.start, span.end));
+    for pair in projected.windows(2) {
+        if pair[0].end > pair[1].start {
+            return None;
+        }
+    }
+
+    Some(projected)
+}
+
+fn translated_word_byte_range(
+    text: &str,
+    start_char: usize,
+    end_char: usize,
+) -> Option<(usize, usize)> {
+    let chars = text.char_indices().collect::<Vec<_>>();
+    if chars.is_empty() {
+        return None;
+    }
+    let len = chars.len();
+    let mut start = start_char.min(len.saturating_sub(1));
+    let mut end = end_char.min(len);
+    if end <= start {
+        end = (start + 1).min(len);
+    }
+
+    while start > 0 && is_word_char(chars[start - 1].1) && is_word_char(chars[start].1) {
+        start -= 1;
+    }
+    while end < len && is_word_char(chars[end - 1].1) && is_word_char(chars[end].1) {
+        end += 1;
+    }
+
+    while start < end && !is_word_char(chars[start].1) {
+        start += 1;
+    }
+    while end > start && !is_word_char(chars[end - 1].1) {
+        end -= 1;
+    }
+
+    if start >= end {
+        return None;
+    }
+    let byte_start = chars[start].0;
+    let byte_end = if end < len { chars[end].0 } else { text.len() };
+    Some((byte_start, byte_end))
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch.is_alphanumeric() || ch == '\'' || ch == '\u{2019}' || ch == '-'
+}
+
+fn replace_children_with_projected_formatting(
+    node: &NodeRef,
+    translated_text: &str,
+    spans: &[ProjectedInlineSpan],
+) {
+    let children = node.children().collect::<Vec<_>>();
+    for child in children {
+        child.detach();
+    }
+
+    let mut cursor = 0usize;
+    for span in spans {
+        if cursor < span.start {
+            node.append(NodeRef::new_text(&translated_text[cursor..span.start]));
+        }
+        let emphasized = &translated_text[span.start..span.end];
+        if let Some(formatted) = formatted_inline_node(&span.tags, emphasized) {
+            node.append(formatted);
+        } else {
+            node.append(NodeRef::new_text(emphasized));
+        }
+        cursor = span.end;
+    }
+    if cursor < translated_text.len() {
+        node.append(NodeRef::new_text(&translated_text[cursor..]));
+    }
+}
+
+fn formatted_inline_node(tags: &[String], text: &str) -> Option<NodeRef> {
+    let outer = tags.first()?;
+    let mut html = String::from("<!doctype html><html><body>");
+    for tag in tags {
+        html.push('<');
+        html.push_str(tag);
+        html.push('>');
+    }
+    html.push_str(&escape_html(text));
+    for tag in tags.iter().rev() {
+        html.push_str("</");
+        html.push_str(tag);
+        html.push('>');
+    }
+    html.push_str("</body></html>");
+    let wrapper = parse_html_document(html);
+    wrapper
+        .select_first(outer.as_str())
+        .ok()
+        .map(|node| node.as_node().clone())
+}
+
 /// Replace all child nodes with one text node.
 ///
-/// This is the plain-text fallback for blocks whose inline formatting is mixed
-/// or ambiguous. Richer word-level replacement should wait for exact
-/// source-text-node locators.
+/// This is the plain-text fallback for blocks whose inline formatting is too
+/// ambiguous for the current span projection. Richer replacement should
+/// wait for exact source-text-node locators.
 fn replace_children_with_text(node: &NodeRef, text: &str) {
     let children = node.children().collect::<Vec<_>>();
     for child in children {
@@ -377,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_partial_inline_emphasis_until_alignment_exists() {
+    fn projects_single_partial_inline_emphasis_to_translated_word_boundary() {
         let request = request(
             "<!doctype html><html><body><article><p>Esto es <strong>importante</strong>.</p></article></body></html>",
             vec![section(0, false, "This is important.")],
@@ -385,8 +651,22 @@ mod tests {
 
         let html = render_translated_html("Translated", &request);
 
-        assert!(html.contains(">This is important.</p>"));
-        assert!(!html.contains("<strong>important</strong>"));
+        assert!(html.contains(">This is <strong>important</strong>.</p>"));
+        assert!(!html.contains("importante"));
+    }
+
+    #[test]
+    fn projects_multiple_partial_inline_spans_when_ranges_do_not_overlap() {
+        let request = request(
+            "<!doctype html><html><body><article><p>Esto es <strong>importante</strong> y <em>urgente</em>.</p></article></body></html>",
+            vec![section(0, false, "This is important and urgent.")],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains(">This is <strong>important</strong> and <em>urgent</em>.</p>"));
+        assert!(!html.contains("importante"));
+        assert!(!html.contains("urgente"));
     }
 
     #[test]
