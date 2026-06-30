@@ -17,6 +17,7 @@ import { TabNav, type AppTab } from './components/TabNav/TabNav'
 import { SearchScope } from './components/SearchScope/SearchScope'
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle'
 import { TranslationPanel, type TranslationSeedDocument } from './translation/components/TranslationPanel'
+import { useTranslationManager } from './translation/hooks/useTranslationManager'
 import { useDocumentFilters } from './hooks/useDocumentFilters'
 import { useTheme } from './hooks/useTheme'
 import type { DocumentInfo } from './types/search'
@@ -70,6 +71,7 @@ function App() {
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
   const [ttsDiagnosticsEnabled, setTtsDiagnosticsEnabled] = useState(() => isDebugEnabled())
   const { pagefindRef, pagefindReady, allDocuments, documentsLoading } = usePagefind()
+  const translation = useTranslationManager({ enabled: activeTab === 'translation' })
 
   const loadHtmlDocument = useCallback(async (url: string): Promise<string> => {
     if (isUploadedDocumentUrl(url)) return getUploadedDocumentSource(url)
@@ -471,7 +473,10 @@ function App() {
 
       {activeTab === 'translation' && (
         <section className="tab-panel" role="tabpanel" aria-label="Translation">
-          <TranslationPanel selectedDocument={translationSeedDocument} />
+          <TranslationPanel
+            {...translation}
+            selectedDocument={translationSeedDocument}
+          />
         </section>
       )}
 

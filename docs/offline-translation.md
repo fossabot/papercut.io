@@ -307,9 +307,10 @@ Each stage should be easy to review and commit independently.
 
 ### Stage 4: Job Progress UI
 
-- Add React API, hook, and minimal Translation panel.
-- Display capabilities, model status, and fake/stub progress.
-- Keep UI disabled when native translation is unavailable.
+- Add React API, hook, and minimal Translation panel wired to the stub/storage commands.
+- Load translation state lazily when the Translation tab is opened so normal Search/Library startup does not touch translation storage.
+- Display capabilities, planned model metadata, translated-variant list/delete state, and clear unavailable messaging.
+- Keep job controls disabled while native translation is unavailable. Do not add fake progress.
 
 ### Stage 5: CTranslate2 MVP
 
