@@ -281,9 +281,21 @@ function normalizeLocatorMatchChar(char: string): string {
 }
 
 function shouldDropArabicMatchChar(char: string): boolean {
+  const cp = char.codePointAt(0)
+  if (cp === undefined) return false
+
   return (
-    char === '\u0640' ||
-    /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u200C\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069]/u.test(char)
+    cp === 0x0640 || // tatweel
+    cp === 0x0670 || // superscript alef
+    cp === 0x200c || // ZWNJ
+    cp === 0x200d || // ZWJ
+    cp === 0x200e || // LRM
+    cp === 0x200f || // RLM
+    (cp >= 0x0610 && cp <= 0x061a) ||
+    (cp >= 0x064b && cp <= 0x065f) ||
+    (cp >= 0x06d6 && cp <= 0x06ed) ||
+    (cp >= 0x202a && cp <= 0x202e) ||
+    (cp >= 0x2066 && cp <= 0x2069)
   )
 }
 
