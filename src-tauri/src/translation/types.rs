@@ -85,7 +85,22 @@ pub(crate) struct TranslationStartRequest {
     pub(crate) model_id: String,
     pub(crate) quality_mode: String,
     #[serde(default)]
+    pub(crate) repair_mode: TranslationRepairMode,
+    #[serde(default)]
     pub(crate) glossary: Vec<TranslationGlossaryEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum TranslationRepairMode {
+    Off,
+    Chapter,
+}
+
+impl Default for TranslationRepairMode {
+    fn default() -> Self {
+        Self::Off
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -60,6 +60,7 @@ export interface TranslationStartRequest {
   targetLanguage: string
   modelId: string
   qualityMode: string
+  repairMode?: 'off' | 'chapter'
   glossary?: TranslationGlossaryEntry[]
 }
 

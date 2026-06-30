@@ -90,6 +90,7 @@ pub(crate) fn build_translation_cache_key(request: &TranslationStartRequest) -> 
     hash_cache_part(&mut hash, &request.target_language);
     hash_cache_part(&mut hash, &request.model_id);
     hash_cache_part(&mut hash, &request.quality_mode);
+    hash_cache_part(&mut hash, repair_mode_cache_part(request));
     for entry in &request.glossary {
         hash_cache_part(&mut hash, entry.source.trim());
         hash_cache_part(&mut hash, entry.target.trim());
@@ -174,6 +175,13 @@ fn normalize_glossary_key(value: &str) -> String {
         .to_lowercase()
 }
 
+fn repair_mode_cache_part(request: &TranslationStartRequest) -> &'static str {
+    match request.repair_mode {
+        crate::translation::types::TranslationRepairMode::Off => "off",
+        crate::translation::types::TranslationRepairMode::Chapter => "chapter",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_translation_cache_key, plan_translation_job};
@@ -186,6 +194,7 @@ mod tests {
             target_language: "en".into(),
             model_id: "opus-ar-en".into(),
             quality_mode: "balanced".into(),
+            repair_mode: Default::default(),
             glossary: Vec::new(),
         }
     }
@@ -244,6 +253,18 @@ mod tests {
                 target: "State".into(),
                 note: Some("Political term".into()),
             });
+
+        assert_ne!(
+            build_translation_cache_key(&first),
+            build_translation_cache_key(&second)
+        );
+    }
+
+    #[test]
+    fn cache_key_changes_with_repair_mode() {
+        let first = request();
+        let mut second = request();
+        second.repair_mode = crate::translation::types::TranslationRepairMode::Chapter;
 
         assert_ne!(
             build_translation_cache_key(&first),

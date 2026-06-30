@@ -20,7 +20,10 @@ use crate::document_uploads::{
 use super::quality::validate_translated_output;
 use super::render::render_translated_html;
 use super::source::TranslationSourceDocument;
-use super::types::{TranslatedDocumentInfo, TranslationDeleteResponse, TranslationGlossaryEntry};
+use super::types::{
+    TranslatedDocumentInfo, TranslationDeleteResponse, TranslationGlossaryEntry,
+    TranslationRepairMode,
+};
 
 const TRANSLATION_SCHEMA_VERSION: &str = "1";
 
@@ -61,6 +64,7 @@ pub(crate) struct PersistTranslationRequest {
     pub(crate) target_language: String,
     pub(crate) model_id: String,
     pub(crate) quality_mode: String,
+    pub(crate) repair_mode: TranslationRepairMode,
     pub(crate) job_id: String,
     pub(crate) glossary: Vec<TranslationGlossaryEntry>,
     pub(crate) translated_sections: Vec<PersistTranslationSection>,
@@ -128,6 +132,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
     let settings_json = serde_json::json!({
         "jobId": request.job_id,
         "qualityMode": request.quality_mode,
+        "repairMode": repair_mode_label(&request.repair_mode),
         "sourceFormat": request.source.format,
         "glossaryEntries": request.glossary.len(),
     })
@@ -304,6 +309,7 @@ fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> Str
     request.target_language.hash(&mut hasher);
     request.model_id.hash(&mut hasher);
     request.quality_mode.hash(&mut hasher);
+    repair_mode_label(&request.repair_mode).hash(&mut hasher);
     hash_glossary_entries(&request.glossary, &mut hasher);
     request.job_id.hash(&mut hasher);
     now.hash(&mut hasher);
@@ -324,6 +330,13 @@ fn hash_glossary_entries(glossary: &[TranslationGlossaryEntry], hasher: &mut Def
         entry.source.trim().hash(hasher);
         entry.target.trim().hash(hasher);
         entry.note.as_deref().unwrap_or("").trim().hash(hasher);
+    }
+}
+
+fn repair_mode_label(mode: &TranslationRepairMode) -> &'static str {
+    match mode {
+        TranslationRepairMode::Off => "off",
+        TranslationRepairMode::Chapter => "chapter",
     }
 }
 
@@ -413,6 +426,7 @@ mod tests {
             target_language: "en".into(),
             model_id: "opus-mt-fr-en-ctranslate2".into(),
             quality_mode: "balanced".into(),
+            repair_mode: Default::default(),
             job_id: "job1".into(),
             glossary: Vec::new(),
             translated_sections: vec![

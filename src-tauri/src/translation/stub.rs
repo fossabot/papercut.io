@@ -191,6 +191,7 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                             target_language: plan.request.target_language.clone(),
                             model_id: plan.request.model_id.clone(),
                             quality_mode: plan.request.quality_mode.clone(),
+                            repair_mode: plan.request.repair_mode.clone(),
                             job_id: job_id.clone(),
                             glossary: plan.request.glossary.clone(),
                             translated_sections: summary.sections,
@@ -479,6 +480,7 @@ fn batch_input(
         source_language: plan.request.source_language.clone(),
         target_language: plan.request.target_language.clone(),
         quality_mode: plan.request.quality_mode.clone(),
+        repair_mode: plan.request.repair_mode.clone(),
         glossary: plan.request.glossary.clone(),
         segments: batch
             .segments

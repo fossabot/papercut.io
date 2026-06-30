@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use super::types::TranslationGlossaryEntry;
+use super::types::{TranslationGlossaryEntry, TranslationRepairMode};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TranslationBatchInput {
@@ -16,6 +16,7 @@ pub(crate) struct TranslationBatchInput {
     pub(crate) source_language: String,
     pub(crate) target_language: String,
     pub(crate) quality_mode: String,
+    pub(crate) repair_mode: TranslationRepairMode,
     pub(crate) glossary: Vec<TranslationGlossaryEntry>,
     pub(crate) segments: Vec<TranslationSegmentInput>,
 }

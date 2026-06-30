@@ -426,7 +426,10 @@ Each stage should be easy to review and commit independently.
   - Keep quality failures internally structured by issue kind and optional source section ordinal.
   - Continue returning user-readable errors at the command/storage boundary for now.
   - Future retry loop can use those section ids to regenerate only failed sections instead of rerunning a whole book.
-- Add optional chapter repair pass.
+- Add optional chapter repair pass scaffolding:
+  - Add `repairMode` to translation requests and cache identity.
+  - Default remains `off`; no repair pass runs yet.
+  - Carry repair mode through engine and persistence metadata so future quality models can add chapter-level repair without changing command shape.
 
 ### Stage 8: Quality Model Spikes
 
