@@ -4,6 +4,7 @@ import type {
   TranslatedDocumentInfo,
   TranslationCapabilities,
   TranslationDeleteResult,
+  TranslationJobProgress,
   TranslationModelInstallProgress,
   TranslationModelInstallResult,
   TranslationModelInfo,
@@ -32,11 +33,15 @@ interface TranslationPanelProps {
   modelStatuses: Record<string, TranslationModelStatus>
   selectedDocument: TranslationSeedDocument | null
   startState: {
+    cancelling: boolean
     checking: boolean
+    jobId: string
+    progress: TranslationJobProgress | null
     result: TranslationStartResult | null
     message: string
   }
   translatedDocuments: TranslatedDocumentInfo[]
+  onCancelTranslation: () => Promise<void>
   onDeleteTranslatedDocument: (id: string) => Promise<void>
   onInstallTranslationModel: (modelId: string) => Promise<void>
   onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
@@ -53,6 +58,7 @@ export function TranslationPanel({
   selectedDocument,
   startState,
   translatedDocuments,
+  onCancelTranslation,
   onDeleteTranslatedDocument,
   onInstallTranslationModel,
   onStartTranslationPreflight,
@@ -193,22 +199,34 @@ export function TranslationPanel({
               </select>
             </label>
           </div>
-          <button
-            type="button"
-            disabled={startState.checking || !activeModelId}
-            title="Validate the selected document against the planned translation job pipeline"
-            onClick={() => {
-              void onStartTranslationPreflight({
-                documentUrl: selectedDocument.url,
-                sourceLanguage: activeSourceLanguage,
-                targetLanguage: activeTargetLanguage,
-                modelId: activeModelId,
-                qualityMode: activeQualityMode,
-              })
-            }}
-          >
-            {startState.checking ? 'Checking...' : 'Check Readiness'}
-          </button>
+          <div className="translation-action-row">
+            <button
+              type="button"
+              disabled={startState.checking || !activeModelId}
+              title="Run the selected document through the translation job pipeline"
+              onClick={() => {
+                void onStartTranslationPreflight({
+                  documentUrl: selectedDocument.url,
+                  sourceLanguage: activeSourceLanguage,
+                  targetLanguage: activeTargetLanguage,
+                  modelId: activeModelId,
+                  qualityMode: activeQualityMode,
+                })
+              }}
+            >
+              {startState.checking ? 'Translating...' : 'Run Translation'}
+            </button>
+            {startState.checking && (
+              <button
+                type="button"
+                className="translation-cancel-btn"
+                disabled={startState.cancelling}
+                onClick={() => { void onCancelTranslation() }}
+              >
+                {startState.cancelling ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="translation-empty-state">
@@ -224,6 +242,9 @@ export function TranslationPanel({
         >
           <strong>{startState.result ? 'Translation job response' : 'Translation preflight'}</strong>
           <span>{startState.message}</span>
+          {startState.progress && (
+            <TranslationProgressMeter progress={startState.progress} />
+          )}
         </div>
       )}
 
@@ -328,6 +349,27 @@ export function TranslationPanel({
         )}
       </section>
     </section>
+  )
+}
+
+function TranslationProgressMeter({ progress }: { progress: TranslationJobProgress }) {
+  return (
+    <div className="translation-job-progress">
+      <div className="translation-job-progress-header">
+        <span>{formatQualityLabel(progress.status)}</span>
+        <span>{progress.percent}%</span>
+      </div>
+      <div
+        className="translation-progress-meter"
+        aria-label={'Translation job ' + progress.percent + '% complete'}
+      >
+        <span style={{ width: progress.percent + '%' }} />
+      </div>
+      <small>
+        {progress.completedSegments} of {progress.totalSegments} segments · {progress.completedBatches} of {progress.totalBatches} batches
+      </small>
+      {progress.preview && <small>Preview: {progress.preview}</small>}
+    </div>
   )
 }
 

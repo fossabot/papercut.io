@@ -3,22 +3,28 @@
 //! This is not a "fake translator"; it only exposes capabilities and stable
 //! command responses while native translation engines are still being evaluated.
 
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
+use tauri::Emitter;
+
 use super::config::{
-    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
-    TRANSLATION_BACKEND_UNAVAILABLE,
+    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_JOB_PROGRESS_EVENT,
+    DEFAULT_TRANSLATION_QUALITY_MODE, TRANSLATION_BACKEND_UNAVAILABLE,
 };
 use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
     TranslationBatchInput, TranslationEngine, TranslationSegmentContext, TranslationSegmentInput,
 };
-use super::job::plan_translation_job;
+use super::job::{plan_translation_job, TranslationJobPlan};
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
 use super::source::load_translation_source_document;
 use super::state::TranslationState;
 use super::types::{
-    TranslationCancelRequest, TranslationCapabilities, TranslationModelStatus,
-    TranslationModelStatusRequest, TranslationStartRequest, TranslationStartResponse,
+    TranslationCancelRequest, TranslationCapabilities, TranslationJobProgress,
+    TranslationModelStatus, TranslationModelStatusRequest, TranslationStartRequest,
+    TranslationStartResponse,
 };
 
 const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemented in this build.";
@@ -100,6 +106,7 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
 
 pub(super) fn start_translation<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    state: &TranslationState,
     request: TranslationStartRequest,
 ) -> Result<TranslationStartResponse, String> {
     let model = find_planned_model(&request.model_id).ok_or_else(|| {
@@ -133,23 +140,32 @@ pub(super) fn start_translation<R: tauri::Runtime>(
     );
     match plan {
         Ok(plan) => {
+            let job_id = plan
+                .request
+                .job_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&plan.cache_key)
+                .to_string();
+            clear_cancelled(&state.cancelled_jobs, &job_id)?;
             let mut engine =
                 CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir)?;
-            match run_smoke_translation(&mut engine, &plan) {
-                Ok(preview) => Ok(TranslationStartResponse {
-                    job_id: plan.cache_key,
-                    status: "preflight-ready".into(),
+            match run_translation_batches(app, state, &mut engine, &plan, &job_id) {
+                Ok(summary) => Ok(TranslationStartResponse {
+                    job_id,
+                    status: "translated-in-memory".into(),
                     message: format!(
-                        "Native translation smoke test succeeded for '{}': {} segment(s), {} batch(es), preview: {}. Full translated-document storage is the next implementation stage.",
+                        "Native translation finished in memory for '{}': {} segment(s), {} batch(es), preview: {}. Full translated-document storage is the next implementation stage.",
                         source.title,
                         plan.total_segments,
                         plan.batches.len(),
-                        preview
+                        summary.preview
                     ),
                 }),
                 Err(err) => {
+                    let _ = clear_cancelled(&state.cancelled_jobs, &job_id);
                     let message = format!(
-                        "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native smoke translation did not complete: {err}",
+                        "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native in-memory translation did not complete: {err}",
                         plan.total_segments,
                         plan.batches.len(),
                         source.title,
@@ -164,30 +180,121 @@ pub(super) fn start_translation<R: tauri::Runtime>(
     }
 }
 
-pub(super) fn cancel_translation(request: TranslationCancelRequest) -> Result<(), String> {
-    let _ = request.job_id;
+pub(super) fn cancel_translation(
+    state: &TranslationState,
+    request: TranslationCancelRequest,
+) -> Result<(), String> {
+    let mut cancelled = state
+        .cancelled_jobs
+        .lock()
+        .map_err(|_| "Translation cancellation lock poisoned".to_string())?;
+    cancelled.insert(request.job_id);
     Ok(())
 }
 
-/// Translate the first planned batch only.
+struct TranslationRunSummary {
+    preview: String,
+}
+
+/// Translate every planned batch without writing a translated document yet.
 ///
-/// This deliberately stops short of writing a translated document. It proves
-/// the installed OPUS-MT files, tokenizer discovery, and CTranslate2 runtime
-/// can cooperate before we add resumable full-book jobs and indexed variants.
-fn run_smoke_translation(
+/// This is the last validation step before durable variants: it exercises the
+/// same batching/cancellation path a real long-book job will use, while still
+/// avoiding partial output files and index writes until those semantics are
+/// ready.
+fn run_translation_batches<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    state: &TranslationState,
     engine: &mut CTranslate2Engine,
-    plan: &super::job::TranslationJobPlan,
-) -> Result<String, String> {
-    let first_batch = plan
-        .batches
-        .first()
-        .ok_or_else(|| "Translation plan has no batches".to_string())?;
-    let input = TranslationBatchInput {
+    plan: &TranslationJobPlan,
+    job_id: &str,
+) -> Result<TranslationRunSummary, String> {
+    emit_translation_progress(
+        app,
+        progress(
+            job_id,
+            "starting",
+            "Preparing translation batches",
+            plan,
+            0,
+            0,
+            "",
+        ),
+    )?;
+
+    let mut completed_segments = 0;
+    let mut preview = String::new();
+    for batch in &plan.batches {
+        if is_cancelled(&state.cancelled_jobs, job_id)? {
+            emit_translation_progress(
+                app,
+                progress(
+                    job_id,
+                    "cancelled",
+                    "Translation cancelled",
+                    plan,
+                    completed_segments,
+                    batch.index,
+                    &preview,
+                ),
+            )?;
+            clear_cancelled(&state.cancelled_jobs, job_id)?;
+            return Err("Translation cancelled".into());
+        }
+
+        let outputs = engine.translate_batch(batch_input(plan, batch))?;
+        completed_segments += outputs.len();
+        if preview.is_empty() {
+            preview = outputs
+                .iter()
+                .map(|output| output.text.trim())
+                .find(|text| !text.is_empty())
+                .unwrap_or("")
+                .to_string();
+        }
+
+        emit_translation_progress(
+            app,
+            progress(
+                job_id,
+                "translating",
+                "Translated batch",
+                plan,
+                completed_segments,
+                batch.index + 1,
+                &preview,
+            ),
+        )?;
+    }
+
+    emit_translation_progress(
+        app,
+        progress(
+            job_id,
+            "completed",
+            "Translation completed in memory",
+            plan,
+            completed_segments,
+            plan.batches.len(),
+            &preview,
+        ),
+    )?;
+    clear_cancelled(&state.cancelled_jobs, job_id)?;
+    Ok(TranslationRunSummary {
+        preview: truncate_preview(preview.trim(), 240),
+    })
+}
+
+fn batch_input(
+    plan: &TranslationJobPlan,
+    batch: &super::job::TranslationBatchPlan,
+) -> TranslationBatchInput {
+    TranslationBatchInput {
         model_id: plan.request.model_id.clone(),
         source_language: plan.request.source_language.clone(),
         target_language: plan.request.target_language.clone(),
         quality_mode: plan.request.quality_mode.clone(),
-        segments: first_batch
+        segments: batch
             .segments
             .iter()
             .map(|segment| TranslationSegmentInput {
@@ -196,14 +303,63 @@ fn run_smoke_translation(
                 context: TranslationSegmentContext::default(),
             })
             .collect(),
+    }
+}
+
+fn progress(
+    job_id: &str,
+    status: &str,
+    message: &str,
+    plan: &TranslationJobPlan,
+    completed_segments: usize,
+    completed_batches: usize,
+    preview: &str,
+) -> TranslationJobProgress {
+    let percent = if plan.total_segments == 0 {
+        0
+    } else {
+        ((completed_segments.saturating_mul(100)) / plan.total_segments).min(100) as u8
     };
-    let outputs = engine.translate_batch(input)?;
-    let preview = outputs
-        .first()
-        .map(|output| output.text.trim())
-        .filter(|text| !text.is_empty())
-        .unwrap_or("(empty output)");
-    Ok(truncate_preview(preview, 240))
+    TranslationJobProgress {
+        job_id: job_id.into(),
+        status: status.into(),
+        message: message.into(),
+        completed_segments,
+        total_segments: plan.total_segments,
+        completed_batches,
+        total_batches: plan.batches.len(),
+        percent,
+        preview: truncate_preview(preview.trim(), 180),
+    }
+}
+
+fn emit_translation_progress<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    progress: TranslationJobProgress,
+) -> Result<(), String> {
+    app.emit(DEFAULT_TRANSLATION_JOB_PROGRESS_EVENT, progress)
+        .map_err(|err| format!("Failed to emit translation progress: {err}"))
+}
+
+fn is_cancelled(
+    cancelled_jobs: &Arc<Mutex<HashSet<String>>>,
+    job_id: &str,
+) -> Result<bool, String> {
+    let cancelled = cancelled_jobs
+        .lock()
+        .map_err(|_| "Translation cancellation lock poisoned".to_string())?;
+    Ok(cancelled.contains(job_id))
+}
+
+fn clear_cancelled(
+    cancelled_jobs: &Arc<Mutex<HashSet<String>>>,
+    job_id: &str,
+) -> Result<(), String> {
+    let mut cancelled = cancelled_jobs
+        .lock()
+        .map_err(|_| "Translation cancellation lock poisoned".to_string())?;
+    cancelled.remove(job_id);
+    Ok(())
 }
 
 fn truncate_preview(text: &str, max_chars: usize) -> String {

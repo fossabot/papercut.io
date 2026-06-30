@@ -3,13 +3,16 @@ import {
   deleteTranslatedDocument,
   getTranslationModelStatus,
   installTranslationModel,
+  cancelTranslationJob,
   listenTranslationModelInstallProgress,
+  listenTranslationProgress,
   getTranslationCapabilities,
   listTranslatedDocuments,
   startTranslationJob,
   type TranslatedDocumentInfo,
   type TranslationCapabilities,
   type TranslationDeleteResult,
+  type TranslationJobProgress,
   type TranslationModelInstallProgress,
   type TranslationModelInstallResult,
   type TranslationModelStatus,
@@ -18,7 +21,10 @@ import {
 } from '../api/nativeTranslation'
 
 interface TranslationStartState {
+  cancelling: boolean
   checking: boolean
+  jobId: string
+  progress: TranslationJobProgress | null
   result: TranslationStartResult | null
   message: string
 }
@@ -41,6 +47,7 @@ interface TranslationManagerState {
   translatedDocuments: TranslatedDocumentInfo[]
   onDeleteTranslatedDocument: (id: string) => Promise<void>
   onInstallTranslationModel: (modelId: string) => Promise<void>
+  onCancelTranslation: () => Promise<void>
   onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -63,7 +70,10 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
     message: '',
   })
   const [startState, setStartState] = useState<TranslationStartState>({
+    cancelling: false,
     checking: false,
+    jobId: '',
+    progress: null,
     result: null,
     message: '',
   })
@@ -131,6 +141,32 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
     }
   }, [enabled])
 
+  useEffect(() => {
+    if (!enabled) return
+    let disposed = false
+    let unlisten: (() => void) | null = null
+    void listenTranslationProgress((progress) => {
+      if (disposed) return
+      setStartState((current) => {
+        if (current.jobId && progress.jobId !== current.jobId) return current
+        return {
+          ...current,
+          progress,
+          message: progress.message,
+        }
+      })
+    }).then((cleanup) => {
+      if (disposed) cleanup()
+      else unlisten = cleanup
+    }).catch((err) => {
+      if (!disposed) setError(err instanceof Error ? err.message : String(err))
+    })
+    return () => {
+      disposed = true
+      if (unlisten) unlisten()
+    }
+  }, [enabled])
+
   const onDeleteTranslatedDocument = useCallback(async (id: string) => {
     setDeleteState(null)
     try {
@@ -181,22 +217,55 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
   }, [refresh])
 
   const onStartTranslationPreflight = useCallback(async (request: TranslationStartRequest) => {
-    setStartState({ checking: true, result: null, message: '' })
+    const jobId = createTranslationJobId()
+    setStartState({
+      cancelling: false,
+      checking: true,
+      jobId,
+      progress: null,
+      result: null,
+      message: 'Preparing translation job',
+    })
     try {
-      const result = await startTranslationJob(request)
-      setStartState({
+      const result = await startTranslationJob({ ...request, jobId })
+      setStartState((current) => ({
+        cancelling: false,
         checking: false,
+        jobId: result.jobId,
+        progress: current.jobId === result.jobId ? current.progress : null,
         result,
         message: result.message,
-      })
+      }))
     } catch (err) {
-      setStartState({
+      setStartState((current) => ({
+        cancelling: false,
         checking: false,
+        jobId,
+        progress: current.jobId === jobId ? current.progress : null,
         result: null,
         message: err instanceof Error ? err.message : String(err),
-      })
+      }))
     }
   }, [])
+
+  const onCancelTranslation = useCallback(async () => {
+    const jobId = startState.jobId
+    if (!jobId || !startState.checking) return
+    setStartState((current) => ({
+      ...current,
+      cancelling: true,
+      message: 'Cancelling translation job',
+    }))
+    try {
+      await cancelTranslationJob(jobId)
+    } catch (err) {
+      setStartState((current) => ({
+        ...current,
+        cancelling: false,
+        message: err instanceof Error ? err.message : String(err),
+      }))
+    }
+  }, [startState.checking, startState.jobId])
 
   return {
     capabilities,
@@ -209,7 +278,14 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
     translatedDocuments,
     onDeleteTranslatedDocument,
     onInstallTranslationModel,
+    onCancelTranslation,
     onStartTranslationPreflight,
     refresh,
   }
+}
+
+function createTranslationJobId(): string {
+  const cryptoValue = globalThis.crypto?.randomUUID?.()
+  if (cryptoValue) return cryptoValue
+  return 'translation-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)
 }

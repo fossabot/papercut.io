@@ -54,17 +54,22 @@ pub async fn translation_install_model<R: tauri::Runtime>(
 #[tauri::command]
 pub async fn translation_start<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
+    state: tauri::State<'_, TranslationState>,
     request: TranslationStartRequest,
 ) -> Result<TranslationStartResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || start_translation_backend(&app, request))
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || start_translation_backend(&app, &state, request))
         .await
         .map_err(|err| format!("Translation start task failed: {err}"))?
 }
 
 /// Request cancellation for a translation job.
 #[tauri::command]
-pub fn translation_cancel(request: TranslationCancelRequest) -> Result<(), String> {
-    cancel_translation_backend(request)
+pub fn translation_cancel(
+    state: tauri::State<'_, TranslationState>,
+    request: TranslationCancelRequest,
+) -> Result<(), String> {
+    cancel_translation_backend(state.inner(), request)
 }
 
 /// List durable translated document variants.

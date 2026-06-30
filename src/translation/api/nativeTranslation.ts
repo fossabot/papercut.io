@@ -8,6 +8,7 @@ export interface TranslationCapabilities {
 }
 
 const TRANSLATION_MODEL_INSTALL_PROGRESS_EVENT = 'translation-model-install-progress'
+const TRANSLATION_PROGRESS_EVENT = 'translation-progress'
 
 export interface TranslationModelInfo {
   id: string
@@ -53,6 +54,7 @@ export interface TranslationModelInstallResult {
 }
 
 export interface TranslationStartRequest {
+  jobId?: string
   documentUrl: string
   sourceLanguage: string
   targetLanguage: string
@@ -64,6 +66,18 @@ export interface TranslationStartResult {
   jobId: string
   status: string
   message: string
+}
+
+export interface TranslationJobProgress {
+  jobId: string
+  status: 'starting' | 'translating' | 'completed' | 'cancelled' | string
+  message: string
+  completedSegments: number
+  totalSegments: number
+  completedBatches: number
+  totalBatches: number
+  percent: number
+  preview: string
 }
 
 export interface TranslatedDocumentInfo {
@@ -133,6 +147,16 @@ export async function listenTranslationModelInstallProgress(
   if (!isNativeTranslationRuntime()) return () => {}
   const mod = await import('@tauri-apps/api/event')
   return mod.listen<TranslationModelInstallProgress>(TRANSLATION_MODEL_INSTALL_PROGRESS_EVENT, (event) => {
+    handler(event.payload)
+  })
+}
+
+export async function listenTranslationProgress(
+  handler: (progress: TranslationJobProgress) => void,
+): Promise<() => void> {
+  if (!isNativeTranslationRuntime()) return () => {}
+  const mod = await import('@tauri-apps/api/event')
+  return mod.listen<TranslationJobProgress>(TRANSLATION_PROGRESS_EVENT, (event) => {
     handler(event.payload)
   })
 }

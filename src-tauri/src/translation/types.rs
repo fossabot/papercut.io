@@ -77,6 +77,8 @@ pub(crate) struct TranslationModelInstallResponse {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TranslationStartRequest {
+    #[serde(default)]
+    pub(crate) job_id: Option<String>,
     pub(crate) document_url: String,
     pub(crate) source_language: String,
     pub(crate) target_language: String,
@@ -90,6 +92,20 @@ pub(crate) struct TranslationStartResponse {
     pub(crate) job_id: String,
     pub(crate) status: String,
     pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TranslationJobProgress {
+    pub(crate) job_id: String,
+    pub(crate) status: String,
+    pub(crate) message: String,
+    pub(crate) completed_segments: usize,
+    pub(crate) total_segments: usize,
+    pub(crate) completed_batches: usize,
+    pub(crate) total_batches: usize,
+    pub(crate) percent: u8,
+    pub(crate) preview: String,
 }
 
 #[derive(Debug, Deserialize)]
