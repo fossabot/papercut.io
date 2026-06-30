@@ -54,9 +54,13 @@ interface TranslationManagerState {
 
 interface TranslationManagerOptions {
   enabled: boolean
+  onDocumentLibraryChanged?: (changedDocumentUrl?: string) => Promise<void>
 }
 
-export function useTranslationManager({ enabled }: TranslationManagerOptions): TranslationManagerState {
+export function useTranslationManager({
+  enabled,
+  onDocumentLibraryChanged,
+}: TranslationManagerOptions): TranslationManagerState {
   const [capabilities, setCapabilities] = useState<TranslationCapabilities | null>(null)
   const [translatedDocuments, setTranslatedDocuments] = useState<TranslatedDocumentInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -98,6 +102,19 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
       setLoading(false)
     }
   }, [])
+
+  const refreshGeneratedDocuments = useCallback(async (changedDocumentUrl?: string) => {
+    await refresh()
+    if (!onDocumentLibraryChanged) return
+    try {
+      await onDocumentLibraryChanged(changedDocumentUrl)
+    } catch (err) {
+      setError(
+        'Translation changed, but the document library could not refresh: ' +
+          (err instanceof Error ? err.message : String(err)),
+      )
+    }
+  }, [onDocumentLibraryChanged, refresh])
 
   useEffect(() => {
     if (!enabled) return
@@ -169,10 +186,11 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
 
   const onDeleteTranslatedDocument = useCallback(async (id: string) => {
     setDeleteState(null)
+    const deletedDocumentUrl = translatedDocuments.find((doc) => doc.id === id)?.documentUrl
     try {
       const result = await deleteTranslatedDocument(id)
       setDeleteState(result)
-      await refresh()
+      await refreshGeneratedDocuments(deletedDocumentUrl)
     } catch (err) {
       setDeleteState({
         id,
@@ -181,7 +199,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         message: err instanceof Error ? err.message : String(err),
       })
     }
-  }, [refresh])
+  }, [refreshGeneratedDocuments, translatedDocuments])
 
   const onInstallTranslationModel = useCallback(async (modelId: string) => {
     setModelInstallState({
@@ -236,7 +254,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         result,
         message: result.message,
       }))
-      await refresh()
+      await refreshGeneratedDocuments()
     } catch (err) {
       setStartState((current) => ({
         cancelling: false,
@@ -247,7 +265,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         message: err instanceof Error ? err.message : String(err),
       }))
     }
-  }, [refresh])
+  }, [refreshGeneratedDocuments])
 
   const onCancelTranslation = useCallback(async () => {
     const jobId = startState.jobId

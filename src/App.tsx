@@ -71,7 +71,6 @@ function App() {
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
   const [ttsDiagnosticsEnabled, setTtsDiagnosticsEnabled] = useState(() => isDebugEnabled())
   const { pagefindRef, pagefindReady, allDocuments, documentsLoading } = usePagefind()
-  const translation = useTranslationManager({ enabled: activeTab === 'translation' })
 
   const loadHtmlDocument = useCallback(async (url: string): Promise<string> => {
     if (isUploadedDocumentUrl(url)) return getUploadedDocumentSource(url)
@@ -109,6 +108,18 @@ function App() {
   const refreshUploadedLibrary = useCallback(async () => {
     applyUploadedLibrary(await loadUploadedLibrary())
   }, [applyUploadedLibrary, loadUploadedLibrary])
+
+  const handleTranslationDocumentLibraryChanged = useCallback(async (changedDocumentUrl?: string) => {
+    await refreshUploadedLibrary()
+    if (!changedDocumentUrl) return
+    removeResultsForUrl(changedDocumentUrl)
+    clearPhraseFetchCache(changedDocumentUrl)
+  }, [refreshUploadedLibrary, removeResultsForUrl])
+
+  const translation = useTranslationManager({
+    enabled: activeTab === 'translation',
+    onDocumentLibraryChanged: handleTranslationDocumentLibraryChanged,
+  })
 
   useEffect(() => {
     let cancelled = false

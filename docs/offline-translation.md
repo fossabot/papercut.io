@@ -367,8 +367,8 @@ Each stage should be easy to review and commit independently.
   - Insert derived upload/source/section/FTS rows so the normal reader, Find, search, and future TTS can consume the translated copy through the same contract as imported HTML.
   - Record translation provenance in `translated_documents`.
   - Delete translated variants without mutating the original uploaded document.
+  - Refresh Library/Search state after translation create/delete so the generated document list stays in sync outside the Translation tab.
 - Next implementation steps:
-  - Refresh Library/Search state after a translation creates or deletes a derived upload, so the new variant appears immediately outside the Translation tab.
   - Add resume-safe per-segment cache manifests before large-book retries ship.
   - Add staged writes/cleanup for interrupted persistence so very large translated books never leave confusing partial variants.
 
