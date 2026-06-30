@@ -12,6 +12,7 @@ pub(crate) mod commands;
 mod config;
 mod ctranslate2;
 mod engine;
+mod html;
 mod job;
 mod model_install;
 mod model_store;

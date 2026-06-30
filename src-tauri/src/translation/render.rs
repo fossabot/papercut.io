@@ -6,8 +6,9 @@
 //! we keep the original block intact and insert translated text nearby instead
 //! of destroying navigation.
 
-use kuchikiki::{parse_html, traits::TendrilSink, NodeRef};
+use kuchikiki::NodeRef;
 
+use super::html::parse_html_document;
 use super::storage::{PersistTranslationRequest, PersistTranslationSection};
 
 const BLOCK_SELECTOR: &str = "h1,h2,h3,h4,h5,h6,p,li,blockquote";
@@ -32,7 +33,7 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
     if request.source.view_html.trim().is_empty() {
         return None;
     }
-    let document = parse_html().one(request.source.view_html.clone());
+    let document = parse_html_document(request.source.view_html.clone());
     update_title(&document, title);
     annotate_article(&document, request);
 
@@ -181,7 +182,7 @@ fn annotate_block(node: &NodeRef, section: &PersistTranslationSection) {
 /// intact and the translated text is inserted immediately after it.
 fn insert_translation_after(node: &NodeRef, section: &PersistTranslationSection) {
     let tag = if section.is_heading { "h2" } else { "p" };
-    let wrapper = parse_html().one(format!(
+    let wrapper = parse_html_document(format!(
         "<!doctype html><html><body><{tag} class=\"papercut-translation-inline\" data-source-ordinal=\"{}\">{}</{tag}></body></html>",
         section.source_ordinal,
         escape_html(section.text.trim())

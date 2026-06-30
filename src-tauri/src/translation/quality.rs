@@ -7,8 +7,9 @@
 
 use std::collections::HashSet;
 
-use kuchikiki::{parse_html, traits::TendrilSink, NodeRef};
+use kuchikiki::NodeRef;
 
+use super::html::parse_html_document;
 use super::source::TranslationSourceBlock;
 use super::storage::PersistTranslationSection;
 use super::types::TranslationGlossaryEntry;
@@ -71,7 +72,7 @@ pub(crate) fn validate_translated_output(
     validate_length_ratios(source_blocks, sections).map_err(format_quality_issue)?;
     validate_repeated_outputs(sections).map_err(format_quality_issue)?;
     validate_glossary_terms(source_blocks, sections, glossary).map_err(format_quality_issue)?;
-    let document = parse_html().one(html.to_string());
+    let document = parse_html_document(html);
     validate_internal_links(&document).map_err(format_quality_issue)?;
     Ok(())
 }
