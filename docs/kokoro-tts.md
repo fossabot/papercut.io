@@ -31,8 +31,12 @@ Pinned models:
 | --- | --- | --- | ---: | --- |
 | Kokoro English v1.0 | Kokoro | `en-US` | 349,418,188 | `c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046` |
 | Piper Kareem Medium | VITS/Piper | `ar-JO` | 67,177,830 | `9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce` |
+| Supertonic 3 English | SupertonicTTS | `en-US` | ~123,000,000 | `82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427` |
+| Supertonic 3 Arabic | SupertonicTTS | `ar` | ~123,000,000 | `82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427` |
 
-Both archives come from `https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models` and are listed in `src-tauri/tts/model-manifest.json`. Rust downloads into a temporary cache directory, verifies SHA-256, extracts, validates required files, and atomically promotes the selected model into `models/sherpa-onnx/<model-directory>/`. Incomplete installs are not used.
+These archives come from `https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models` and are listed in `src-tauri/tts/model-manifest.json`. Rust downloads into a temporary cache directory, verifies SHA-256, extracts, validates required files, and atomically promotes the selected model into `models/sherpa-onnx/<model-directory>/`. Incomplete installs are not used.
+
+SupertonicTTS 3 is exposed as two experimental catalog entries, English and Arabic, backed by one shared multilingual int8 archive. sherpa selects language through `GenerationConfig.extra["lang"]`, so Papercut keeps separate model IDs for cache identity while installing the same model directory. Treat Supertonic speed and quality as measured device behavior, not a guaranteed win over Piper or Kokoro; use TTS diagnostics to compare `realTimeFactor`, `synthesisMs`, and `preprocessMs` before changing defaults.
 
 Piper Kareem is about 64 MB compressed and suitable for offline Arabic, but a medium Piper voice is not expected to match Kokoro's naturalness. Treat quality as an empirical product decision. The Piper voice repository declares MIT for model files; the dataset card does not clearly state training-data licensing, so legal/provenance review is required before bundling or broadly redistributing it. Papercut currently downloads it on demand rather than embedding it.
 
@@ -74,6 +78,7 @@ Primary references:
 - SILMA TTS model card: https://huggingface.co/silma-ai/silma-tts
 - Piper eSpeak-ng phonemization: https://github.com/OHF-Voice/piper1-gpl
 - sherpa-onnx Piper integration: https://k2-fsa.github.io/sherpa/onnx/tts/piper.html
+- sherpa-onnx SupertonicTTS integration: https://k2-fsa.github.io/sherpa/onnx/tts/supertonic.html
 
 ## Build And Run
 
@@ -191,6 +196,7 @@ The native path emits:
 - `[tts-native] capabilities`
 - `[tts-save] native chunk start`
 - `[tts-save] native chunk`
+- `[tts-save] native performance summary`
 - `[tts-save] completed`
 - `[tts-save] failed`
 - `[tts-playback] native preparation completed`
@@ -199,12 +205,15 @@ The native path emits:
 - `[tts-highlight] slow chunk range built`
 - `[tts-highlight] chunk range unavailable`
 
-Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, source and synthesis previews, `generateMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
+Useful fields are `backend`, `modelDir`, `totalChunks`, `cachedChunks`, `generatedChunks`, `chunkNumber`, `chunkId`, `textPreview`, source and synthesis previews, `generateMs`, `preprocessMs`, `synthesisMs`, `writeMs`, `validateMs`, `indexingMs`, `audioDurationSec`, `realTimeFactor`, `wavBytes`, `totalSourceChars`, `totalSynthesisChars`, `threadCount`, `appliedThreadCount`, `dir`, `segments`, `elapsedMs`, and `reason`.
 
 Interpretation guide:
 
 - High first-chunk time usually means native model load plus first inference warmup.
 - High `realTimeFactor` after warmup means synthesis is the bottleneck.
+- Save-summary `realTimeFactor` uses generated-run `audioDurationSec`; `totalAudioDurationSec` includes cached chunks and is for whole-audiobook progress, not generation-speed benchmarking.
+- Compare `synthesisMs` and `preprocessMs` before blaming model speed; Arabic diacritization can add preprocessing time while Kokoro/Piper inference shows up under synthesis time.
+- High `writeMs`, `validateMs`, or `indexingMs` points to disk or manifest-index work rather than model inference, especially on very large saved books.
 - If a higher `threadCount` improves `realTimeFactor`, keep it for that device; if it crashes, heats up, or throttles during long saves, return to 1 thread on Android.
 - If Resume crashes at the same point, inspect the last `[tts-save] native chunk start` entry. The `chunkNumber`, `chunkId`, and `textPreview` identify the text range being passed to native synthesis when the process died.
 - Repeated cache misses usually mean the document, chunk text, voice, speed, model id, text preprocessor, or audiobook cache version changed.

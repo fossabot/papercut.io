@@ -10,6 +10,7 @@
 //! UI messages isn't blocked. A `Mutex` is a lock guaranteeing one thread
 //! touches the engine at a time; `.lock()` is like awaiting that lock.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -17,7 +18,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use num2words::{Currency, Num2Words};
 use sherpa_onnx::{
     write as write_wav_file, GeneratedAudio, GenerationConfig, OfflineTts, OfflineTtsConfig,
-    OfflineTtsKokoroModelConfig, OfflineTtsModelConfig, OfflineTtsVitsModelConfig,
+    OfflineTtsKokoroModelConfig, OfflineTtsModelConfig, OfflineTtsSupertonicModelConfig,
+    OfflineTtsVitsModelConfig,
 };
 
 use super::cache::wav_info;
@@ -39,6 +41,9 @@ pub(crate) struct SherpaTtsEngine {
 /// Timing/size result of writing one synthesized chunk to a file.
 pub(super) struct FileSynthesisResult {
     pub(super) generate_ms: u128,
+    pub(super) synthesis_ms: u128,
+    pub(super) write_ms: u128,
+    pub(super) validate_ms: u128,
     pub(super) audio_duration_sec: f32,
     pub(super) wav_bytes: usize,
 }
@@ -109,7 +114,12 @@ pub(super) fn synthesize_to_file(
     // instead write a short silent WAV: the playback timeline stays contiguous
     // and the job completes. `fallback_duration_sec` guards against a generated
     // WAV whose header rounds its duration down to zero.
-    let fallback_duration_sec = match generate_audio(engine, text, voice, speed)? {
+    let synthesis_started = Instant::now();
+    let generated_audio = generate_audio(engine, text, voice, speed)?;
+    let synthesis_ms = synthesis_started.elapsed().as_millis();
+
+    let write_started = Instant::now();
+    let fallback_duration_sec = match generated_audio {
         Some(audio) => {
             let duration = audio_duration_sec(audio.samples().len(), audio.sample_rate());
             if !audio.save(&temp_path.display().to_string()) {
@@ -130,16 +140,22 @@ pub(super) fn synthesize_to_file(
             write_silent_placeholder(&temp_path, sample_rate)?
         }
     };
+    let write_ms = write_started.elapsed().as_millis();
 
     // Sanity-check the written file actually parses before committing it.
+    let validate_started = Instant::now();
     let Some(info) = wav_info(&temp_path) else {
         let _ = fs::remove_file(&temp_path);
         return Err(format!("Generated invalid WAV {}", temp_path.display()));
     };
     commit_staged_file(&temp_path, output_path, "generated WAV")?;
+    let validate_ms = validate_started.elapsed().as_millis();
 
     Ok(FileSynthesisResult {
         generate_ms: started.elapsed().as_millis(),
+        synthesis_ms,
+        write_ms,
+        validate_ms,
         audio_duration_sec: info.audio_duration_sec.max(fallback_duration_sec),
         wav_bytes: info.wav_bytes,
     })
@@ -192,9 +208,15 @@ fn generate_audio(
     } else {
         1.0
     };
+    let extra = engine.model.supertonic_lang.map(|lang| {
+        let mut extra = HashMap::new();
+        extra.insert("lang".to_string(), serde_json::json!(lang));
+        extra
+    });
     let generation = GenerationConfig {
         speed,
         sid: engine.model.speaker_id(voice)?,
+        extra,
         ..Default::default()
     };
 
@@ -297,8 +319,7 @@ fn normalize_english_synthesis_text(text: &str) -> String {
 /// Restricting expansion to these prefixes avoids rewriting the pronoun "I",
 /// the grade "C", "X marks the spot", and other legitimate standalone letters.
 const SECTION_WORDS: [&str; 10] = [
-    "chapter", "part", "section", "book", "act", "volume", "appendix", "article",
-    "canto", "scene",
+    "chapter", "part", "section", "book", "act", "volume", "appendix", "article", "canto", "scene",
 ];
 
 /// Expand an uppercase roman numeral that directly follows a section keyword into
@@ -455,10 +476,12 @@ fn expand_abbreviations(text: &str) -> String {
             let next_is_capitalized = words
                 .get(index + 1)
                 .map(|next| strip_outer_punctuation(next).1)
-                .is_some_and(|next_core| {
-                    next_core.starts_with(|ch: char| ch.is_ascii_uppercase())
-                });
-            let expansion = if next_is_capitalized { "Saint" } else { "Street" };
+                .is_some_and(|next_core| next_core.starts_with(|ch: char| ch.is_ascii_uppercase()));
+            let expansion = if next_is_capitalized {
+                "Saint"
+            } else {
+                "Street"
+            };
             out.push(format!("{lead}{expansion}{trail}"));
             continue;
         }
@@ -596,8 +619,7 @@ fn clock_time_to_words(core: &str) -> Option<String> {
 
 /// Magnitude words that may sit between a currency symbol and its unit so the unit
 /// is voiced after them (`$5 million` -> `5 million dollars`).
-const CURRENCY_MAGNITUDES: [&str; 5] =
-    ["hundred", "thousand", "million", "billion", "trillion"];
+const CURRENCY_MAGNITUDES: [&str; 5] = ["hundred", "thousand", "million", "billion", "trillion"];
 
 /// A recognized currency symbol and how to voice it.
 #[derive(Clone, Copy)]
@@ -635,11 +657,35 @@ impl CurrencyKind {
     /// Spoken unit word for the magnitude path and the `¥`/`¢` fallback.
     fn unit(self, singular: bool) -> &'static str {
         match self {
-            Self::Dollar => if singular { "dollar" } else { "dollars" },
-            Self::Euro => if singular { "euro" } else { "euros" },
-            Self::Pound => if singular { "pound" } else { "pounds" },
+            Self::Dollar => {
+                if singular {
+                    "dollar"
+                } else {
+                    "dollars"
+                }
+            }
+            Self::Euro => {
+                if singular {
+                    "euro"
+                } else {
+                    "euros"
+                }
+            }
+            Self::Pound => {
+                if singular {
+                    "pound"
+                } else {
+                    "pounds"
+                }
+            }
             Self::Yen => "yen",
-            Self::Cent => if singular { "cent" } else { "cents" },
+            Self::Cent => {
+                if singular {
+                    "cent"
+                } else {
+                    "cents"
+                }
+            }
         }
     }
 }
@@ -683,7 +729,10 @@ fn expand_currency(text: &str) -> String {
                 out.push(format!("{lead}{words}{trail}"));
             } else {
                 let amount_is_one = matches!(amount, "1" | "1.0" | "1.00");
-                out.push(format!("{lead}{amount} {}{trail}", kind.unit(amount_is_one)));
+                out.push(format!(
+                    "{lead}{amount} {}{trail}",
+                    kind.unit(amount_is_one)
+                ));
             }
             continue;
         }
@@ -715,7 +764,9 @@ fn parse_currency_amount(core: &str) -> Option<(&str, CurrencyKind)> {
     let kind = CurrencyKind::from_symbol(symbol)?;
     let amount = &core[symbol.len_utf8()..];
     if !amount.starts_with(|ch: char| ch.is_ascii_digit())
-        || !amount.chars().all(|ch| ch.is_ascii_digit() || ch == ',' || ch == '.')
+        || !amount
+            .chars()
+            .all(|ch| ch.is_ascii_digit() || ch == ',' || ch == '.')
     {
         return None;
     }
@@ -996,6 +1047,32 @@ fn create_engine(
                 ..Default::default()
             };
         }
+        SherpaModelFamily::Supertonic => {
+            model_config.supertonic = OfflineTtsSupertonicModelConfig {
+                duration_predictor: Some(
+                    model_dir
+                        .join("duration_predictor.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                text_encoder: Some(
+                    model_dir
+                        .join("text_encoder.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                vector_estimator: Some(
+                    model_dir
+                        .join("vector_estimator.int8.onnx")
+                        .display()
+                        .to_string(),
+                ),
+                vocoder: Some(model_dir.join("vocoder.int8.onnx").display().to_string()),
+                tts_json: Some(model_dir.join("tts.json").display().to_string()),
+                unicode_indexer: Some(model_dir.join("unicode_indexer.bin").display().to_string()),
+                voice_style: Some(model_dir.join("voice.bin").display().to_string()),
+            };
+        }
         SherpaModelFamily::Vits => {
             model_config.vits = OfflineTtsVitsModelConfig {
                 model: Some(model_dir.join(model.model_file).display().to_string()),
@@ -1017,8 +1094,8 @@ fn create_engine(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::models::{model_definition, DEFAULT_MODEL_ID};
+    use super::*;
 
     #[test]
     fn silent_placeholder_passes_wav_validation() {
@@ -1050,7 +1127,10 @@ mod tests {
         ] {
             let out = normalize_year_like_numbers(input);
             assert!(!out.contains("1984"), "year not expanded: {out:?}");
-            assert!(out.starts_with(prefix) && out.ends_with(suffix), "context lost: {out:?}");
+            assert!(
+                out.starts_with(prefix) && out.ends_with(suffix),
+                "context lost: {out:?}"
+            );
         }
     }
 
@@ -1106,17 +1186,17 @@ mod tests {
             "Act 3, Scene 2:"
         );
         // Wrapping punctuation is preserved around the expanded numeral.
-        assert_eq!(
-            expand_section_roman_numerals("Book (XII),"),
-            "Book (12),"
-        );
+        assert_eq!(expand_section_roman_numerals("Book (XII),"), "Book (12),");
     }
 
     #[test]
     fn roman_numerals_leave_bare_letters_alone() {
         // No section keyword in front, so these standalone letters are untouched.
         assert_eq!(expand_section_roman_numerals("I went home"), "I went home");
-        assert_eq!(expand_section_roman_numerals("grade C work"), "grade C work");
+        assert_eq!(
+            expand_section_roman_numerals("grade C work"),
+            "grade C work"
+        );
         assert_eq!(expand_section_roman_numerals("X marks it"), "X marks it");
         // Lowercase numeral tokens are never treated as numerals even after a keyword.
         assert_eq!(
@@ -1139,13 +1219,22 @@ mod tests {
             "they act I think"
         );
         // A capitalized keyword is still expanded as a genuine reference.
-        assert_eq!(expand_section_roman_numerals("Book I cover"), "Book 1 cover");
+        assert_eq!(
+            expand_section_roman_numerals("Book I cover"),
+            "Book 1 cover"
+        );
     }
 
     #[test]
     fn decimal_dots_recollapse_after_chunk_split() {
-        assert_eq!(collapse_decimal_dots("It is 3. 14 today"), "It is 3.14 today");
-        assert_eq!(collapse_decimal_dots("version 1. 2 ships"), "version 1.2 ships");
+        assert_eq!(
+            collapse_decimal_dots("It is 3. 14 today"),
+            "It is 3.14 today"
+        );
+        assert_eq!(
+            collapse_decimal_dots("version 1. 2 ships"),
+            "version 1.2 ships"
+        );
         // A real sentence boundary before a number is not a decimal.
         assert_eq!(
             collapse_decimal_dots("The talk ends. 4 people left."),
@@ -1159,7 +1248,10 @@ mod tests {
             soften_pause_punctuation("First; then second"),
             "First, then second"
         );
-        assert_eq!(soften_pause_punctuation("Note: read this"), "Note, read this");
+        assert_eq!(
+            soften_pause_punctuation("Note: read this"),
+            "Note, read this"
+        );
         // Clock times and ratios keep their colon.
         assert_eq!(
             soften_pause_punctuation("Meet at 3:30 for a 2:1 split"),
@@ -1200,13 +1292,19 @@ mod tests {
             expand_clock_times("arriving at 9:00 sharp"),
             "arriving at nine o'clock sharp"
         );
-        assert_eq!(expand_clock_times("the 3:30 train"), "the three thirty train");
+        assert_eq!(
+            expand_clock_times("the 3:30 train"),
+            "the three thirty train"
+        );
         assert_eq!(
             expand_clock_times("at 10:45 and 9:05"),
             "at ten forty-five and nine oh five"
         );
         // A trailing sentence mark is preserved around the spoken time.
-        assert_eq!(expand_clock_times("leaves at 9:00."), "leaves at nine o'clock.");
+        assert_eq!(
+            expand_clock_times("leaves at 9:00."),
+            "leaves at nine o'clock."
+        );
         // Ratios and references with a single-digit right side are left for the
         // colon to be preserved by the pause pass.
         assert_eq!(
@@ -1240,8 +1338,14 @@ mod tests {
             "the USA and NY at 9 am"
         );
         // St. is Saint before a capitalized name, Street otherwise.
-        assert_eq!(expand_abbreviations("St. Louis office"), "Saint Louis office");
-        assert_eq!(expand_abbreviations("on Main St. today"), "on Main Street today");
+        assert_eq!(
+            expand_abbreviations("St. Louis office"),
+            "Saint Louis office"
+        );
+        assert_eq!(
+            expand_abbreviations("on Main St. today"),
+            "on Main Street today"
+        );
         // A lone capital-letter token keeps its period (and its full stop).
         assert_eq!(expand_abbreviations("Plan A. Next"), "Plan A. Next");
     }
@@ -1253,7 +1357,10 @@ mod tests {
             expand_abbreviations("apples, etc. They left"),
             "apples, et cetera. They left"
         );
-        assert_eq!(expand_abbreviations("and so on, etc."), "and so on, et cetera.");
+        assert_eq!(
+            expand_abbreviations("and so on, etc."),
+            "and so on, et cetera."
+        );
         // Mid-sentence etc. (lowercase next, or an existing comma) gets no stop.
         assert_eq!(
             expand_abbreviations("apples, etc. and more"),
@@ -1280,17 +1387,32 @@ mod tests {
     #[test]
     fn currency_symbols_move_to_spoken_units() {
         // $/€/£ map to the right unit (the number word itself is num2words').
-        assert_eq!(expand_currency("it cost $5 today"), "it cost five dollars today");
+        assert_eq!(
+            expand_currency("it cost $5 today"),
+            "it cost five dollars today"
+        );
         assert_eq!(
             expand_currency("about €10 and £20"),
             "about ten euros and twenty pounds"
         );
         // A magnitude word: the digits are kept and the plural unit voiced after.
-        assert_eq!(expand_currency("a $5 million deal"), "a 5 million dollars deal");
+        assert_eq!(
+            expand_currency("a $5 million deal"),
+            "a 5 million dollars deal"
+        );
         // A sentence mark on the magnitude word is reordered after the unit.
-        assert_eq!(expand_currency("worth $5 million."), "worth 5 million dollars.");
-        assert_eq!(expand_currency("$5 million, plus"), "5 million dollars, plus");
-        assert_eq!(expand_currency("worth $1 billion"), "worth 1 billion dollars");
+        assert_eq!(
+            expand_currency("worth $5 million."),
+            "worth 5 million dollars."
+        );
+        assert_eq!(
+            expand_currency("$5 million, plus"),
+            "5 million dollars, plus"
+        );
+        assert_eq!(
+            expand_currency("worth $1 billion"),
+            "worth 1 billion dollars"
+        );
         // Wrappers and trailing punctuation are preserved.
         assert_eq!(expand_currency("($5) each,"), "(five dollars) each,");
         // Yen falls back to the digit-plus-unit path (num2words says "yens").
@@ -1303,7 +1425,9 @@ mod tests {
         // expansion, decimal repair (before year expansion so 3.14 is not a year),
         // year expansion, and the semicolon/dash/ellipsis pause softening.
         assert_eq!(
-            normalize_english_synthesis_text("Dr. Smith; see e.g. 3. 14 units - wait... done in 1984"),
+            normalize_english_synthesis_text(
+                "Dr. Smith; see e.g. 3. 14 units - wait... done in 1984"
+            ),
             "Doctor Smith, see for example 3.14 units, wait, done in nineteen eighty-four"
         );
         // Clock time plus a parenthetical aside in one pass.
@@ -1318,8 +1442,10 @@ mod tests {
         assert!(model_definition(DEFAULT_MODEL_ID)
             .unwrap()
             .english_text_normalization());
-        assert!(!model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium")
-            .unwrap()
-            .english_text_normalization());
+        assert!(
+            !model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium")
+                .unwrap()
+                .english_text_normalization()
+        );
     }
 }
