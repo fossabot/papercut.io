@@ -300,8 +300,8 @@ Each stage should be easy to review and commit independently.
 - Add `src-tauri/src/translation/` with `types`, `models`, `config`, `commands`, and a stub engine.
 - Register commands behind a disabled or stubbed feature.
 - Return deterministic "translation unavailable" capabilities in browser/non-native paths.
-- Keep planned model entries as inert candidate manifests until checksum, license, required-file, and platform-gating review is complete.
-- Surface candidate-only manifest state, license notes, and size notes in the Translation tab so reviewers can distinguish planning metadata from downloadable models.
+- Keep planned model entries inert until checksum, license, required-file, and platform-gating review is complete.
+- Surface manifest state, license notes, and size notes in the Translation tab so reviewers can distinguish candidate-only metadata, pinned file manifests, and future downloadable models.
 - Add unit tests for model lookup and cache-key construction.
 
 ### Stage 3: Translated Variant Storage
@@ -339,8 +339,12 @@ Each stage should be easy to review and commit independently.
 - Add model manifest/cache plumbing before downloads:
   - Translation model files live under `<app-data>/translation/models/{model-id}`.
   - Future installer scratch work should live under the OS cache directory, then promote verified files into app data.
-  - Candidate-only entries must stay non-installable until real converted archives have pinned source URLs, SHA-256 hashes, archive sizes, required-file validation, license review, and platform gates.
-- Implement model download/verify/install only after the checksum manifest is pinned.
+  - Candidate-only entries must stay non-installable until they have pinned source URLs, SHA-256 hashes, file sizes, required-file validation, license review, and platform gates.
+- Pin the first file manifests, but keep them non-installable until the downloader and native CTranslate2 binding exist:
+  - Spanish -> English: `michaelfeil/ct2fast-opus-mt-es-en` at revision `437f5ffc6c8544943c685ea405650e0d17cf6098`, 8 required files, 159,387,032 bytes total.
+  - French -> English: `michaelfeil/ct2fast-opus-mt-fr-en` at revision `cb3b2d680bf35591a508d8479e2c99c44e281ef3`, 8 required files, 153,350,068 bytes total.
+  - These Hugging Face repos advertise Apache-2.0 metadata, but keep OPUS-MT/Helsinki-NLP provenance and redistribution notes visible until final license review is complete.
+- Implement model download/verify/install only after the pinned file manifest is wired to a verifier.
 - Translate bounded text segments.
 - Emit progress events.
 - Store translated output and index it.
@@ -420,5 +424,7 @@ Language samples:
 - NLLB model card and limitations: https://huggingface.co/facebook/nllb-200-distilled-600M
 - OPUS-MT Spanish -> English model card: https://huggingface.co/Helsinki-NLP/opus-mt-es-en
 - OPUS-MT French -> English model card: https://huggingface.co/Helsinki-NLP/opus-mt-fr-en
+- CTranslate2 Spanish -> English candidate: https://huggingface.co/michaelfeil/ct2fast-opus-mt-es-en
+- CTranslate2 French -> English candidate: https://huggingface.co/michaelfeil/ct2fast-opus-mt-fr-en
 - Bergamot / Firefox Translations docs: https://firefox-source-docs.mozilla.org/toolkit/components/translations/resources/03_bergamot.html
 - ALMA / X-ALMA repository: https://github.com/fe1ixxu/ALMA

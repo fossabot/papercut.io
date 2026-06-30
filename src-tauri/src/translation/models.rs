@@ -1,8 +1,8 @@
 //! Planned offline translation model catalog.
 //!
 //! The catalog is intentionally descriptive for now. A future engine commit must
-//! add checksums, required files, install validation, and platform gating before
-//! any entry becomes downloadable or runnable.
+//! add installer support and platform validation before any entry becomes
+//! downloadable or runnable.
 
 use super::config::DEFAULT_TRANSLATION_QUALITY_MODE;
 use super::types::TranslationModelInfo;
@@ -26,8 +26,8 @@ impl TranslationModelDefinition {
     /// Project inert catalog planning data into the frontend capability shape.
     ///
     /// These entries are not installable yet. They exist so the frontend and
-    /// docs can discuss stable model ids/tiers while engine spikes still decide
-    /// exact archives, checksums, licenses, required files, and platform gates.
+    /// docs can discuss stable model ids/tiers while engine work still decides
+    /// final install behavior, licenses, and platform gates.
     pub(crate) fn to_info(self) -> TranslationModelInfo {
         TranslationModelInfo {
             id: self.id.into(),
@@ -58,19 +58,20 @@ impl TranslationModelDefinition {
     }
 }
 
-/// Planned model candidates, not an installation manifest.
+/// Planned model candidates and manifest states surfaced to the frontend.
 ///
-/// A future model-download stage must replace or enrich these rows with pinned
-/// source URLs, SHA-256 hashes, archive sizes, and model-specific validation.
-/// Until then the capability API must continue reporting translation unavailable
-/// even though these candidates are visible to development builds.
+/// The first CTranslate2 rows have pinned file manifests in `model_store`, but
+/// none of these rows are downloadable or runnable until installer and engine
+/// work lands. Until then the capability API must continue reporting
+/// translation unavailable even though the metadata is visible to development
+/// builds.
 pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
     TranslationModelDefinition {
         id: "opus-mt-es-en-ctranslate2",
         name: "OPUS-MT Spanish to English",
         engine: "ctranslate2",
         tier: "fast",
-        manifest_state: "candidate-only",
+        manifest_state: "pinned-file-manifest",
         source_languages: &["es"],
         target_languages: &["en"],
         recommended_platforms: &["desktop", "android"],
@@ -83,7 +84,7 @@ pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
         name: "OPUS-MT French to English",
         engine: "ctranslate2",
         tier: "fast",
-        manifest_state: "candidate-only",
+        manifest_state: "pinned-file-manifest",
         source_languages: &["fr"],
         target_languages: &["en"],
         recommended_platforms: &["desktop", "android"],
@@ -154,9 +155,9 @@ mod tests {
     }
 
     #[test]
-    fn planned_models_remain_candidate_only() {
+    fn planned_models_report_manifest_state_and_review_notes() {
         for model in planned_models() {
-            assert_eq!(model.manifest_state, "candidate-only");
+            assert!(!model.manifest_state.is_empty());
             assert!(!model.license_notes.is_empty());
             assert!(!model.size_notes.is_empty());
         }

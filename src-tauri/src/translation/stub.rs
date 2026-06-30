@@ -59,9 +59,9 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
             model_dir: Some(model_dir.display().to_string()),
             source_url: manifest.source_url.into(),
             source_label: manifest.source_label.into(),
-            archive_bytes: manifest.archive_bytes,
+            archive_bytes: manifest.total_bytes(),
             installed_bytes: directory_size(&model_dir).unwrap_or(0),
-            sha256: manifest.sha256.into(),
+            sha256: String::new(),
             message: "Offline translation model installed".into(),
         },
         Err(_) => TranslationModelStatus {
@@ -71,12 +71,18 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
             model_dir: None,
             source_url: manifest.source_url.into(),
             source_label: format!("{} ({})", model.name, model.manifest_state),
-            archive_bytes: manifest.archive_bytes,
+            archive_bytes: manifest.total_bytes(),
             installed_bytes: 0,
-            sha256: manifest.sha256.into(),
-            message: format!(
-                "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
-            ),
+            sha256: String::new(),
+            message: if manifest.files.is_empty() {
+                format!(
+                    "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
+                )
+            } else {
+                format!(
+                    "{NOT_IMPLEMENTED} The file manifest is pinned, but model download and native CTranslate2 inference are not wired yet."
+                )
+            },
         },
     }
 }
