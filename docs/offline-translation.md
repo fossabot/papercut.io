@@ -315,6 +315,7 @@ Each stage should be easy to review and commit independently.
 ### Stage 5A: Engine And Segmentation Contracts
 
 - Add a native translation engine boundary without pulling in CTranslate2 yet.
+- Add source-document reads from the existing upload section tables by document URL.
 - Add deterministic text segmentation with bounded segment sizes, stable ids, and unit tests.
 - Add a job planner that validates request shape, batches bounded segments, and creates a deterministic settings cache key.
 - Keep this stage dependency-free so the branch stays easy to build/review before native packaging decisions.

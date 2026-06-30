@@ -13,6 +13,7 @@ mod engine;
 mod job;
 mod models;
 mod segment;
+mod source;
 mod storage;
 mod stub;
 mod types;
