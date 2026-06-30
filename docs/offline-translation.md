@@ -413,12 +413,15 @@ Each stage should be easy to review and commit independently.
   - Later optimize duplicate segments inside the same batch if benchmarks show repeated paragraphs are common enough to matter.
 - Add glossary support scaffolding:
   - Accept glossary entries on translation job requests as source term, target term, and optional note.
+  - Reject conflicting glossary mappings where one source term has multiple target terms.
   - Include glossary entries in job cache identity so changed protected terms do not reuse incompatible cached output.
   - Pass only exact source-term matches into each segment context to keep engine prompt/context payloads bounded.
   - Reject stored output when a section contains a glossary source term but misses the requested target term.
   - Store glossary-entry count and hash in translation provenance metadata.
   - Use standard string matching for now; add fuzzy matching libraries only if glossary miss rates justify the extra dependency.
-- Add named-entity consistency checks.
+- Add named-entity consistency checks:
+  - Current first slice treats glossary entries as explicit protected entities.
+  - Future automatic NER should be model/library-backed; do not hand-roll broad multilingual NER with regexes.
 - Add section regeneration.
 - Add optional chapter repair pass.
 

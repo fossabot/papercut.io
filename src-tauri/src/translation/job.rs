@@ -136,6 +136,7 @@ fn validate_glossary_shape(request: &TranslationStartRequest) -> Result<(), Stri
             "Translation glossary has too many entries. Maximum is {MAX_GLOSSARY_TERMS}."
         ));
     }
+    let mut mappings = std::collections::BTreeMap::<String, String>::new();
     for (index, entry) in request.glossary.iter().enumerate() {
         if entry.source.trim().is_empty() {
             return Err(format!(
@@ -149,8 +150,28 @@ fn validate_glossary_shape(request: &TranslationStartRequest) -> Result<(), Stri
                 index + 1
             ));
         }
+        let source_key = normalize_glossary_key(&entry.source);
+        let target_key = normalize_glossary_key(&entry.target);
+        if let Some(existing_target) = mappings.get(&source_key) {
+            if existing_target != &target_key {
+                return Err(format!(
+                    "Translation glossary maps source term {:?} to multiple targets",
+                    entry.source.trim()
+                ));
+            }
+        } else {
+            mappings.insert(source_key, target_key);
+        }
     }
     Ok(())
+}
+
+fn normalize_glossary_key(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 #[cfg(test)]
@@ -243,5 +264,26 @@ mod tests {
         let error = plan_translation_job(bad, ["Text."], 100, 4).expect_err("bad glossary");
 
         assert!(error.contains("glossary"));
+    }
+
+    #[test]
+    fn rejects_conflicting_glossary_targets_for_same_source() {
+        let mut bad = request();
+        bad.glossary
+            .push(crate::translation::types::TranslationGlossaryEntry {
+                source: "Lenin".into(),
+                target: "Lenin".into(),
+                note: None,
+            });
+        bad.glossary
+            .push(crate::translation::types::TranslationGlossaryEntry {
+                source: " lenin ".into(),
+                target: "Lenine".into(),
+                note: None,
+            });
+
+        let error = plan_translation_job(bad, ["Text."], 100, 4).expect_err("conflict");
+
+        assert!(error.contains("multiple targets"));
     }
 }
