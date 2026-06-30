@@ -16,6 +16,7 @@ import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
 import { TabNav, type AppTab } from './components/TabNav/TabNav'
 import { SearchScope } from './components/SearchScope/SearchScope'
 import { ThemeToggle } from './components/ThemeToggle/ThemeToggle'
+import { TranslationPanel, type TranslationSeedDocument } from './translation/components/TranslationPanel'
 import { useDocumentFilters } from './hooks/useDocumentFilters'
 import { useTheme } from './hooks/useTheme'
 import type { DocumentInfo } from './types/search'
@@ -62,6 +63,7 @@ function App() {
   const openDocumentRequestRef = useRef(0)
   const documentOpeningRef = useRef(false)
   const [activeTab, setActiveTab] = useState<AppTab>('search')
+  const [translationSeedDocument, setTranslationSeedDocument] = useState<TranslationSeedDocument | null>(null)
   const [userUploads, setUserUploads] = useState<UserUploadDocument[]>(() => getUserUploads())
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
   const [uploadedLibraryOrganization, setUploadedLibraryOrganization] = useState<UploadedLibraryOrganization>({ folders: [], documentLocations: [] })
@@ -244,6 +246,18 @@ function App() {
   const selectedTitle = selectedDocument?.title
   const selectedFormat = selectedDocument?.format
 
+  const handleRequestDocumentTranslation = useCallback(() => {
+    if (!selectedDoc) return
+    setTranslationSeedDocument({
+      title: selectedTitle ?? 'Untitled Document',
+      url: selectedDoc,
+      format: selectedFormat,
+    })
+    closeDocumentAudio()
+    clearSelectedDocument()
+    setActiveTab('translation')
+  }, [clearSelectedDocument, closeDocumentAudio, selectedDoc, selectedFormat, selectedTitle])
+
   const runDocumentImport = useCallback(async (
     importingMessage: string,
     importer: () => Promise<UploadedDocument>,
@@ -336,7 +350,13 @@ function App() {
         content={docContent}
         className={hasFloatingAudioControls ? 'app-audio-floating' : ''}
         appControls={<ThemeToggle choice={theme.choice} onChange={theme.setChoice} />}
-        headerControls={<AudioControls {...audioControlsProps} />}
+        headerControls={(
+          <AudioControls
+            {...audioControlsProps}
+            canTranslateDocument={selectedFormat !== 'pdf'}
+            onRequestTranslation={handleRequestDocumentTranslation}
+          />
+        )}
         beforeDocument={<TtsDiagnosticsPanel enabled={ttsDiagnosticsEnabled} />}
         ttsHighlight={ttsHighlight}
         loading={documentLoad.status === 'loading' && documentLoad.url === selectedDoc}
@@ -446,6 +466,12 @@ function App() {
             onToggleAuthor={toggleLibraryAuthor}
             onViewDocument={handleViewDocument}
           />
+        </section>
+      )}
+
+      {activeTab === 'translation' && (
+        <section className="tab-panel" role="tabpanel" aria-label="Translation">
+          <TranslationPanel selectedDocument={translationSeedDocument} />
         </section>
       )}
 

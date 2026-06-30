@@ -1,4 +1,4 @@
-export type AppTab = 'search' | 'library' | 'audiobooks'
+export type AppTab = 'search' | 'library' | 'translation' | 'audiobooks'
 
 interface TabDef {
   id: AppTab
@@ -9,6 +9,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'search', label: 'Search', icon: '\u{1F50D}' },
   { id: 'library', label: 'Library', icon: '\u{1F4DA}' },
+  { id: 'translation', label: 'Translate', icon: '\u{1F310}' },
   { id: 'audiobooks', label: 'Audiobooks', icon: '\u{1F3A7}' },
 ]
 

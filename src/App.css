@@ -1252,6 +1252,63 @@ html[data-theme="dark"] .document-html-content :where([bgcolor]) {
   background: var(--surface-success);
 }
 
+.audio-document-action {
+  position: relative;
+  display: inline-grid;
+}
+
+.audio-document-action-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  width: min(18rem, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-heading);
+  box-shadow: 0 14px 32px var(--shadow-popover);
+}
+
+.audio-document-action-menu button {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-heading);
+  text-align: left;
+  cursor: pointer;
+}
+
+.audio-document-action-menu button:last-child {
+  border-bottom: none;
+}
+
+.audio-document-action-menu button:hover:not(:disabled),
+.audio-document-action-menu button:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.audio-document-action-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.audio-document-action-menu span {
+  font-weight: 700;
+}
+
+.audio-document-action-menu small {
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
 .audio-icon {
   width: 1.05rem;
   height: 1.05rem;

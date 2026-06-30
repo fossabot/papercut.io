@@ -1,0 +1,111 @@
+.translation-panel {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.translation-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.35rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.translation-panel-header h2 {
+  margin: 0 0 0.35rem;
+  color: var(--text-heading);
+  font-size: 1.15rem;
+}
+
+.translation-panel-header p,
+.translation-empty-state p,
+.translation-roadmap-grid p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.translation-status-pill {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-body);
+  background: var(--surface);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.translation-selected-document,
+.translation-empty-state {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 1.35rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.translation-kicker {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.translation-selected-document strong,
+.translation-empty-state h3,
+.translation-roadmap-grid h3 {
+  color: var(--text-heading);
+}
+
+.translation-selected-document span:last-child {
+  color: var(--text-muted);
+}
+
+.translation-roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0 1.35rem 1.35rem;
+}
+
+.translation-roadmap-grid article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.translation-roadmap-grid h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 767px) {
+  .translation-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 1rem;
+  }
+
+  .translation-selected-document,
+  .translation-empty-state {
+    margin: 0 1rem;
+  }
+
+  .translation-roadmap-grid {
+    grid-template-columns: 1fr;
+    padding: 0 1rem 1rem;
+  }
+}

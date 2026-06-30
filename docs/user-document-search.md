@@ -145,7 +145,7 @@ The shared output should be boring and stable:
 
 `{ title, format, viewHtml, sections: [{ ordinal, heading?, text, locator? }] }`
 
-Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic. See [epub-implementation-plan.md](epub-implementation-plan.md) for the ordered EPUB task list and acceptance checks.
+Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic. See [epub-implementation-plan.md](epub-implementation-plan.md) for the ordered EPUB task list and acceptance checks. Future offline translation should build on the same contract by producing translated document variants rather than mutating original uploads; see [offline-translation.md](offline-translation.md).
 
 ## Current Limitations
 
@@ -171,7 +171,8 @@ Keeping this shape stable lets the UI and SQLite indexing remain format-agnostic
 7. Add richer EPUB reader features such as TOC, location restore, pagination, EPUB-specific appearance controls, or a foliate-js/epub.js-backed viewer if generated reading HTML is not enough.
 8. Add a runtime PDF import module later that extracts page text and stores page records in the same SQLite schema.
 9. Keep future viewer-specific theme work format-aware: EPUB/HTML can inherit CSS tokens, while PDF should theme surrounding controls without recoloring document pages by default.
-10. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
+10. Add offline translation as a document-variant pipeline, with translated HTML/EPUB copies stored and indexed separately from the original source.
+11. Decide whether Pagefind remains the bundled-document engine long term or whether all documents should eventually share SQLite FTS.
 
 ## Branching Guidance
 

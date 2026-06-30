@@ -8,9 +8,11 @@ interface AudioControlsProps {
   canSaveAudiobook: boolean
   canSkipBackward: boolean
   canSkipForward: boolean
+  canTranslateDocument: boolean
   isPdf: boolean
   saveInProgress: boolean
   onCancelSave: () => void
+  onRequestTranslation: () => void
   onPause: () => void
   onRead: () => void
   onResume: () => void
@@ -32,9 +34,11 @@ export function AudioControls({
   canSaveAudiobook,
   canSkipBackward,
   canSkipForward,
+  canTranslateDocument,
   isPdf,
   saveInProgress,
   onCancelSave,
+  onRequestTranslation,
   onPause,
   onRead,
   onResume,
@@ -48,6 +52,8 @@ export function AudioControls({
   ttsState,
 }: AudioControlsProps) {
   const [chunkMenuOpen, setChunkMenuOpen] = useState(false)
+  const [documentActionMenuOpen, setDocumentActionMenuOpen] = useState(false)
+  const documentActionRef = useRef<HTMLDivElement | null>(null)
   const isActive = ttsState.status === 'playing' ||
     ttsState.status === 'loading'
   const isPaused = ttsState.status === 'paused'
@@ -71,6 +77,37 @@ export function AudioControls({
     onJumpToChunk(index)
   }, [onJumpToChunk])
 
+  const handleSaveAudiobook = useCallback(() => {
+    setDocumentActionMenuOpen(false)
+    onSave()
+  }, [onSave])
+
+  const handleRequestTranslation = useCallback(() => {
+    setDocumentActionMenuOpen(false)
+    onRequestTranslation()
+  }, [onRequestTranslation])
+
+  useEffect(() => {
+    if (!documentActionMenuOpen) return
+
+    function handlePointerDown(event: PointerEvent) {
+      const root = documentActionRef.current
+      if (!root || root.contains(event.target as Node)) return
+      setDocumentActionMenuOpen(false)
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setDocumentActionMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [documentActionMenuOpen])
+
   return (
     <section className="audio-controls" aria-label="Audiobook controls">
       <div className="audio-compact-row">
@@ -79,7 +116,7 @@ export function AudioControls({
             <AudioIcon name="play" />
           </button>
         )}
-        {!isPdf && renderSaveButton()}
+        {!isPdf && renderDocumentActionButton()}
       </div>
 
       {showChunkMenuButton && chunkMenuOpen && (
@@ -144,7 +181,7 @@ export function AudioControls({
     </section>
   )
 
-  function renderSaveButton() {
+  function renderDocumentActionButton() {
     if (isPreparingSave) {
       return (
         <button className="audio-icon-btn" disabled aria-label="Preparing audiobook save" title="Preparing audiobook save">
@@ -162,15 +199,39 @@ export function AudioControls({
     }
 
     return (
-      <button
-        className={'audio-icon-btn' + (audiobookState.complete ? ' audio-save-complete' : '')}
-        onClick={onSave}
-        disabled={!canSaveAudiobook || audiobookState.complete}
-        aria-label={audiobookState.complete ? 'Audiobook saved for this voice and speed' : 'Save audiobook'}
-        title={audiobookState.complete ? 'Audiobook saved for this voice and speed' : 'Save audiobook'}
-      >
-        <AudioIcon name="save" />
-      </button>
+      <div className="audio-document-action" ref={documentActionRef}>
+        <button
+          className={'audio-icon-btn' + (documentActionMenuOpen ? ' audio-menu-btn-open' : '')}
+          onClick={() => setDocumentActionMenuOpen((value) => !value)}
+          aria-label="Save or translate document"
+          aria-expanded={documentActionMenuOpen}
+          title="Save or translate document"
+        >
+          <AudioIcon name="save" />
+        </button>
+        {documentActionMenuOpen && (
+          <div className="audio-document-action-menu" role="menu" aria-label="Document actions">
+            <button
+              type="button"
+              role="menuitem"
+              disabled={!canSaveAudiobook || audiobookState.complete}
+              onClick={handleSaveAudiobook}
+            >
+              <span>Save Audiobook</span>
+              <small>{audiobookState.complete ? 'Saved for this voice and speed' : 'Generate offline audio for this document'}</small>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={!canTranslateDocument}
+              onClick={handleRequestTranslation}
+            >
+              <span>Translate Document</span>
+              <small>Open offline translation setup</small>
+            </button>
+          </div>
+        )}
+      </div>
     )
   }
 }
