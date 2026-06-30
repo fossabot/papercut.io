@@ -312,9 +312,18 @@ Each stage should be easy to review and commit independently.
 - Display capabilities, planned model metadata, translated-variant list/delete state, and clear unavailable messaging.
 - Keep job controls disabled while native translation is unavailable. Do not add fake progress.
 
-### Stage 5: CTranslate2 MVP
+### Stage 5A: Engine And Segmentation Contracts
+
+- Add a native translation engine boundary without pulling in CTranslate2 yet.
+- Add deterministic text segmentation with bounded segment sizes, stable ids, and unit tests.
+- Keep this stage dependency-free so the branch stays easy to build/review before native packaging decisions.
+- Treat segment context as quality hints only; translated output must map back by segment id, not by prompt text.
+- Document the CTranslate2 integration decision: Rust bindings exist, but choosing one affects native library packaging, Android support, tokenizer handling, and model cache layout.
+
+### Stage 5B: CTranslate2 MVP
 
 - Add native engine spike for one or two pair models.
+- Choose a Rust binding or direct FFI path after validating desktop and Android packaging.
 - Implement model download/verify/install with checksum manifest.
 - Translate bounded text segments.
 - Emit progress events.
@@ -387,6 +396,7 @@ Language samples:
 
 - CTranslate2: https://github.com/OpenNMT/CTranslate2
 - CTranslate2 Transformers support: https://opennmt.net/CTranslate2/guides/transformers.html
+- ct2rs Rust bindings for CTranslate2: https://docs.rs/ct2rs
 - TranslateGemma model card: https://huggingface.co/google/translategemma-4b-it
 - TranslateGemma announcement: https://blog.google/innovation-and-ai/technology/developers-tools/translategemma/
 - Qwen3 8B model card: https://huggingface.co/Qwen/Qwen3-8B
