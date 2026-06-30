@@ -416,7 +416,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                 append_translated_segment(
                     &mut translated_blocks,
                     &mut translated_fragments,
-                    &segment.text,
+                    segment,
                     segment.source_block_index,
                     &cached_text,
                 );
@@ -433,7 +433,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                 append_translated_segment(
                     &mut translated_blocks,
                     &mut translated_fragments,
-                    &segment.text,
+                    segment,
                     segment.source_block_index,
                     &memory_text,
                 );
@@ -467,7 +467,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                 append_translated_segment(
                     &mut translated_blocks,
                     &mut translated_fragments,
-                    &segment.text,
+                    segment,
                     segment.source_block_index,
                     &translated_text,
                 );
@@ -624,7 +624,7 @@ fn run_failure(
 fn append_translated_segment(
     blocks: &mut [String],
     fragments: &mut [Vec<PersistTranslationFragment>],
-    source_text: &str,
+    segment: &super::segment::TranslationTextSegment,
     source_block_index: usize,
     text: &str,
 ) {
@@ -641,7 +641,9 @@ fn append_translated_segment(
     block_text.push_str(text);
     if let Some(block_fragments) = fragments.get_mut(source_block_index) {
         block_fragments.push(PersistTranslationFragment {
-            source_text: source_text.trim().to_string(),
+            source_start: segment.source_start,
+            source_end: segment.source_end,
+            source_text: segment.text.trim().to_string(),
             text: text.to_string(),
         });
     }

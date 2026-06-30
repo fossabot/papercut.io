@@ -82,6 +82,8 @@ pub(crate) struct PersistTranslationSection {
 
 #[derive(Debug, Clone)]
 pub(crate) struct PersistTranslationFragment {
+    pub(crate) source_start: usize,
+    pub(crate) source_end: usize,
     pub(crate) source_text: String,
     pub(crate) text: String,
 }

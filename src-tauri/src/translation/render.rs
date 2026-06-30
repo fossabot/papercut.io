@@ -396,7 +396,7 @@ fn replace_text_with_fragment_formatting(
     let mut rendered_fragments = Vec::new();
     for fragment in fragments {
         let Some((source_start, source_end, next_search_start)) =
-            find_fragment_char_range(&source_text, &fragment.source_text, search_start)
+            fragment_char_range(&source_text, fragment, search_start)
         else {
             return false;
         };
@@ -425,6 +425,39 @@ fn replace_text_with_fragment_formatting(
     }
     append_preserved_anchor_nodes(node, &preserved_anchors);
     true
+}
+
+fn fragment_char_range(
+    source_text: &str,
+    fragment: &PersistTranslationFragment,
+    search_start: usize,
+) -> Option<(usize, usize, usize)> {
+    if fragment.source_end > fragment.source_start
+        && fragment.source_end <= source_text.chars().count()
+        && char_slice(source_text, fragment.source_start, fragment.source_end)
+            .is_some_and(|value| value == normalize_fragment_text(&fragment.source_text))
+    {
+        return Some((
+            fragment.source_start,
+            fragment.source_end,
+            byte_index_for_char(source_text, fragment.source_end),
+        ));
+    }
+    find_fragment_char_range(source_text, &fragment.source_text, search_start)
+}
+
+fn char_slice(text: &str, start: usize, end: usize) -> Option<String> {
+    if start >= end || end > text.chars().count() {
+        return None;
+    }
+    Some(text.chars().skip(start).take(end - start).collect())
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
 }
 
 fn find_fragment_char_range(
@@ -1016,6 +1049,8 @@ mod tests {
 
     fn fragment(source_text: &str, text: &str) -> PersistTranslationFragment {
         PersistTranslationFragment {
+            source_start: 0,
+            source_end: 0,
             source_text: source_text.into(),
             text: text.into(),
         }
