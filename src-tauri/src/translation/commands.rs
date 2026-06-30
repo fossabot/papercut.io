@@ -35,10 +35,13 @@ pub fn translation_model_status(request: TranslationModelStatusRequest) -> Trans
 
 /// Start a document translation job once a real engine exists.
 #[tauri::command]
-pub fn translation_start(
+pub async fn translation_start<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     request: TranslationStartRequest,
 ) -> Result<TranslationStartResponse, String> {
-    start_translation_backend(request)
+    tauri::async_runtime::spawn_blocking(move || start_translation_backend(&app, request))
+        .await
+        .map_err(|err| format!("Translation start task failed: {err}"))?
 }
 
 /// Request cancellation for a translation job.

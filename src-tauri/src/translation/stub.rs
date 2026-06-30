@@ -7,7 +7,9 @@ use super::config::{
     DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
     TRANSLATION_BACKEND_UNAVAILABLE,
 };
+use super::job::plan_translation_job;
 use super::models::planned_models;
+use super::source::load_translation_source_document;
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationModelStatus,
     TranslationModelStatusRequest, TranslationStartRequest, TranslationStartResponse,
@@ -45,17 +47,27 @@ pub(super) fn translation_model_status(
     }
 }
 
-pub(super) fn start_translation(
+pub(super) fn start_translation<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     request: TranslationStartRequest,
 ) -> Result<TranslationStartResponse, String> {
-    let _ = (
-        request.document_url,
-        request.source_language,
-        request.target_language,
-        request.model_id,
-        request.quality_mode,
+    let source = load_translation_source_document(app, &request.document_url)?;
+    let source_blocks = source.blocks.iter().map(|block| block.text.as_str());
+    let plan = plan_translation_job(
+        request,
+        source_blocks,
+        DEFAULT_MAX_SEGMENT_CHARS,
+        DEFAULT_BATCH_SEGMENT_LIMIT,
     );
-    Err(NOT_IMPLEMENTED.into())
+    match plan {
+        Ok(plan) => Err(format!(
+            "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}'.",
+            plan.total_segments,
+            plan.batches.len(),
+            source.title
+        )),
+        Err(err) => Err(err),
+    }
 }
 
 pub(super) fn cancel_translation(request: TranslationCancelRequest) -> Result<(), String> {

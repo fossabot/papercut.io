@@ -318,6 +318,7 @@ Each stage should be easy to review and commit independently.
 - Add source-document reads from the existing upload section tables by document URL.
 - Add deterministic text segmentation with bounded segment sizes, stable ids, and unit tests.
 - Add a job planner that validates request shape, batches bounded segments, and creates a deterministic settings cache key.
+- Wire `translation_start` to run source/job preflight on a blocking task while still returning an unavailable response until a native engine exists.
 - Keep this stage dependency-free so the branch stays easy to build/review before native packaging decisions.
 - Treat segment context as quality hints only; translated output must map back by segment id, not by prompt text.
 - Use per-segment content hashes in the future cache manifest before resume/regeneration ships; the current job key only separates incompatible settings.
