@@ -394,8 +394,9 @@ Each stage should be easy to review and commit independently.
 - Next preservation work requires a stronger section locator layer:
   - Map translated segments to exact DOM text nodes rather than only block order.
   - Add coverage for complex nested links, footnotes, mixed inline formatting, and tables.
-- Add fixtures for footnotes, links, RTL text, mixed-language paragraphs, and tables.
-- Add quality checks for broken links and empty output.
+- Add fixtures for footnotes, links, RTL text, images, and tables.
+- Add first-pass quality checks for broken internal links and empty translated output before storing translated variants.
+- Later quality checks should add language detection, repeated-output detection, length-ratio checks, protected term checks, and richer tag/anchor validation.
 
 ### Stage 7: Quality Upgrades
 

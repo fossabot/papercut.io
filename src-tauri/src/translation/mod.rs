@@ -16,6 +16,7 @@ mod job;
 mod model_install;
 mod model_store;
 mod models;
+mod quality;
 mod render;
 mod segment;
 mod source;

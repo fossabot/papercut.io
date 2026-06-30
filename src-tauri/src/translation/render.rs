@@ -281,6 +281,44 @@ mod tests {
         assert!(!html.contains(">Chapitre</h1>"));
     }
 
+    #[test]
+    fn preserves_image_and_table_blocks_by_inserting_translation_nearby() {
+        let request = request(
+            "<!doctype html><html><body><article><p><img src=\"asset://cover.png\" alt=\"Cover\"> Couverture</p><blockquote><table><tr><td>Nom</td></tr></table></blockquote></article></body></html>",
+            vec![
+                section(0, false, "Cover image."),
+                section(1, false, "Name table."),
+            ],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("src=\"asset://cover.png\""));
+        assert!(html.contains("<table>"));
+        assert!(html.contains("Cover image."));
+        assert!(html.contains("Name table."));
+        assert!(html.contains("papercut-translation-inline"));
+    }
+
+    #[test]
+    fn preserves_rtl_source_links_while_rendering_ltr_translation() {
+        let request = request(
+            "<!doctype html><html><body><article dir=\"rtl\"><p>انظر <a href=\"#fn1\">١</a></p><p id=\"fn1\">حاشية</p></article></body></html>",
+            vec![
+                section(0, false, "See note 1."),
+                section(1, false, "Footnote body."),
+            ],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("dir=\"rtl\""));
+        assert!(html.contains("href=\"#fn1\""));
+        assert!(html.contains("id=\"fn1\""));
+        assert!(html.contains("See note 1."));
+        assert!(html.contains("Footnote body."));
+    }
+
     fn request(
         view_html: &str,
         translated_sections: Vec<PersistTranslationSection>,
