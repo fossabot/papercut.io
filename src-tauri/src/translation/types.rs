@@ -86,8 +86,8 @@ pub(crate) struct TranslatedDocumentInfo {
     pub(crate) target_language: String,
     pub(crate) model_id: String,
     pub(crate) status: String,
-    pub(crate) created_at: i64,
-    pub(crate) updated_at: i64,
+    pub(crate) created_at_ms: u128,
+    pub(crate) updated_at_ms: u128,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,5 +101,6 @@ pub(crate) struct TranslationDeleteRequest {
 pub(crate) struct TranslationDeleteResponse {
     pub(crate) id: String,
     pub(crate) deleted: bool,
+    pub(crate) bytes_freed: u64,
     pub(crate) message: String,
 }

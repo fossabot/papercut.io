@@ -300,9 +300,9 @@ Each stage should be easy to review and commit independently.
 
 ### Stage 3: Translated Variant Storage
 
-- Add SQLite metadata for translated document variants.
-- Add app-data paths for translated safe HTML.
-- Add list/delete plumbing without model inference.
+- Add SQLite metadata for translated document variants in the existing runtime upload/search database.
+- Add app-data paths under `document_uploads/translations/{translation_id}/` for future translated safe HTML.
+- Add list/delete plumbing without model inference. Delete must remove only translated variant metadata/files and must not mutate the original uploaded document.
 - Verify deleting a source document handles variants deliberately.
 
 ### Stage 4: Job Progress UI

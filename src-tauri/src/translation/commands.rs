@@ -5,10 +5,12 @@
 //! engine commits should keep this command layer stable and move blocking work
 //! onto `spawn_blocking` just like document uploads and native TTS.
 
+use super::storage::{
+    delete_translated_document as delete_translated_document_storage,
+    list_translated_documents as list_translated_documents_storage,
+};
 use super::stub::{
     cancel_translation as cancel_translation_backend,
-    delete_translated_document as delete_translated_document_backend,
-    list_translated_documents as list_translated_documents_backend,
     start_translation as start_translation_backend,
     translation_capabilities as translation_capabilities_backend,
     translation_model_status as translation_model_status_backend,
@@ -46,13 +48,32 @@ pub fn translation_cancel(request: TranslationCancelRequest) -> Result<(), Strin
 }
 
 /// List durable translated document variants.
+///
+/// This command is real before inference exists so the frontend can be built
+/// against the eventual library surface. It returns an empty list until a later
+/// stage creates translated variants.
 #[tauri::command]
-pub fn translation_list_documents() -> Vec<TranslatedDocumentInfo> {
-    list_translated_documents_backend()
+pub async fn translation_list_documents<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<Vec<TranslatedDocumentInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_translated_documents_storage(&app))
+        .await
+        .map_err(|err| format!("Translation list task failed: {err}"))?
 }
 
 /// Delete a translated document variant.
+///
+/// Delete is also real early because it defines an important safety boundary:
+/// translated variants are disposable derived data, while original uploads stay
+/// owned by `document_uploads`.
 #[tauri::command]
-pub fn translation_delete_document(request: TranslationDeleteRequest) -> TranslationDeleteResponse {
-    delete_translated_document_backend(request)
+pub async fn translation_delete_document<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    request: TranslationDeleteRequest,
+) -> Result<TranslationDeleteResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        delete_translated_document_storage(&app, &request.id)
+    })
+    .await
+    .map_err(|err| format!("Translation delete task failed: {err}"))?
 }

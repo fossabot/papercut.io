@@ -20,6 +20,11 @@ pub(crate) struct TranslationModelDefinition {
 }
 
 impl TranslationModelDefinition {
+    /// Project inert catalog planning data into the frontend capability shape.
+    ///
+    /// These entries are not installable yet. They exist so the frontend and
+    /// docs can discuss stable model ids/tiers while engine spikes still decide
+    /// exact archives, checksums, licenses, required files, and platform gates.
     pub(crate) fn to_info(self) -> TranslationModelInfo {
         TranslationModelInfo {
             id: self.id.into(),
@@ -47,6 +52,12 @@ impl TranslationModelDefinition {
     }
 }
 
+/// Planned model candidates, not an installation manifest.
+///
+/// A future model-download stage must replace or enrich these rows with pinned
+/// source URLs, SHA-256 hashes, archive sizes, and model-specific validation.
+/// Until then the capability API must continue reporting translation unavailable
+/// even though these candidates are visible to development builds.
 pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
     TranslationModelDefinition {
         id: "opus-mt-pair-ctranslate2",
@@ -80,6 +91,11 @@ pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
     },
 ];
 
+/// Return candidate metadata for capabilities/diagnostics.
+///
+/// Keeping this as a function instead of exporting the const directly gives
+/// future storage or platform filters one place to narrow the catalog without
+/// making command code understand model-family details.
 pub(crate) fn planned_models() -> Vec<TranslationModelInfo> {
     PLANNED_TRANSLATION_MODELS
         .iter()

@@ -10,5 +10,6 @@
 pub(crate) mod commands;
 mod config;
 mod models;
+mod storage;
 mod stub;
 mod types;

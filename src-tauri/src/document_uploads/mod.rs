@@ -30,3 +30,14 @@ mod search;
 mod storage;
 mod store;
 mod types;
+
+/// Shared SQLite connection bootstrap for translated document variants.
+///
+/// Translation needs to list and delete derived documents beside uploads, but
+/// it should not make the upload store public or depend on parser internals.
+/// This small seam exposes only the database bootstrap contract.
+pub(crate) fn open_document_uploads_db<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<rusqlite::Connection, String> {
+    store::open_db(app)
+}

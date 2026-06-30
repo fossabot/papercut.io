@@ -9,8 +9,7 @@ use super::config::{
 };
 use super::models::planned_models;
 use super::types::{
-    TranslatedDocumentInfo, TranslationCancelRequest, TranslationCapabilities,
-    TranslationDeleteRequest, TranslationDeleteResponse, TranslationModelStatus,
+    TranslationCancelRequest, TranslationCapabilities, TranslationModelStatus,
     TranslationModelStatusRequest, TranslationStartRequest, TranslationStartResponse,
 };
 
@@ -62,18 +61,4 @@ pub(super) fn start_translation(
 pub(super) fn cancel_translation(request: TranslationCancelRequest) -> Result<(), String> {
     let _ = request.job_id;
     Ok(())
-}
-
-pub(super) fn list_translated_documents() -> Vec<TranslatedDocumentInfo> {
-    Vec::new()
-}
-
-pub(super) fn delete_translated_document(
-    request: TranslationDeleteRequest,
-) -> TranslationDeleteResponse {
-    TranslationDeleteResponse {
-        id: request.id,
-        deleted: false,
-        message: NOT_IMPLEMENTED.into(),
-    }
 }
