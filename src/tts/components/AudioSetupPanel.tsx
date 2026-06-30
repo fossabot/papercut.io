@@ -1,11 +1,18 @@
+import type { ReactNode } from 'react'
 import type { NativeTtsModelInstallProgress, NativeTtsModelStatus } from '../api/nativeTts'
 import type { TextPreprocessorInfo, TtsModelInfo, TtsVoice, TtsVoiceInfo } from '../types'
+import { formatSpeedLabel } from '../utils/format'
 
 const HIGH_THREAD_COUNT_WARNING_THRESHOLD = 4
 
 const SPEED_MIN = 0.5
 const SPEED_MAX = 2
 const SPEED_STEP = 0.05
+
+interface SelectOption {
+  label: string
+  value: string | number
+}
 
 // Snap to the slider step and clamp to range. The saved-audiobook cache id buckets
 // speed to 2 decimals on both the JS and Rust side, so values must round-trip cleanly
@@ -17,19 +24,16 @@ function snapSpeed(value: number): number {
   return Number(clamped.toFixed(2))
 }
 
-function formatSpeedLabel(speed: number): string {
-  if (!Number.isFinite(speed)) return '1x'
-  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
-}
-
 export interface AudioSetupPanelProps {
   appliedThreadCount: number | null
+  debugEnabled?: boolean
   defaultThreadCount: number
   maxThreadCount: number
   modelId: string
   models: TtsModelInfo[]
   modelInstallProgress: NativeTtsModelInstallProgress | null
   modelStatus: NativeTtsModelStatus | null
+  onDiagnosticsChange?: (enabled: boolean) => void
   onInstallModel: () => void
   onModelChange: (modelId: string) => void
   onSpeedChange: (speed: number) => void
@@ -46,12 +50,14 @@ export interface AudioSetupPanelProps {
 
 export function AudioSetupPanel({
   appliedThreadCount,
+  debugEnabled = false,
   defaultThreadCount,
   maxThreadCount,
   modelId,
   models,
   modelInstallProgress,
   modelStatus,
+  onDiagnosticsChange,
   onInstallModel,
   onModelChange,
   onSpeedChange,
@@ -70,98 +76,153 @@ export function AudioSetupPanel({
     modelInstallProgress.status !== 'installed' &&
     modelInstallProgress.status !== 'error'
   )
+  const modelInstalled = Boolean(modelStatus?.installed || modelInstallProgress?.status === 'installed')
   const modelPercent = modelInstallProgress?.percent ?? 0
   const modelSize = formatModelSize(modelStatus?.archiveBytes ?? modelInstallProgress?.totalBytes ?? 0)
   const threadOptions = Array.from({ length: maxThreadCount }, (_, index) => index + 1)
   const showHighThreadWarning = threadCount > HIGH_THREAD_COUNT_WARNING_THRESHOLD
+  const hasTextProcessing = textPreprocessors.length > 1
 
   return (
     <div className="audio-setup-panel">
-      <div className="audio-settings-grid">
-        <label className="audio-field">
-          <span>Model</span>
-          <select
-            className="tts-select"
-            value={modelId}
-            onChange={(event) => onModelChange(event.target.value)}
-            title="Speech model"
-          >
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.languageLabel + ' - ' + model.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="audio-field">
-          <span>Voice</span>
-          <select
-            className="tts-select"
-            value={voice}
-            onChange={(event) => onVoiceChange(event.target.value as TtsVoice)}
-            title="Voice"
-          >
-            {voices.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="audio-field audio-field-speed">
-          <span>Speed</span>
-          <div className="audio-speed-row">
-            <button
-              type="button"
-              className="audio-speed-step"
-              onClick={() => onSpeedChange(snapSpeed(speed - SPEED_STEP))}
-              disabled={speed <= SPEED_MIN}
-              aria-label="Decrease Speed"
-              title="Decrease Speed"
+      <section className="audio-setup-group" aria-label="Voice settings">
+        <h4 className="audio-setup-group-title">Voice</h4>
+        <div className="audio-settings-grid audio-settings-grid-main">
+          <div className="audio-field audio-field-model">
+            <div className="audio-field-heading">
+              <span>
+                Model
+                {modelInstalled && (
+                  <span className="audio-model-state audio-model-state-installed">
+                    (<CheckIcon /><span>Installed</span>)
+                  </span>
+                )}
+              </span>
+            </div>
+            <select
+              className="tts-select"
+              value={modelId}
+              onChange={(event) => onModelChange(event.target.value)}
+              title="Speech model"
             >
-              &minus;
-            </button>
-            <input
-              type="range"
-              className="tts-speed-slider"
-              min={SPEED_MIN}
-              max={SPEED_MAX}
-              step={SPEED_STEP}
-              value={speed}
-              onChange={(event) => onSpeedChange(snapSpeed(Number(event.target.value)))}
-              title="Playback Speed"
-              aria-label="Playback Speed"
-            />
-            <button
-              type="button"
-              className="audio-speed-step"
-              onClick={() => onSpeedChange(snapSpeed(speed + SPEED_STEP))}
-              disabled={speed >= SPEED_MAX}
-              aria-label="Increase Speed"
-              title="Increase Speed"
-            >
-              +
-            </button>
-            <span className="audio-speed-value">{formatSpeedLabel(speed)}</span>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.languageLabel + ' - ' + model.name}
+                </option>
+              ))}
+            </select>
+            {debugEnabled && (
+              <div className="audio-model-source" title={modelStatus?.sourceUrl}>
+                <span>{modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS'}</span>
+                <span>{modelSize ? modelSize + ' GitHub release' : 'GitHub release asset'}</span>
+              </div>
+            )}
+            {!modelInstalled && (
+              <button
+                type="button"
+                className="tts-btn tts-save-btn"
+                onClick={onInstallModel}
+                disabled={modelInstalling}
+                title="Download selected offline voice model"
+              >
+                <DownloadIcon />
+                <span>{modelInstalling ? 'Downloading Model...' : 'Download Voice Model'}</span>
+              </button>
+            )}
+            {(modelInstallProgress || modelInstalling) && (
+              <div className={'audiobook-status audiobook-status-' + (modelInstallProgress?.status === 'error' ? 'error' : modelInstalled ? 'saved' : 'saving')}>
+                <div className="audiobook-status-row">
+                  <span>{modelInstallProgress?.message ?? modelStatus?.message ?? 'Preparing model download'}</span>
+                  <span>{modelPercent}%</span>
+                </div>
+                {!modelInstalled && modelInstallProgress?.status !== 'error' && (
+                  <div className="audio-progress-meter" aria-label={'Voice model download ' + modelPercent + '% complete'}>
+                    <span style={{ width: modelPercent + '%' }} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        </label>
 
-        <label className="audio-field">
-          <span>Threads</span>
-          <select
-            className="tts-select tts-threads"
-            value={threadCount}
-            onChange={(event) => onThreadCountChange(Number(event.target.value))}
-            title="Native TTS threads"
+          <SelectField
+            className="audio-field-voice"
+            label="Voice"
+            title="Voice"
+            value={voice}
+            options={voices.map((item) => ({ label: item.name, value: item.id }))}
+            onChange={(value) => onVoiceChange(value as TtsVoice)}
+          />
+
+          <div className="audio-field audio-field-speed">
+            <span id="tts-speed-label">Speed</span>
+            <div className="audio-speed-row">
+              <button
+                type="button"
+                className="audio-speed-step"
+                onClick={() => onSpeedChange(snapSpeed(speed - SPEED_STEP))}
+                disabled={speed <= SPEED_MIN}
+                aria-label="Decrease Speed"
+                title="Decrease Speed"
+              >
+                &minus;
+              </button>
+              <input
+                type="range"
+                className="tts-speed-slider"
+                min={SPEED_MIN}
+                max={SPEED_MAX}
+                step={SPEED_STEP}
+                value={speed}
+                onChange={(event) => onSpeedChange(snapSpeed(Number(event.target.value)))}
+                title="Playback Speed"
+                aria-labelledby="tts-speed-label"
+              />
+              <button
+                type="button"
+                className="audio-speed-step"
+                onClick={() => onSpeedChange(snapSpeed(speed + SPEED_STEP))}
+                disabled={speed >= SPEED_MAX}
+                aria-label="Increase Speed"
+                title="Increase Speed"
+              >
+                +
+              </button>
+              <span className="audio-speed-value">{formatSpeedLabel(speed)}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="audio-setup-group audio-setup-advanced" aria-label="Advanced audio settings">
+        <div className="audio-setup-group-heading">
+          <h4 className="audio-setup-group-title">Advanced</h4>
+        </div>
+        {hasTextProcessing && (
+          <SelectField
+            className="audio-field-text-processing"
+            label="Text Processing"
+            title="Optional language preprocessing before speech synthesis"
+            value={textPreprocessor}
+            options={textPreprocessors.map((item) => ({ label: item.name, value: item.id }))}
+            onChange={onTextPreprocessorChange}
           >
-            {threadOptions.map((count) => (
-              <option key={count} value={count}>
-                {count} {count === 1 ? 'thread' : 'threads'}
-              </option>
-            ))}
-          </select>
+            <span className="audio-thread-meta">
+              {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
+            </span>
+          </SelectField>
+        )}
+        <SelectField
+          className="audio-field-threads"
+          label="Threads"
+          selectClassName="tts-threads"
+          title="Native TTS threads"
+          value={threadCount}
+          options={threadOptions.map((count) => ({
+            label: count + ' ' + (count === 1 ? 'thread' : 'threads'),
+            value: count,
+          }))}
+          onChange={(value) => onThreadCountChange(Number(value))}
+        >
           <span className="audio-thread-meta">
             Default {defaultThreadCount}, detected max {maxThreadCount}
             {appliedThreadCount !== null ? `, save applied ${appliedThreadCount}` : ''}
@@ -171,59 +232,61 @@ export function AudioSetupPanel({
               High thread counts can increase memory use, heat, battery drain, and thermal throttling. More threads may be slower.
             </span>
           )}
+        </SelectField>
+        <label className="audio-field audio-field-diagnostics" title="Show TTS diagnostic events and model source details">
+          <span>Diagnostics</span>
+          <span className="audio-diagnostics-control">
+            <span className="audio-diagnostics-value">{debugEnabled ? 'On' : 'Off'}</span>
+            <input
+              type="checkbox"
+              checked={debugEnabled}
+              onChange={(event) => onDiagnosticsChange?.(event.target.checked)}
+              disabled={!onDiagnosticsChange}
+            />
+            <span className="audio-diagnostics-switch" aria-hidden="true" />
+          </span>
         </label>
-
-        {textPreprocessors.length > 1 && (
-          <label className="audio-field">
-            <span>Text Processing</span>
-            <select
-              className="tts-select"
-              value={textPreprocessor}
-              onChange={(event) => onTextPreprocessorChange(event.target.value)}
-              title="Optional language preprocessing before speech synthesis"
-            >
-              {textPreprocessors.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <span className="audio-thread-meta">
-              {textPreprocessors.find((item) => item.id === textPreprocessor)?.description}
-            </span>
-          </label>
-        )}
-      </div>
-
-      <div className="audio-model-panel">
-        <button
-          className="tts-btn tts-save-btn"
-          onClick={onInstallModel}
-          disabled={Boolean(modelStatus?.installed) || modelInstalling}
-          title={modelStatus?.installed ? 'Offline voice model is installed' : 'Download selected offline voice model'}
-        >
-          {modelStatus?.installed ? <CheckIcon /> : <DownloadIcon />}
-          <span>{modelStatus?.installed ? 'Voice model installed' : modelInstalling ? 'Downloading Model...' : 'Download Voice Model'}</span>
-        </button>
-        <div className="audio-model-source" title={modelStatus?.sourceUrl}>
-          <span>{'Source: ' + (modelStatus?.sourceLabel ?? 'sherpa-onnx offline TTS')}</span>
-          <span>{modelSize ? modelSize + ' archive from k2-fsa/sherpa-onnx GitHub release' : 'Official k2-fsa/sherpa-onnx GitHub release asset'}</span>
-        </div>
-        {(modelInstallProgress || modelInstalling) && (
-          <div className={'audiobook-status audiobook-status-' + (modelInstallProgress?.status === 'error' ? 'error' : modelStatus?.installed ? 'saved' : 'saving')}>
-            <div className="audiobook-status-row">
-              <span>{modelInstallProgress?.message ?? modelStatus?.message ?? 'Preparing model download'}</span>
-              <span>{modelPercent}%</span>
-            </div>
-            {!modelStatus?.installed && modelInstallProgress?.status !== 'error' && (
-              <div className="download-meter" aria-label={'Voice model download ' + modelPercent + '% complete'}>
-                <span style={{ width: modelPercent + '%' }} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      </section>
     </div>
+  )
+}
+
+function SelectField({
+  children,
+  className,
+  label,
+  onChange,
+  options,
+  selectClassName,
+  title,
+  value,
+}: {
+  children?: ReactNode
+  className: string
+  label: string
+  onChange: (value: string) => void
+  options: SelectOption[]
+  selectClassName?: string
+  title: string
+  value: string | number
+}) {
+  return (
+    <label className={'audio-field ' + className}>
+      <span>{label}</span>
+      <select
+        className={'tts-select' + (selectClassName ? ' ' + selectClassName : '')}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        title={title}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {children}
+    </label>
   )
 }
 

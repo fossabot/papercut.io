@@ -7,7 +7,7 @@ import {
   saveNativeAudiobook,
   type NativeAudiobookSaveProgress,
 } from '../api/nativeTts'
-import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
+import { logTtsDiagnostic, summarizeTtsCapabilities } from '../diagnostics/TtsDiagnostics'
 import {
   resolveTtsDtype,
   type TtsOptions,
@@ -127,7 +127,7 @@ export function useAudiobookCache() {
       let unlisten: (() => void) | null = null
       try {
         const capabilities = await getNativeTtsCapabilities()
-        logTtsDiagnostic('[tts-native] capabilities', { ...capabilities })
+        logTtsDiagnostic('[tts-native] capabilities', summarizeTtsCapabilities(capabilities))
         if (!capabilities.available) throw new Error(capabilities.reason)
         if (!options.documentUrl) throw new Error('Native audiobook save requires a document URL')
         if (jobIdRef.current !== jobId) return

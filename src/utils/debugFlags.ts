@@ -23,3 +23,14 @@ export function isDebugEnabled(): boolean {
     return false
   }
 }
+
+export function setDebugEnabled(enabled: boolean): void {
+  if (typeof window === 'undefined') return
+
+  try {
+    if (enabled) window.localStorage.setItem(STORAGE_KEY, '1')
+    else window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // Debug mode should never affect normal app usage.
+  }
+}
