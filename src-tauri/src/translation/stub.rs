@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 use super::config::{
-    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_JOB_PROGRESS_EVENT,
-    DEFAULT_TRANSLATION_QUALITY_MODE, TRANSLATION_BACKEND_UNAVAILABLE,
+    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
+    TRANSLATION_BACKEND_UNAVAILABLE, TRANSLATION_JOB_PROGRESS_EVENT,
 };
 use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
@@ -406,7 +406,7 @@ fn emit_translation_progress<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     progress: TranslationJobProgress,
 ) -> Result<(), String> {
-    app.emit(DEFAULT_TRANSLATION_JOB_PROGRESS_EVENT, progress)
+    app.emit(TRANSLATION_JOB_PROGRESS_EVENT, progress)
         .map_err(|err| format!("Failed to emit translation progress: {err}"))
 }
 
