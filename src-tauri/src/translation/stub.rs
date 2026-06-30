@@ -11,6 +11,7 @@ use super::job::plan_translation_job;
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models};
 use super::source::load_translation_source_document;
+use super::state::TranslationState;
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationModelStatus,
     TranslationModelStatusRequest, TranslationStartRequest, TranslationStartResponse,
@@ -33,6 +34,7 @@ pub(super) fn translation_capabilities() -> TranslationCapabilities {
 
 pub(super) fn translation_model_status<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
+    state: &tauri::State<'_, TranslationState>,
     request: TranslationModelStatusRequest,
 ) -> TranslationModelStatus {
     let Some(model) = find_planned_model(&request.model_id) else {
@@ -51,11 +53,16 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
     };
 
     let manifest = manifest_for(model);
+    let installing = state
+        .model_installing
+        .lock()
+        .map(|guard| guard.contains(manifest.directory_name))
+        .unwrap_or(false);
     match resolve_translation_model_dir(app, manifest) {
         Ok(model_dir) => TranslationModelStatus {
             model_id: manifest.model_id.into(),
             installed: true,
-            installing: false,
+            installing,
             model_dir: Some(model_dir.display().to_string()),
             source_url: manifest.source_url.into(),
             source_label: manifest.source_label.into(),
@@ -67,7 +74,7 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
         Err(_) => TranslationModelStatus {
             model_id: manifest.model_id.into(),
             installed: false,
-            installing: false,
+            installing,
             model_dir: None,
             source_url: manifest.source_url.into(),
             source_label: format!("{} ({})", model.name, model.manifest_state),
@@ -80,7 +87,7 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
                 )
             } else {
                 format!(
-                    "{NOT_IMPLEMENTED} The file manifest is pinned, but model download and native CTranslate2 inference are not wired yet."
+                    "{NOT_IMPLEMENTED} The file manifest is pinned and installable, but native CTranslate2 inference is not wired yet."
                 )
             },
         },

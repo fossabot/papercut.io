@@ -340,11 +340,18 @@ Each stage should be easy to review and commit independently.
   - Translation model files live under `<app-data>/translation/models/{model-id}`.
   - Future installer scratch work should live under the OS cache directory, then promote verified files into app data.
   - Candidate-only entries must stay non-installable until they have pinned source URLs, SHA-256 hashes, file sizes, required-file validation, license review, and platform gates.
-- Pin the first file manifests, but keep them non-installable until the downloader and native CTranslate2 binding exist:
+- Pin the first file manifests and install them before native inference exists:
   - Spanish -> English: `michaelfeil/ct2fast-opus-mt-es-en` at revision `437f5ffc6c8544943c685ea405650e0d17cf6098`, 8 required files, 159,387,032 bytes total.
   - French -> English: `michaelfeil/ct2fast-opus-mt-fr-en` at revision `cb3b2d680bf35591a508d8479e2c99c44e281ef3`, 8 required files, 153,350,068 bytes total.
   - These Hugging Face repos advertise Apache-2.0 metadata, but keep OPUS-MT/Helsinki-NLP provenance and redistribution notes visible until final license review is complete.
-- Implement model download/verify/install only after the pinned file manifest is wired to a verifier.
+- Implement model download/verify/install from the pinned file manifest:
+  - Stream files with flat memory use.
+  - Verify each file byte count and SHA-256.
+  - Stage downloads in the OS cache directory.
+  - Promote the complete verified folder into app data only after all files pass validation.
+  - Emit model-install progress events for future UI wiring.
+  - Keep the install command separate from `translation_start`, because having model files on disk does not mean the translation engine can run yet.
+- Keep `translation_start` unavailable until the CTranslate2 engine and tokenizer are wired.
 - Translate bounded text segments.
 - Emit progress events.
 - Store translated output and index it.

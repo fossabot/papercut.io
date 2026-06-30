@@ -7,6 +7,8 @@ export interface TranslationCapabilities {
   models: TranslationModelInfo[]
 }
 
+const TRANSLATION_MODEL_INSTALL_PROGRESS_EVENT = 'translation-model-install-progress'
+
 export interface TranslationModelInfo {
   id: string
   name: string
@@ -33,6 +35,21 @@ export interface TranslationModelStatus {
   installedBytes: number
   sha256: string
   message: string
+}
+
+export interface TranslationModelInstallProgress {
+  modelId: string
+  status: 'starting' | 'downloading' | 'installed' | string
+  message: string
+  downloadedBytes: number
+  totalBytes: number
+  percent: number
+}
+
+export interface TranslationModelInstallResult {
+  modelId: string
+  modelDir: string
+  bytes: number
 }
 
 export interface TranslationStartRequest {
@@ -100,6 +117,24 @@ export async function getTranslationModelStatus(modelId: string): Promise<Transl
   }
   const invoke = await loadTauriInvoke()
   return invoke<TranslationModelStatus>('translation_model_status', { request: { modelId } })
+}
+
+export async function installTranslationModel(modelId: string): Promise<TranslationModelInstallResult> {
+  if (!isNativeTranslationRuntime()) {
+    throw new Error('Offline translation is only available in the desktop or Android app.')
+  }
+  const invoke = await loadTauriInvoke()
+  return invoke<TranslationModelInstallResult>('translation_install_model', { modelId })
+}
+
+export async function listenTranslationModelInstallProgress(
+  handler: (progress: TranslationModelInstallProgress) => void,
+): Promise<() => void> {
+  if (!isNativeTranslationRuntime()) return () => {}
+  const mod = await import('@tauri-apps/api/event')
+  return mod.listen<TranslationModelInstallProgress>(TRANSLATION_MODEL_INSTALL_PROGRESS_EVENT, (event) => {
+    handler(event.payload)
+  })
 }
 
 export async function startTranslationJob(request: TranslationStartRequest): Promise<TranslationStartResult> {

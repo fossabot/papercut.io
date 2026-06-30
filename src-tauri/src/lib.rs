@@ -9,6 +9,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_native_audio::init())
         .manage(native_tts::NativeTtsState::default())
+        .manage(translation::TranslationState::default())
         .invoke_handler(tauri::generate_handler![
             document_uploads::commands::document_uploads_import_html,
             document_uploads::commands::document_uploads_import_epub,
@@ -38,6 +39,7 @@ pub fn run() {
             native_tts::commands::tts_delete_audiobook_native,
             translation::commands::translation_capabilities,
             translation::commands::translation_model_status,
+            translation::commands::translation_install_model,
             translation::commands::translation_start,
             translation::commands::translation_cancel,
             translation::commands::translation_list_documents,

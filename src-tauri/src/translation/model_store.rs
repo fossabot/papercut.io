@@ -1,9 +1,9 @@
 //! Translation model manifest and cache path helpers.
 //!
-//! This layer mirrors the TTS model-store boundary, but stays deliberately
-//! non-downloadable until we wire an installer for the pinned CTranslate2 file
-//! manifests. The goal is to make install/status code reviewable now without
-//! claiming model download or inference is ready.
+//! This layer mirrors the TTS model-store boundary. The first CTranslate2
+//! manifests can be downloaded and verified now, but installation is still
+//! separate from inference so the UI never claims translation is ready before
+//! CTranslate2 loading/tokenization lands.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -50,10 +50,10 @@ impl TranslationModelManifest {
 
 /// Convert catalog metadata into the future install manifest shape.
 ///
-/// The first CTranslate2 candidates are now pinned to exact Hugging Face
-/// revisions and file checksums, but remain non-installable until the downloader
-/// and native engine are wired. Later quality-model candidates intentionally
-/// stay empty so they cannot be mistaken for supported downloads.
+/// The first CTranslate2 candidates are pinned to exact Hugging Face revisions
+/// and file checksums, and can be installed independently of inference. Later
+/// quality-model candidates intentionally stay empty so they cannot be mistaken
+/// for supported downloads.
 pub(crate) fn manifest_for(model: TranslationModelDefinition) -> TranslationModelManifest {
     if model.id == "opus-mt-es-en-ctranslate2" {
         return TranslationModelManifest {
@@ -63,7 +63,7 @@ pub(crate) fn manifest_for(model: TranslationModelDefinition) -> TranslationMode
             source_url: "https://huggingface.co/michaelfeil/ct2fast-opus-mt-es-en/tree/437f5ffc6c8544943c685ea405650e0d17cf6098",
             revision: "437f5ffc6c8544943c685ea405650e0d17cf6098",
             files: OPUS_MT_ES_EN_CT2_FILES,
-            installable: false,
+            installable: true,
         };
     }
 
@@ -75,7 +75,7 @@ pub(crate) fn manifest_for(model: TranslationModelDefinition) -> TranslationMode
             source_url: "https://huggingface.co/michaelfeil/ct2fast-opus-mt-fr-en/tree/cb3b2d680bf35591a508d8479e2c99c44e281ef3",
             revision: "cb3b2d680bf35591a508d8479e2c99c44e281ef3",
             files: OPUS_MT_FR_EN_CT2_FILES,
-            installable: false,
+            installable: true,
         };
     }
 
@@ -267,11 +267,11 @@ mod tests {
     use crate::translation::models::find_planned_model;
 
     #[test]
-    fn pinned_ct2_manifest_is_not_installable_until_downloader_lands() {
+    fn pinned_ct2_manifest_is_installable_after_downloader_lands() {
         let model = find_planned_model("opus-mt-es-en-ctranslate2").expect("model");
         let manifest = manifest_for(model);
 
-        assert!(!manifest.installable);
+        assert!(manifest.installable);
         assert_eq!(
             manifest.revision,
             "437f5ffc6c8544943c685ea405650e0d17cf6098"

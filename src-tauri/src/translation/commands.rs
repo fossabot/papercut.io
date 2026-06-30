@@ -5,6 +5,8 @@
 //! engine commits should keep this command layer stable and move blocking work
 //! onto `spawn_blocking` just like document uploads and native TTS.
 
+use super::model_install::install_translation_model as install_translation_model_backend;
+use super::state::TranslationState;
 use super::storage::{
     delete_translated_document as delete_translated_document_storage,
     list_translated_documents as list_translated_documents_storage,
@@ -17,8 +19,9 @@ use super::stub::{
 };
 use super::types::{
     TranslatedDocumentInfo, TranslationCancelRequest, TranslationCapabilities,
-    TranslationDeleteRequest, TranslationDeleteResponse, TranslationModelStatus,
-    TranslationModelStatusRequest, TranslationStartRequest, TranslationStartResponse,
+    TranslationDeleteRequest, TranslationDeleteResponse, TranslationModelInstallResponse,
+    TranslationModelStatus, TranslationModelStatusRequest, TranslationStartRequest,
+    TranslationStartResponse,
 };
 
 /// Return planned offline translation capabilities and candidate catalog entries.
@@ -31,9 +34,20 @@ pub fn translation_capabilities() -> TranslationCapabilities {
 #[tauri::command]
 pub fn translation_model_status<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
+    state: tauri::State<'_, TranslationState>,
     request: TranslationModelStatusRequest,
 ) -> TranslationModelStatus {
-    translation_model_status_backend(&app, request)
+    translation_model_status_backend(&app, &state, request)
+}
+
+/// Download and verify a pinned translation model manifest.
+#[tauri::command]
+pub async fn translation_install_model<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: tauri::State<'_, TranslationState>,
+    model_id: String,
+) -> Result<TranslationModelInstallResponse, String> {
+    install_translation_model_backend(app, state, model_id).await
 }
 
 /// Start a document translation job once a real engine exists.

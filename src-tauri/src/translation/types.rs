@@ -55,6 +55,25 @@ pub(crate) struct TranslationModelStatusRequest {
     pub(crate) model_id: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TranslationModelInstallProgress {
+    pub(crate) model_id: String,
+    pub(crate) status: String,
+    pub(crate) message: String,
+    pub(crate) downloaded_bytes: u64,
+    pub(crate) total_bytes: u64,
+    pub(crate) percent: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TranslationModelInstallResponse {
+    pub(crate) model_id: String,
+    pub(crate) model_dir: String,
+    pub(crate) bytes: u64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TranslationStartRequest {
