@@ -95,11 +95,24 @@ pub(crate) struct NativeTtsModelInstallResponse {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// One narration chunk: id, text, and an optional precomputed text hash.
+/// Runtime-only source locator for a chunk in the reader's readable DOM segments.
+#[cfg_attr(not(feature = "native-tts-core"), allow(dead_code))]
+pub(crate) struct NativeTtsChunkSourceSpan {
+    pub(crate) start_segment_index: usize,
+    pub(crate) start_offset: usize,
+    pub(crate) end_segment_index: usize,
+    pub(crate) end_offset: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+/// One narration chunk: id/text identity plus optional hash and reader locator.
 pub(crate) struct NativeTtsInputChunk {
     pub(crate) id: String,
     pub(crate) text: String,
     pub(crate) text_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) source_span: Option<NativeTtsChunkSourceSpan>,
 }
 
 #[derive(Debug, Deserialize)]

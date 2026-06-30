@@ -267,6 +267,17 @@ export function useAudiobookManager({
           setTtsTextPreprocessor(metadata.textPreprocessor)
           setTtsSpeed(metadata.speed)
           setTtsSaveChunks(metadata.chunks)
+          if (chunksHaveDurableSourceSpans(metadata.chunks)) {
+            logTtsDiagnostic('[tts-highlight] imported durable source spans ready', {
+              chunks: metadata.chunks.length,
+              sourceSpans: countChunkSourceSpans(metadata.chunks),
+              modelId: metadata.modelId,
+              textPreprocessor: metadata.textPreprocessor,
+              documentUrl: selectedDoc,
+            })
+            setImportedHighlightStatus('ready')
+            return
+          }
           cancelHighlightBuild = scheduleImportedHighlightBuild(() => {
             if (cancelled) return
             const rebuiltChunks = audiobookSaveChunksFromHtml(docContent)
@@ -918,6 +929,15 @@ export function useAudiobookManager({
       allowDomFallback: Boolean(selectedDoc && isUserUploadUrl(selectedDoc)),
     },
   }
+}
+
+function chunksHaveDurableSourceSpans(chunks: TtsChunk[]): boolean {
+  const speakableChunks = chunks.filter((chunk) => chunk.text.trim())
+  return Boolean(speakableChunks.length && speakableChunks.every((chunk) => Boolean(chunk.sourceSpan)))
+}
+
+function countChunkSourceSpans(chunks: TtsChunk[]): number {
+  return chunks.filter((chunk) => Boolean(chunk.sourceSpan)).length
 }
 
 // Defer imported highlight rebuilding so Play can become available from the
