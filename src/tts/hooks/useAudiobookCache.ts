@@ -266,6 +266,7 @@ export function useAudiobookCache() {
     }
 
     if (progress.status === 'saved' && progress.generateMs) {
+      const generatedAudioDurationSec = progress.audioDurationSec ?? 0
       logTtsDiagnostic('[tts-save] native performance summary', {
         generatedChunks: progress.generatedChunks,
         totalChunks: progress.totalChunks,
@@ -277,11 +278,13 @@ export function useAudiobookCache() {
         indexingMs: progress.indexingMs ?? 0,
         totalSourceChars: progress.totalSourceChars ?? 0,
         totalSynthesisChars: progress.totalSynthesisChars ?? 0,
-        audioDurationSec: Number(progress.totalAudioDurationSec.toFixed(2)),
-        realTimeFactor: progress.totalAudioDurationSec > 0
-          ? Number((progress.generateMs / 1000 / progress.totalAudioDurationSec).toFixed(2))
+        audioDurationSec: Number(generatedAudioDurationSec.toFixed(2)),
+        totalAudioDurationSec: Number(progress.totalAudioDurationSec.toFixed(2)),
+        realTimeFactor: generatedAudioDurationSec > 0
+          ? Number((progress.generateMs / 1000 / generatedAudioDurationSec).toFixed(2))
           : 0,
-        wavBytes: progress.totalWavBytes,
+        wavBytes: progress.wavBytes ?? 0,
+        totalWavBytes: progress.totalWavBytes,
         backend: progress.backend,
         dtype: resolveTtsDtype(options),
         threadCount: options.threadCount,
