@@ -10,10 +10,17 @@
 
 use std::path::PathBuf;
 
+#[cfg(feature = "native-translation-ctranslate2")]
+use super::engine::TranslationSegmentInput;
 use super::engine::{TranslationBatchInput, TranslationEngine, TranslationSegmentOutput};
 
 #[cfg(feature = "native-translation-ctranslate2")]
 type NativeTranslator = ct2rs::Translator<ct2rs::tokenizers::auto::Tokenizer>;
+#[cfg(feature = "native-translation-ctranslate2")]
+type NativeTokenizer = ct2rs::tokenizers::auto::Tokenizer;
+
+const MARIAN_POSITION_LIMIT_TOKENS: usize = 512;
+const MARIAN_SAFE_SOURCE_TOKENS: usize = 448;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CTranslate2EngineConfig {
@@ -33,6 +40,8 @@ pub(crate) struct CTranslate2Engine {
     config: CTranslate2EngineConfig,
     #[cfg(feature = "native-translation-ctranslate2")]
     translator: Option<NativeTranslator>,
+    #[cfg(feature = "native-translation-ctranslate2")]
+    tokenizer: Option<NativeTokenizer>,
 }
 
 impl CTranslate2Engine {
@@ -65,6 +74,8 @@ impl CTranslate2Engine {
             config,
             #[cfg(feature = "native-translation-ctranslate2")]
             translator: None,
+            #[cfg(feature = "native-translation-ctranslate2")]
+            tokenizer: None,
         }
     }
 
@@ -84,9 +95,18 @@ impl CTranslate2Engine {
                         config.model_dir.display()
                     )
                 })?;
+            let tokenizer =
+                ct2rs::tokenizers::auto::Tokenizer::new(&config.model_dir).map_err(|err| {
+                    format!(
+                        "Failed to load CTranslate2 tokenizer {} at {}: {err}",
+                        config.model_id,
+                        config.model_dir.display()
+                    )
+                })?;
             return Ok(Self {
                 config,
                 translator: Some(translator),
+                tokenizer: Some(tokenizer),
             });
         }
 
@@ -112,10 +132,21 @@ impl TranslationEngine for CTranslate2Engine {
                 "CTranslate2 runtime was not loaded. Use for_installed_model before translation."
                     .to_string()
             })?;
-            let sources = input
-                .segments
+            let tokenizer = self.tokenizer.as_ref().ok_or_else(|| {
+                "CTranslate2 tokenizer was not loaded. Use for_installed_model before translation."
+                    .to_string()
+            })?;
+            if input.segments.is_empty() {
+                return Ok(Vec::new());
+            }
+            let expanded_sources = prepare_token_bounded_sources(
+                tokenizer,
+                &input.segments,
+                source_token_budget(&self.config.model_id),
+            )?;
+            let sources = expanded_sources
                 .iter()
-                .map(|segment| segment.text.as_str())
+                .map(|source| source.text.as_str())
                 .collect::<Vec<_>>();
             let mut options: ct2rs::TranslationOptions<String, String> = Default::default();
             options.max_batch_size = sources.len().max(1);
@@ -126,21 +157,26 @@ impl TranslationEngine for CTranslate2Engine {
                 .translate_batch(&sources, &options, None)
                 .map_err(|err| format!("CTranslate2 batch translation failed: {err}"))?;
             let engine_elapsed = started.elapsed();
-            if translated.len() != input.segments.len() {
+            if translated.len() != expanded_sources.len() {
                 return Err(format!(
-                    "CTranslate2 returned {} outputs for {} input segments",
+                    "CTranslate2 returned {} outputs for {} token-bounded source pieces",
                     translated.len(),
-                    input.segments.len()
+                    expanded_sources.len()
                 ));
+            }
+
+            let mut joined_outputs = vec![String::new(); input.segments.len()];
+            for (source, (text, _score)) in expanded_sources.iter().zip(translated) {
+                append_translated_part(&mut joined_outputs[source.owner_index], &text);
             }
 
             return Ok(input
                 .segments
                 .into_iter()
-                .zip(translated)
-                .map(|(segment, (text, _score))| TranslationSegmentOutput {
+                .enumerate()
+                .map(|(index, segment)| TranslationSegmentOutput {
                     id: segment.id,
-                    text,
+                    text: joined_outputs[index].clone(),
                     engine_elapsed,
                 })
                 .collect());
@@ -186,11 +222,237 @@ fn default_intra_threads() -> usize {
         .unwrap_or(1)
 }
 
+/// Pick source-token budget by model family.
+///
+/// OPUS-MT/Marian reports a hard 512-position ceiling from CTranslate2. The
+/// 448 budget leaves space for tokenizer/model special tokens and avoids
+/// running right against the edge on different language pairs.
+fn source_token_budget(model_id: &str) -> usize {
+    if model_id.contains("opus-mt") {
+        MARIAN_SAFE_SOURCE_TOKENS
+    } else {
+        MARIAN_SAFE_SOURCE_TOKENS.min(MARIAN_POSITION_LIMIT_TOKENS - 1)
+    }
+}
+
+#[cfg(feature = "native-translation-ctranslate2")]
+struct ExpandedTranslationSource {
+    owner_index: usize,
+    text: String,
+}
+
+/// Split source text by the model tokenizer before CTranslate2 sees it.
+///
+/// OPUS-MT/Marian models have fixed positional embeddings, so a segment that is
+/// safe by character count can still exceed the source-token window. We keep the
+/// public job/cache segment ids stable by translating subsegments internally and
+/// joining their outputs back into the original segment result.
+#[cfg(feature = "native-translation-ctranslate2")]
+fn prepare_token_bounded_sources(
+    tokenizer: &NativeTokenizer,
+    segments: &[TranslationSegmentInput],
+    max_source_tokens: usize,
+) -> Result<Vec<ExpandedTranslationSource>, String> {
+    use ct2rs::Tokenizer as _;
+
+    let mut expanded = Vec::new();
+    for (owner_index, segment) in segments.iter().enumerate() {
+        let parts = split_text_by_token_budget(&segment.text, max_source_tokens, |text| {
+            tokenizer
+                .encode(text)
+                .map(|tokens| tokens.len())
+                .map_err(|err| {
+                    format!(
+                        "CTranslate2 tokenizer failed while sizing segment {}: {err}",
+                        segment.id
+                    )
+                })
+        })?;
+        for text in parts {
+            expanded.push(ExpandedTranslationSource { owner_index, text });
+        }
+    }
+    Ok(expanded)
+}
+
+/// Build model-sized source pieces using tokenizer counts, not character counts.
+///
+/// The planner already gives us stable document/cache segments. This lower
+/// layer only protects the native model's context window, so it must not create
+/// new public segment ids or progress units.
+fn split_text_by_token_budget<F>(
+    text: &str,
+    max_tokens: usize,
+    count_tokens: F,
+) -> Result<Vec<String>, String>
+where
+    F: Fn(&str) -> Result<usize, String> + Copy,
+{
+    if max_tokens == 0 {
+        return Err("Translation source token budget must be greater than zero".into());
+    }
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if count_tokens(trimmed)? <= max_tokens {
+        return Ok(vec![trimmed.to_string()]);
+    }
+
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for sentence in sentence_like_parts(trimmed) {
+        if count_tokens(sentence)? > max_tokens {
+            push_token_part(&mut parts, &mut current);
+            parts.extend(split_oversized_token_part(
+                sentence,
+                max_tokens,
+                count_tokens,
+            )?);
+            continue;
+        }
+
+        let proposed = join_parts(&current, sentence);
+        if !current.is_empty() && count_tokens(&proposed)? > max_tokens {
+            push_token_part(&mut parts, &mut current);
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(sentence);
+    }
+    push_token_part(&mut parts, &mut current);
+
+    Ok(parts)
+}
+
+/// Split a single sentence-like part that is already too large for the model.
+///
+/// We prefer word boundaries because OPUS-MT quality drops sharply if common
+/// prose is chopped mid-word. Character splitting exists only for pathological
+/// long tokens such as pasted URLs or malformed markup text.
+fn split_oversized_token_part<F>(
+    text: &str,
+    max_tokens: usize,
+    count_tokens: F,
+) -> Result<Vec<String>, String>
+where
+    F: Fn(&str) -> Result<usize, String> + Copy,
+{
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if count_tokens(word)? > max_tokens {
+            push_token_part(&mut parts, &mut current);
+            parts.extend(split_oversized_token_word(word, max_tokens, count_tokens)?);
+            continue;
+        }
+
+        let proposed = join_parts(&current, word);
+        if !current.is_empty() && count_tokens(&proposed)? > max_tokens {
+            push_token_part(&mut parts, &mut current);
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    push_token_part(&mut parts, &mut current);
+
+    Ok(parts)
+}
+
+/// Last-resort split for one token-like run with no usable whitespace.
+///
+/// A single character can theoretically still exceed a tiny fake test budget,
+/// so this function always makes forward progress instead of looping forever.
+fn split_oversized_token_word<F>(
+    word: &str,
+    max_tokens: usize,
+    count_tokens: F,
+) -> Result<Vec<String>, String>
+where
+    F: Fn(&str) -> Result<usize, String> + Copy,
+{
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for ch in word.chars() {
+        let mut proposed = current.clone();
+        proposed.push(ch);
+        if !current.is_empty() && count_tokens(&proposed)? > max_tokens {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    Ok(parts)
+}
+
+fn sentence_like_parts(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+
+    for (index, ch) in text.char_indices() {
+        if is_sentence_boundary(ch) {
+            let end = index + ch.len_utf8();
+            let part = text[start..end].trim();
+            if !part.is_empty() {
+                parts.push(part);
+            }
+            start = end;
+        }
+    }
+
+    let tail = text[start..].trim();
+    if !tail.is_empty() {
+        parts.push(tail);
+    }
+    parts
+}
+
+fn is_sentence_boundary(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | '!' | '?' | '\u{061f}' | '\u{06d4}' | '\u{3002}' | '\u{ff01}' | '\u{ff1f}'
+    )
+}
+
+fn join_parts(left: &str, right: &str) -> String {
+    if left.is_empty() {
+        right.to_string()
+    } else {
+        format!("{left} {right}")
+    }
+}
+
+fn push_token_part(parts: &mut Vec<String>, current: &mut String) {
+    if current.is_empty() {
+        return;
+    }
+    parts.push(std::mem::take(current));
+}
+
+fn append_translated_part(target: &mut String, part: &str) {
+    let trimmed = part.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !target.is_empty() {
+        target.push(' ');
+    }
+    target.push_str(trimmed);
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use super::{CTranslate2Device, CTranslate2Engine, CTranslate2EngineConfig};
+    use super::{
+        append_translated_part, split_text_by_token_budget, CTranslate2Device, CTranslate2Engine,
+        CTranslate2EngineConfig, MARIAN_SAFE_SOURCE_TOKENS,
+    };
 
     #[test]
     fn stores_engine_config_without_loading_native_runtime() {
@@ -218,5 +480,50 @@ mod tests {
         assert_eq!(engine.config().model_id, "opus-mt-fr-en-ctranslate2");
         assert_eq!(engine.config().model_dir, PathBuf::from("/tmp/fr-en"));
         assert!(engine.config().intra_threads >= 1);
+    }
+
+    #[test]
+    fn splits_text_by_token_budget_without_changing_public_segment_ids() {
+        let text = "Uno dos tres cuatro. Cinco seis siete ocho. Nueve diez once doce.";
+        let parts = split_text_by_token_budget(text, 4, whitespace_token_count).expect("parts");
+
+        assert_eq!(
+            parts,
+            vec![
+                "Uno dos tres cuatro.",
+                "Cinco seis siete ocho.",
+                "Nueve diez once doce."
+            ]
+        );
+    }
+
+    #[test]
+    fn splits_unpunctuated_text_by_token_budget() {
+        let text = "uno dos tres cuatro cinco seis siete ocho";
+        let parts = split_text_by_token_budget(text, 3, whitespace_token_count).expect("parts");
+
+        assert_eq!(
+            parts,
+            vec!["uno dos tres", "cuatro cinco seis", "siete ocho"]
+        );
+    }
+
+    #[test]
+    fn joins_translated_subsegments_for_original_output() {
+        let mut output = String::new();
+
+        append_translated_part(&mut output, "The first sentence.");
+        append_translated_part(&mut output, "The second sentence.");
+
+        assert_eq!(output, "The first sentence. The second sentence.");
+    }
+
+    #[test]
+    fn marian_source_budget_leaves_room_below_position_limit() {
+        assert!(MARIAN_SAFE_SOURCE_TOKENS < 512);
+    }
+
+    fn whitespace_token_count(text: &str) -> Result<usize, String> {
+        Ok(text.split_whitespace().count().max(1))
     }
 }

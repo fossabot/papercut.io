@@ -10,7 +10,7 @@ The goal is high-quality offline translation for long-form HTML and EPUB books, 
 - `npm run desktop:no-translation` keeps the desktop build on native TTS only for packaging/debug isolation.
 - Spanish -> English and French -> English OPUS-MT CTranslate2 model manifests are pinned and installable.
 - Translation jobs run through the native engine boundary, emit progress/cancel events, reuse segment cache entries, run first-pass quality gates, and persist successful output as derived uploaded documents.
-- OPUS-MT jobs currently use a conservative 900-character segment cap to stay below Marian/CTranslate2's 512-position limit on long Spanish/French prose. Tokenizer-aware splitting is the next required reliability upgrade.
+- OPUS-MT jobs use both a conservative 900-character planner cap and an engine-local tokenizer split before CTranslate2 inference, so long Spanish/French prose can be subdivided below Marian's 512-position limit without changing public cache segment ids.
 - Translated variants are separate durable documents that can be opened, searched, deleted, and later used by the normal TTS flow.
 - HTML/EPUB rendering uses the sanitized reader HTML where possible and preserves links, ids, images, tables, and EPUB-rewritten assets conservatively.
 - Stage 5B is functionally wired for desktop, but still needs manual proof with real model downloads and translation jobs before being treated as release-ready.
@@ -165,7 +165,7 @@ High-value quality upgrades:
 - Keep model inference off the WebView thread.
 - Download models on demand, verify checksums, and atomically promote complete installs.
 - Batch sentences or paragraphs, but cap total tokens per request.
-- Treat character caps as a temporary guardrail only. OPUS-MT/Marian models can fail when tokenized input reaches the model's positional limit, so the long-term splitter must use the installed tokenizer or an engine-provided token estimate before batching.
+- Treat character caps as a first-pass guardrail only. OPUS-MT/Marian models can fail when tokenized input reaches the model's positional limit, so the CTranslate2 adapter must also enforce an installed-tokenizer source budget before inference. The current adapter translates subsegments internally and joins them back into the original cached segment output.
 - Cache segment translations so resume work does not recompute finished sections.
 - Persist job state after each section or batch.
 - Stream progress events with current chapter, completed segments, total segments, elapsed time, and current model.
@@ -410,6 +410,11 @@ Each stage should be easy to review and commit independently.
   - Key cache compatibility by model, language pair, quality mode, segment limits, and source text hash.
   - Reuse cached segments before calling the native engine so cancelled or failed large-book runs do not throw away completed batches.
   - Save the manifest after each completed batch to keep retries useful without waiting for the whole book to finish.
+- Add tokenizer-aware source splitting inside the CTranslate2 adapter:
+  - Load the same auto tokenizer family as the translator from the verified model directory.
+  - Enforce a 448-source-token budget for OPUS-MT/Marian before calling CTranslate2.
+  - Split oversized segments by sentence, then word, then character only as a last resort.
+  - Rejoin translated subsegments under the original segment id so existing cache/progress/storage contracts do not change.
 - Add staged writes/cleanup for translated-document persistence:
   - Write generated safe HTML through a staging directory before promoting it into upload storage.
   - Remove promoted generated files if upload/search indexing fails.
@@ -419,7 +424,7 @@ Each stage should be easy to review and commit independently.
 
 Status:
 
-- Done: CTranslate2 feature flag, adapter, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, segment cache, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
+- Done: CTranslate2 feature flag, adapter, tokenizer-aware OPUS-MT source splitting, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, segment cache, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
 - Done: `npm run desktop` now includes `native-translation-ctranslate2` by default.
 - Needs proof: real desktop model download, model load through `ct2rs`, short HTML translation, stored translated variant open/search/delete, long-document cache/resume, and packaging artifact verification.
 - Not done: Android translation packaging.
