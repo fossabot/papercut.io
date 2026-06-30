@@ -13,6 +13,7 @@ mod config;
 mod ctranslate2;
 mod engine;
 mod html;
+mod inline_markup;
 mod job;
 mod model_install;
 mod model_store;

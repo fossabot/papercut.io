@@ -438,6 +438,7 @@ Status:
 - Add first-pass DOM transform rendering:
   - Use the sanitized reader `view_html` as the source of truth.
   - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
+  - Keep inline emphasis span collection/projection in `translation::inline_markup` so future phrase alignment or placeholder repair can replace the projection strategy without rewriting DOM rendering.
   - Collect render blocks with the same descendant-skipping behavior as the importer so nested endnote `<li><p>...</p></li>` structures do not shift section mapping.
   - Preserve simple block attributes, existing ids, links, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
   - Preserve whole-block inline emphasis when one safe formatting wrapper owns the entire source block, such as `<strong>...</strong>` or nested `<em><strong>...</strong></em>`.
@@ -455,7 +456,7 @@ Status:
 
 Status:
 
-- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
 - Done: first-pass broken internal-link and empty-output validation.
 - Still needed: true phrase alignment for reordered translations, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 

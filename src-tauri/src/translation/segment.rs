@@ -10,6 +10,11 @@
 pub(crate) struct TranslationTextSegment {
     pub(crate) id: String,
     pub(crate) source_block_index: usize,
+    /// Character offsets inside the whitespace-normalized source block.
+    ///
+    /// These are not raw HTML byte offsets. They match the normalized text that
+    /// goes to the translation engine and later lets inline-markup rendering
+    /// place formatting spans without searching repeated phrases.
     pub(crate) source_start: usize,
     pub(crate) source_end: usize,
     pub(crate) text: String,
@@ -109,6 +114,12 @@ fn split_block_text_into_segments(text: &str, max_chars: usize) -> Vec<String> {
     segments
 }
 
+/// Reattach deterministic source offsets after text-only splitting.
+///
+/// Splitting works with string chunks for readability, then this pass walks
+/// forward through the normalized source. Forward-only search is intentional:
+/// repeated phrases must map to the next occurrence, not the first occurrence
+/// in the block.
 fn parts_with_offsets(text: &str, parts: Vec<String>) -> Vec<TranslationTextPart> {
     let mut offset_parts = Vec::new();
     let mut search_start = 0usize;
