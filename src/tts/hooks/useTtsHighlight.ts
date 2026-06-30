@@ -4,6 +4,7 @@ import {
   buildReadableDomSegmentIndex,
   createRangeForSourceSpan,
   createSourceSpanFromTextMatch,
+  locatorTextsMatch,
   sourceSpanEndGlobalOffset,
   type ReadableDomSegmentIndex,
   type ReadableDomTextLocatorIndex,
@@ -408,6 +409,9 @@ function getOrBuildTextLocatorIndex(cache: AlignmentCache): ReadableDomTextLocat
   cache.textLocatorIndex = locator
   logTtsDiagnostic('[tts-highlight] DOM text locator index built', {
     characters: locator.text.length,
+    // matchCharacters is shorter when compatibility matching drops Arabic
+    // visual marks; a big gap here explains why exact imported lookup failed.
+    matchCharacters: locator.matchText.length,
     segments: locator.segmentTexts.length,
     elapsedMs: Math.round(performance.now() - started),
   })
@@ -460,7 +464,7 @@ function normalizeDiagnosticText(text: string): string {
 }
 
 function rangeTextMatchesChunk(range: Range, chunk: TtsChunk | undefined): boolean {
-  return normalizeDiagnosticText(range.toString()) === normalizeDiagnosticText(chunk?.text ?? '')
+  return locatorTextsMatch(range.toString(), chunk?.text ?? '')
 }
 
 function previewDiagnosticText(text: string): string {
