@@ -447,6 +447,7 @@ mod tests {
             source_ordinal: 0,
             is_heading: false,
             text: text.into(),
+            fragments: Vec::new(),
         }
     }
 

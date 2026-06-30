@@ -24,7 +24,8 @@ use super::models::{find_planned_model, planned_models, TranslationModelDefiniti
 use super::source::{load_translation_source_document, TranslationSourceDocument};
 use super::state::TranslationState;
 use super::storage::{
-    persist_translated_document, PersistTranslationRequest, PersistTranslationSection,
+    persist_translated_document, PersistTranslationFragment, PersistTranslationRequest,
+    PersistTranslationSection,
 };
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationGlossaryEntry,
@@ -342,6 +343,8 @@ fn run_translation_batches<R: tauri::Runtime>(
     let mut cached_segments = 0;
     let mut preview = String::new();
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
+    let mut translated_fragments =
+        vec![Vec::<PersistTranslationFragment>::new(); source.blocks.len()];
     let mut cache =
         load_segment_cache(app, plan).map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
     for batch in &plan.batches {
@@ -412,6 +415,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                 reused_segments_in_batch += 1;
                 append_translated_segment(
                     &mut translated_blocks,
+                    &mut translated_fragments,
+                    &segment.text,
                     segment.source_block_index,
                     &cached_text,
                 );
@@ -427,6 +432,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                 materialized_memory_reuse = true;
                 append_translated_segment(
                     &mut translated_blocks,
+                    &mut translated_fragments,
+                    &segment.text,
                     segment.source_block_index,
                     &memory_text,
                 );
@@ -459,6 +466,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                 let translated_text = output.text.trim().to_string();
                 append_translated_segment(
                     &mut translated_blocks,
+                    &mut translated_fragments,
+                    &segment.text,
                     segment.source_block_index,
                     &translated_text,
                 );
@@ -583,6 +592,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                 source_ordinal: source_block.map(|block| block.ordinal).unwrap_or(index),
                 is_heading,
                 text,
+                fragments: translated_fragments.get(index).cloned().unwrap_or_default(),
             })
         })
         .collect();
@@ -611,7 +621,13 @@ fn run_failure(
     }
 }
 
-fn append_translated_segment(blocks: &mut [String], source_block_index: usize, text: &str) {
+fn append_translated_segment(
+    blocks: &mut [String],
+    fragments: &mut [Vec<PersistTranslationFragment>],
+    source_text: &str,
+    source_block_index: usize,
+    text: &str,
+) {
     let Some(block_text) = blocks.get_mut(source_block_index) else {
         return;
     };
@@ -623,6 +639,12 @@ fn append_translated_segment(blocks: &mut [String], source_block_index: usize, t
         block_text.push(' ');
     }
     block_text.push_str(text);
+    if let Some(block_fragments) = fragments.get_mut(source_block_index) {
+        block_fragments.push(PersistTranslationFragment {
+            source_text: source_text.trim().to_string(),
+            text: text.to_string(),
+        });
+    }
 }
 
 /// Convert a planned batch into the engine-agnostic input shape.

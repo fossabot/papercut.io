@@ -70,11 +70,19 @@ pub(crate) struct PersistTranslationRequest {
     pub(crate) translated_sections: Vec<PersistTranslationSection>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct PersistTranslationSection {
     pub(crate) heading: Option<String>,
     pub(crate) source_heading: Option<String>,
     pub(crate) source_ordinal: usize,
     pub(crate) is_heading: bool,
+    pub(crate) text: String,
+    pub(crate) fragments: Vec<PersistTranslationFragment>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PersistTranslationFragment {
+    pub(crate) source_text: String,
     pub(crate) text: String,
 }
 
@@ -436,6 +444,7 @@ mod tests {
                     source_ordinal: 0,
                     is_heading: true,
                     text: "Chapter".into(),
+                    fragments: Vec::new(),
                 },
                 PersistTranslationSection {
                     heading: Some("Chapitre".into()),
@@ -443,6 +452,7 @@ mod tests {
                     source_ordinal: 1,
                     is_heading: false,
                     text: "Hello".into(),
+                    fragments: Vec::new(),
                 },
             ],
         };

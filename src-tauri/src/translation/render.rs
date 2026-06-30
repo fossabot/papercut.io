@@ -9,7 +9,9 @@
 use kuchikiki::NodeRef;
 
 use super::html::parse_html_document;
-use super::storage::{PersistTranslationRequest, PersistTranslationSection};
+use super::storage::{
+    PersistTranslationFragment, PersistTranslationRequest, PersistTranslationSection,
+};
 
 const MEDIA_DESCENDANT_SELECTOR: &str = "img,table,figure,audio,video";
 
@@ -49,6 +51,9 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
         }
         if has_media_descendant(&node) {
             insert_translation_after(&node, section);
+        } else if replace_text_with_fragment_formatting(&node, &section.fragments) {
+            // Segment-level source/target pairs give safer inline placement than
+            // projecting formatting across a whole translated paragraph.
         } else if replace_text_preserving_full_inline_formatting(&node, section.text.trim()) {
             // The helper already replaced the deepest safe inline wrapper text.
         } else if replace_text_projecting_inline_formatting(&node, section.text.trim()) {
@@ -364,6 +369,106 @@ struct ProjectedInlineSpan {
     tags: Vec<String>,
 }
 
+/// Render translated segment fragments while preserving source inline marks.
+///
+/// Each fragment is one planned engine segment with its original source text.
+/// Matching those fragments back into the source DOM gives a much smaller
+/// alignment window than paragraph-wide projection, which is crucial for long
+/// academic paragraphs with many independent bold/italic phrases.
+fn replace_text_with_fragment_formatting(
+    node: &NodeRef,
+    fragments: &[PersistTranslationFragment],
+) -> bool {
+    let fragments = fragments
+        .iter()
+        .filter(|fragment| !fragment.text.trim().is_empty())
+        .collect::<Vec<_>>();
+    if fragments.is_empty() {
+        return false;
+    }
+
+    let (source_text, source_spans) = source_text_and_inline_formatting_spans(node);
+    if source_text.is_empty() {
+        return false;
+    }
+
+    let mut search_start = 0usize;
+    let mut rendered_fragments = Vec::new();
+    for fragment in fragments {
+        let Some((source_start, source_end, next_search_start)) =
+            find_fragment_char_range(&source_text, &fragment.source_text, search_start)
+        else {
+            return false;
+        };
+        search_start = next_search_start;
+        let local_source_len = source_end.saturating_sub(source_start);
+        let local_spans = local_spans_for_fragment(&source_spans, source_start, source_end);
+        let projected_spans = if local_spans.is_empty() || local_source_len == 0 {
+            Vec::new()
+        } else {
+            projected_translated_spans(&local_spans, local_source_len, fragment.text.trim())
+                .unwrap_or_default()
+        };
+        rendered_fragments.push((fragment.text.trim().to_string(), projected_spans));
+    }
+
+    let preserved_anchors = serialized_anchor_nodes(node);
+    let children = node.children().collect::<Vec<_>>();
+    for child in children {
+        child.detach();
+    }
+    for (index, (text, spans)) in rendered_fragments.iter().enumerate() {
+        if index > 0 {
+            node.append(NodeRef::new_text(" "));
+        }
+        append_projected_formatting(node, text, spans);
+    }
+    append_preserved_anchor_nodes(node, &preserved_anchors);
+    true
+}
+
+fn find_fragment_char_range(
+    source_text: &str,
+    fragment_source_text: &str,
+    search_start: usize,
+) -> Option<(usize, usize, usize)> {
+    let fragment_text = normalize_fragment_text(fragment_source_text);
+    if fragment_text.is_empty() || search_start > source_text.len() {
+        return None;
+    }
+    let relative_start = source_text[search_start..].find(&fragment_text)?;
+    let byte_start = search_start + relative_start;
+    let byte_end = byte_start + fragment_text.len();
+    Some((
+        source_text[..byte_start].chars().count(),
+        source_text[..byte_end].chars().count(),
+        byte_end,
+    ))
+}
+
+fn normalize_fragment_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn local_spans_for_fragment(
+    spans: &[InlineFormattingSpan],
+    fragment_start: usize,
+    fragment_end: usize,
+) -> Vec<InlineFormattingSpan> {
+    spans
+        .iter()
+        .filter_map(|span| {
+            let start = span.start.max(fragment_start);
+            let end = span.end.min(fragment_end);
+            (start < end).then(|| InlineFormattingSpan {
+                start: start - fragment_start,
+                end: end - fragment_start,
+                tags: span.tags.clone(),
+            })
+        })
+        .collect()
+}
+
 fn source_text_and_inline_formatting_spans(node: &NodeRef) -> (String, Vec<InlineFormattingSpan>) {
     let mut text = String::new();
     let mut spans = Vec::new();
@@ -378,10 +483,8 @@ fn collect_inline_formatting_spans(
     spans: &mut Vec<InlineFormattingSpan>,
 ) {
     if let Some(value) = node.as_text() {
-        let start = text.chars().count();
-        append_normalized_text(text, &value.borrow());
-        let end = text.chars().count();
-        if start < end && !active_tags.is_empty() {
+        let appended = append_normalized_text(text, &value.borrow());
+        if let Some((start, end)) = appended.filter(|_| !active_tags.is_empty()) {
             spans.push(InlineFormattingSpan {
                 start,
                 end,
@@ -403,13 +506,18 @@ fn collect_inline_formatting_spans(
     }
 }
 
-fn append_normalized_text(output: &mut String, text: &str) {
+fn append_normalized_text(output: &mut String, text: &str) -> Option<(usize, usize)> {
+    let mut start = None;
     for word in text.split_whitespace() {
         if !output.is_empty() {
             output.push(' ');
         }
+        if start.is_none() {
+            start = Some(output.chars().count());
+        }
         output.push_str(word);
     }
+    start.map(|start| (start, output.chars().count()))
 }
 
 fn inline_formatting_tag_name(node: &NodeRef) -> Option<String> {
@@ -540,6 +648,14 @@ fn replace_children_with_projected_formatting(
         child.detach();
     }
 
+    append_projected_formatting(node, translated_text, spans);
+}
+
+fn append_projected_formatting(
+    node: &NodeRef,
+    translated_text: &str,
+    spans: &[ProjectedInlineSpan],
+) {
     let mut cursor = 0usize;
     for span in spans {
         if cursor < span.start {
@@ -658,7 +774,9 @@ fn escape_html(value: &str) -> String {
 mod tests {
     use super::render_translated_html;
     use crate::translation::source::{TranslationSourceBlock, TranslationSourceDocument};
-    use crate::translation::storage::{PersistTranslationRequest, PersistTranslationSection};
+    use crate::translation::storage::{
+        PersistTranslationFragment, PersistTranslationRequest, PersistTranslationSection,
+    };
 
     #[test]
     fn preserves_links_when_block_contains_anchor() {
@@ -736,6 +854,33 @@ mod tests {
         assert!(html.contains(">This is <strong>important</strong> and <em>urgent</em>.</p>"));
         assert!(!html.contains("importante"));
         assert!(!html.contains("urgente"));
+    }
+
+    #[test]
+    fn projects_inline_spans_inside_translated_fragments() {
+        let request = request(
+            "<!doctype html><html><body><article><p>El <em>verso libre</em> es <strong>reaccionario</strong>. El espíritu es <em><strong>Völkisch</strong></em>.</p></article></body></html>",
+            vec![section_with_fragments(
+                0,
+                false,
+                "The free verse is reactionary. The spirit is Völkisch.",
+                vec![
+                    fragment(
+                        "El verso libre es reaccionario.",
+                        "The free verse is reactionary.",
+                    ),
+                    fragment("El espíritu es Völkisch.", "The spirit is Völkisch."),
+                ],
+            )],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("<em>free verse</em>"));
+        assert!(html.contains("<strong>reactionary</strong>"));
+        assert!(html.contains("<em><strong>Völkisch</strong></em>"));
+        assert!(!html.contains("verso libre"));
+        assert!(!html.contains("reaccionario"));
     }
 
     #[test]
@@ -850,11 +995,28 @@ mod tests {
     }
 
     fn section(source_ordinal: usize, is_heading: bool, text: &str) -> PersistTranslationSection {
+        section_with_fragments(source_ordinal, is_heading, text, Vec::new())
+    }
+
+    fn section_with_fragments(
+        source_ordinal: usize,
+        is_heading: bool,
+        text: &str,
+        fragments: Vec<PersistTranslationFragment>,
+    ) -> PersistTranslationSection {
         PersistTranslationSection {
             heading: Some("Chapter".into()),
             source_heading: Some("Chapitre".into()),
             source_ordinal,
             is_heading,
+            text: text.into(),
+            fragments,
+        }
+    }
+
+    fn fragment(source_text: &str, text: &str) -> PersistTranslationFragment {
+        PersistTranslationFragment {
+            source_text: source_text.into(),
             text: text.into(),
         }
     }
