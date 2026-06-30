@@ -400,6 +400,11 @@ Each stage should be easy to review and commit independently.
 
 ### Stage 7: Quality Upgrades
 
+- Add deterministic first-pass output sanity checks:
+  - Reject all-empty translated output.
+  - Reject extreme source/translation length-ratio failures that look like truncation or decoder loops.
+  - Reject repeated long translated bodies across many sections.
+  - Reject generated HTML with broken internal `#anchor` links before storage.
 - Add glossary support.
 - Add translation memory.
 - Add named-entity consistency checks.

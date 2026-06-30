@@ -96,7 +96,11 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         format_language_label(&request.target_language)
     );
     let view_html = render_translated_html(&title, &request);
-    validate_translated_output(&view_html, &request.translated_sections)?;
+    validate_translated_output(
+        &view_html,
+        &request.source.blocks,
+        &request.translated_sections,
+    )?;
     let bytes = view_html.as_bytes().len() as u64;
     let sections = request
         .translated_sections
