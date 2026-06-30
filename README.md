@@ -6,7 +6,7 @@
 [![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
 
 
-Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native sherpa-onnx TTS.
+Papercut is an offline reader for searching, reading, listening to, and translating document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, native sherpa-onnx TTS, and a feature-gated CTranslate2 translation path.
 
 Bundled documents are indexed at build time using Pagefind, which creates a compressed search index. User-imported HTML and EPUB documents are indexed at runtime into a local SQLite FTS database in Tauri app data, so users can add their own documents without rebuilding the app. EPUB uploads are parsed as a sibling runtime format that emits the same normalized document sections before indexing. At runtime, only the relevant search provider is queried and results are merged into one UI. The entire application runs offline with no server or internet connection required.
 
@@ -66,13 +66,13 @@ Tauri requires the following system libraries. Refer to the Tauri [documentation
 **Debian-based (Ubuntu,Mint etc.):**
 
 ```bash
-sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential curl wget file libssl-dev libxdo-dev patchelf gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev build-essential cmake curl wget file libssl-dev libxdo-dev patchelf gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 ```
 
 **Arch-based (CachyOS, Manjaro, etc.):**
 
 ```bash
-sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool patchelf gst-plugins-base gst-plugins-good
+sudo pacman -S --needed webkit2gtk-4.1 base-devel cmake curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool patchelf gst-plugins-base gst-plugins-good
 ```
 
 ### Android Prerequisites
@@ -176,7 +176,7 @@ The built binary is output to `src-tauri/target/release/app` (`app.exe` on Windo
 - **Linux:** `.deb`, `.rpm`, and `.AppImage`
 - **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/` when building on Windows
 
-`npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. The AppImage also bundles the GStreamer media framework used by WebKitGTK for audiobook playback; local Linux builders therefore need the GStreamer base and good plugin packages listed above. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
+`npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower and includes the desktop CTranslate2 translation feature (`native-translation-ctranslate2`) so model download and translation jobs can be exercised end to end from the production desktop build. TTS and translation feature selection are kept separate in `scripts/build-desktop.js`: `native-tts-shared` or `native-tts-static` controls speech, while `native-translation-ctranslate2` controls offline translation. The CTranslate2 path pulls in `ct2rs` and `sentencepiece-sys`, so Linux desktop builders need `cmake` in addition to the normal Tauri/WebKitGTK packages. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. The AppImage also bundles the GStreamer media framework used by WebKitGTK for audiobook playback; local Linux builders therefore need the GStreamer base and good plugin packages listed above. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines. For packaging/debug isolation only, `npm run desktop:no-translation` keeps the desktop build on native TTS without CTranslate2.
 
 Install the generated Debian package with a dependency-aware command so WebKitGTK and GTK are installed if needed:
 
@@ -210,7 +210,7 @@ npm version "$VERSION" --no-git-tag-version
 Then set `version` to the same value in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and run:
 
 ```bash
-cargo check --manifest-path src-tauri/Cargo.toml --features native-tts-shared
+cargo check --manifest-path src-tauri/Cargo.toml --features native-tts-shared,native-translation-ctranslate2
 npm run build
 ```
 
@@ -319,7 +319,7 @@ Papercut now has two document paths:
 - **Bundled documents** live in `public/documents/` and are indexed by Pagefind during the production build. This is still the best path for documents you ship to every user.
 - **User uploads** are imported from the app UI and indexed incrementally into a local SQLite FTS database. This is the scalable path for documents users add themselves, because it does not require a rebuild or a packaged Pagefind index update.
 
-The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md). EPUB implementation notes and remaining follow-up work are tracked in [docs/epub-implementation-plan.md](docs/epub-implementation-plan.md). Offline translation is not implemented yet; its proposed document-variant architecture and model roadmap live in [docs/offline-translation.md](docs/offline-translation.md).
+The upload/indexing architecture is documented in [docs/user-document-search.md](docs/user-document-search.md). EPUB implementation notes and remaining follow-up work are tracked in [docs/epub-implementation-plan.md](docs/epub-implementation-plan.md). Offline translation is implemented as an in-progress document-variant pipeline with desktop CTranslate2 model download/inference behind the production desktop build; architecture notes, stage status, and the quality-model roadmap live in [docs/offline-translation.md](docs/offline-translation.md).
 
 <details>
 <summary><strong>Document formats and search behavior</strong></summary>

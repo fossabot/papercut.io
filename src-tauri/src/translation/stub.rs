@@ -11,7 +11,8 @@ use tauri::Emitter;
 use super::cache::{load_segment_cache, save_segment_cache};
 use super::config::{
     DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
-    TRANSLATION_BACKEND_UNAVAILABLE, TRANSLATION_JOB_PROGRESS_EVENT,
+    TRANSLATION_BACKEND_CTRANSLATE2, TRANSLATION_BACKEND_UNAVAILABLE,
+    TRANSLATION_JOB_PROGRESS_EVENT,
 };
 use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
@@ -38,12 +39,16 @@ const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemente
 /// The UI uses this stable payload to render model choices and feature gates
 /// before every platform has native inference support.
 pub(super) fn translation_capabilities() -> TranslationCapabilities {
+    let available = cfg!(feature = "native-translation-ctranslate2");
     TranslationCapabilities {
-        available: false,
-        backend: TRANSLATION_BACKEND_UNAVAILABLE.into(),
-        reason: format!(
-            "{NOT_IMPLEMENTED} Planned defaults: max {DEFAULT_MAX_SEGMENT_CHARS} chars/segment, {DEFAULT_BATCH_SEGMENT_LIMIT} segments/batch."
-        ),
+        available,
+        backend: if available {
+            TRANSLATION_BACKEND_CTRANSLATE2
+        } else {
+            TRANSLATION_BACKEND_UNAVAILABLE
+        }
+        .into(),
+        reason: translation_capability_reason(available),
         platform: std::env::consts::OS.into(),
         default_quality_mode: DEFAULT_TRANSLATION_QUALITY_MODE.into(),
         models: planned_models(),
@@ -107,12 +112,26 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
                 format!(
                     "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
                 )
+            } else if cfg!(feature = "native-translation-ctranslate2") {
+                "Translation model is installable. Install it before starting a translation job."
+                    .into()
             } else {
                 format!(
                     "{NOT_IMPLEMENTED} The file manifest is pinned and installable, but native CTranslate2 inference is not wired yet."
                 )
             },
         },
+    }
+}
+
+fn translation_capability_reason(available: bool) -> String {
+    let limits = format!(
+        "max {DEFAULT_MAX_SEGMENT_CHARS} chars/segment, {DEFAULT_BATCH_SEGMENT_LIMIT} segments/batch"
+    );
+    if available {
+        format!("CTranslate2 offline translation is available for pinned OPUS-MT models; {limits}.")
+    } else {
+        format!("{NOT_IMPLEMENTED} Planned defaults: {limits}.")
     }
 }
 

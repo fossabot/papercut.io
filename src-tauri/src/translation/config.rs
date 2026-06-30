@@ -1,10 +1,11 @@
 //! Translation feature constants.
 //!
-//! These are conservative planning limits for future engines. They are not
-//! enforced by real inference yet, but keeping them centralized prevents each
-//! engine spike from picking incompatible chunk/job defaults.
+//! These are conservative job limits shared by planning, cache identity, and
+//! native inference. Keeping them centralized prevents each engine from picking
+//! incompatible chunk/job defaults.
 
 pub(crate) const TRANSLATION_BACKEND_UNAVAILABLE: &str = "translation-unavailable";
+pub(crate) const TRANSLATION_BACKEND_CTRANSLATE2: &str = "ctranslate2";
 pub(crate) const TRANSLATION_MODEL_INSTALL_PROGRESS_EVENT: &str =
     "translation-model-install-progress";
 pub(crate) const TRANSLATION_JOB_PROGRESS_EVENT: &str = "translation-progress";

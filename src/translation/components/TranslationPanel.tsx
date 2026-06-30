@@ -133,7 +133,7 @@ export function TranslationPanel({
         <div className="translation-selected-document">
           <span className="translation-kicker">Selected Document</span>
           <strong>{selectedDocument.title}</strong>
-          <span>{formatDocumentFormat(selectedDocument.format)} readiness can be checked before native translation ships.</span>
+          <span>{formatDocumentFormat(selectedDocument.format)} translation runs as a separate generated document copy.</span>
           <div className="translation-preflight-controls" aria-label="Translation readiness options">
             <label>
               <span>Model</span>
@@ -233,7 +233,7 @@ export function TranslationPanel({
       ) : (
         <div className="translation-empty-state">
           <h3>No document selected</h3>
-          <p>Open a document and choose Translate from the document actions menu when the translation backend lands.</p>
+          <p>Open a document and choose Translate from the document actions menu.</p>
         </div>
       )}
 

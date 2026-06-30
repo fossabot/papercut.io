@@ -1,8 +1,20 @@
-# Offline Translation Roadmap
+# Offline Translation Roadmap And Status
 
-Papercut does not implement offline translation yet. This document tracks the recommended path for adding it without weakening the current document, search, reader, or TTS architecture.
+Papercut now has an in-progress offline translation pipeline. The production desktop build includes the CTranslate2 translation feature so model download and translation jobs can be exercised end to end, while Android and higher-quality LLM translation remain roadmap work. This document tracks the architecture, completed stages, partial areas, and next steps without weakening the current document, search, reader, or TTS architecture.
 
 The goal is high-quality offline translation for long-form HTML and EPUB books, primarily into English, while keeping the app responsive on desktop and mobile. The feature should feel like audiobook saving: the user starts a long-running job, the backend performs bounded native work, progress is visible, results are cached, and the finished output becomes durable user data.
+
+## Current Implementation Status
+
+- Desktop production builds now compile with `native-tts-shared,native-translation-ctranslate2` through `npm run desktop`.
+- `npm run desktop:no-translation` keeps the desktop build on native TTS only for packaging/debug isolation.
+- Spanish -> English and French -> English OPUS-MT CTranslate2 model manifests are pinned and installable.
+- Translation jobs run through the native engine boundary, emit progress/cancel events, reuse segment cache entries, run first-pass quality gates, and persist successful output as derived uploaded documents.
+- Translated variants are separate durable documents that can be opened, searched, deleted, and later used by the normal TTS flow.
+- HTML/EPUB rendering uses the sanitized reader HTML where possible and preserves links, ids, images, tables, and EPUB-rewritten assets conservatively.
+- Stage 5B is functionally wired for desktop, but still needs manual proof with real model downloads and translation jobs before being treated as release-ready.
+- Android translation is not supported yet; CTranslate2/`ct2rs` packaging must be validated separately from desktop.
+- Quality-model work for TranslateGemma/Qwen and chapter-level repair has not started.
 
 ## Product Goals
 
@@ -54,9 +66,11 @@ src-tauri/src/translation/
   commands.rs       # Tauri command edge and event subscription plumbing
   config.rs         # size limits, chunk limits, feature constants
   engine.rs         # shared engine trait and dispatch
-  jobs.rs           # long-running translate/save job orchestration
-  model.rs          # download, verify, extract, install, model status
+  job.rs            # long-running translate/save job orchestration
+  model_install.rs  # download, verify, extract, install
+  model_store.rs    # model manifests, install paths, model status helpers
   models.rs         # catalog metadata and language-pair support
+  html.rs           # shared HTML parser boundary for DOM-preserving transforms
   segment.rs        # document/chapter/paragraph/sentence segmentation
   storage.rs        # translated variant paths and cache keys
   quality.rs        # output checks and repair hooks
@@ -282,11 +296,32 @@ Mobile:
 - Warn when model/job may be slow or battery-heavy.
 - Avoid wide side-by-side translation UI until a translated variant exists.
 
+## Build Modes
+
+Desktop build feature selection deliberately keeps TTS and translation separate:
+
+- `npm run desktop`: shared native TTS plus CTranslate2 offline translation.
+- `npm run desktop:static`: static native TTS plus CTranslate2 offline translation.
+- `npm run desktop:no-translation`: shared native TTS only, for isolating packaging or translation-runtime failures.
+
+The script boundary is:
+
+```text
+nativeTtsFeatures()         -> native-tts-shared or native-tts-static
+nativeTranslationFeatures() -> native-translation-ctranslate2 or disabled
+```
+
+This keeps desktop builds useful for end-to-end translation testing without coupling translation diagnostics to TTS link-mode decisions.
+
+Linux desktop builds need `cmake` because the CTranslate2 path currently pulls in `ct2rs` with SentencePiece support, and `sentencepiece-sys` builds native code during Cargo compilation.
+
+Android remains native-TTS-only for now. Do not add translation to `npm run android:apk:native-tts` until CTranslate2/`ct2rs` or a direct C++ wrapper has been validated with the Android NDK and package size/performance checks.
+
 ## Implementation Stages
 
 Each stage should be easy to review and commit independently.
 
-### Stage 1: Planning And Contracts
+### Stage 1: Planning And Contracts - Done
 
 - Add this document.
 - Link it from README and document-upload docs.
@@ -295,7 +330,7 @@ Each stage should be easy to review and commit independently.
 - Decide branch name, feature flag name, and initial model candidates.
 - Do not add translation model downloads, jobs, storage, or fake progress yet.
 
-### Stage 2: Backend Skeleton
+### Stage 2: Backend Skeleton - Done
 
 - Add `src-tauri/src/translation/` with `types`, `models`, `config`, `commands`, and a stub engine.
 - Register commands behind a disabled or stubbed feature.
@@ -304,34 +339,34 @@ Each stage should be easy to review and commit independently.
 - Surface manifest state, license notes, and size notes in the Translation tab so reviewers can distinguish candidate-only metadata, pinned file manifests, and future downloadable models.
 - Add unit tests for model lookup and cache-key construction.
 
-### Stage 3: Translated Variant Storage
+### Stage 3: Translated Variant Storage - Done
 
 - Add SQLite metadata for translated document variants in the existing runtime upload/search database.
 - Store generated safe HTML as derived upload documents under the existing upload/search contract, rather than a parallel translation-only document store.
 - Add list/delete plumbing without model inference. Delete must remove only translated variant metadata/files and must not mutate the original uploaded document.
 - Verify deleting a source document handles variants deliberately.
 
-### Stage 4: Job Progress UI
+### Stage 4: Job Progress UI - Done
 
 - Add React API, hook, and minimal Translation panel wired to the stub/storage commands.
 - Load translation state lazily when the Translation tab is opened so normal Search/Library startup does not touch translation storage.
 - Display capabilities, planned model metadata, translated-variant list/delete state, and clear unavailable messaging.
-- Add a **Check Readiness** preflight action for selected documents, with planned model/source/target/quality controls. It may validate source/job shape, but it must still communicate that native translation is unavailable until an engine ships.
-- Do not add fake progress.
+- Add selected-document controls for model/source/target/quality. Early builds used this as **Check Readiness** preflight; CTranslate2 desktop builds now run the real translation job through the same command path.
+- Do not add fake progress; only report real install/job events.
 
-### Stage 5A: Engine And Segmentation Contracts
+### Stage 5A: Engine And Segmentation Contracts - Done
 
 - Add a native translation engine boundary without pulling in CTranslate2 yet.
 - Add source-document reads from the existing upload section tables by document URL.
 - Add deterministic text segmentation with bounded segment sizes, stable ids, and unit tests.
 - Add a job planner that validates request shape, batches bounded segments, and creates a deterministic settings cache key.
-- Wire `translation_start` to run source/job preflight on a blocking task while still returning an unavailable response until a native engine exists.
+- Wire `translation_start` to run source/job planning on a blocking task. Non-translation builds return a clear unavailable response; CTranslate2 desktop builds continue into native inference.
 - Keep this stage dependency-free so the branch stays easy to build/review before native packaging decisions.
 - Treat segment context as quality hints only; translated output must map back by segment id, not by prompt text.
 - Use per-segment content hashes in the future cache manifest before resume/regeneration ships; the current job key only separates incompatible settings.
 - Document the CTranslate2 integration decision: Rust bindings exist, but choosing one affects native library packaging, Android support, tokenizer handling, and model cache layout.
 
-### Stage 5B: CTranslate2 MVP
+### Stage 5B: CTranslate2 MVP - Mostly Done, Needs Desktop Proof
 
 - Add native engine spike for OPUS-MT/Marian Spanish -> English and French -> English candidates.
 - Keep `ct2rs` as the first desktop proof route, but do not couple storage/job code to it.
@@ -380,7 +415,14 @@ Each stage should be easy to review and commit independently.
   - Keep original source documents untouched throughout cleanup.
 - Add visible resumed/cached segment counts to the Translation progress UI.
 
-### Stage 6: HTML/EPUB Preservation
+Status:
+
+- Done: CTranslate2 feature flag, adapter, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, segment cache, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
+- Done: `npm run desktop` now includes `native-translation-ctranslate2` by default.
+- Needs proof: real desktop model download, model load through `ct2rs`, short HTML translation, stored translated variant open/search/delete, long-document cache/resume, and packaging artifact verification.
+- Not done: Android translation packaging.
+
+### Stage 6: HTML/EPUB Preservation - Mostly Done
 
 - Preserve document order and heading shape from the existing section data:
   - Carry source section ordinals into translated output.
@@ -398,7 +440,13 @@ Each stage should be easy to review and commit independently.
 - Add first-pass quality checks for broken internal links and empty translated output before storing translated variants.
 - Later quality checks should add language detection, repeated-output detection, length-ratio checks, protected term checks, and richer tag/anchor validation.
 
-### Stage 7: Quality Upgrades
+Status:
+
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; simple block text is replaced in place; link/media-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: first-pass broken internal-link and empty-output validation.
+- Still needed: exact DOM text-node locators for complex nested inline formatting, broader fixtures, table-specific behavior, and richer tag/anchor validation.
+
+### Stage 7: Quality Upgrades - Mostly Done
 
 - Add deterministic first-pass output sanity checks:
   - Reject all-empty translated output.
@@ -431,14 +479,22 @@ Each stage should be easy to review and commit independently.
   - Default remains `off`; no repair pass runs yet.
   - Carry repair mode through engine and persistence metadata so future quality models can add chapter-level repair without changing command shape.
 
-### Stage 8: Quality Model Spikes
+Status:
+
+- Done: empty output, length-ratio, repeated-output, broken-link, and glossary-target gates.
+- Done: exact-match segment cache and exact-memory reuse.
+- Done: glossary request/cache/provenance scaffolding and conflicting glossary rejection.
+- Done: structured quality issue internals and `repairMode` plumbing.
+- Not done: automatic multilingual NER, section regeneration loop, actual chapter repair pass, wrong-target-language detection.
+
+### Stage 8: Quality Model Spikes - Not Started
 
 - Evaluate TranslateGemma 4B/12B locally.
 - Evaluate Qwen3 8B/14B for context-rich academic translation.
 - Compare against CTranslate2 output on the same book samples.
 - Decide which models belong in desktop, Android, or experimental catalogs.
 
-### Stage 9: Mobile Hardening
+### Stage 9: Mobile Hardening - Not Started
 
 - Benchmark memory, storage, speed, thermals, and battery.
 - Limit model choices by platform capability.
