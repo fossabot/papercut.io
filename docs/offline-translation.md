@@ -310,7 +310,8 @@ Each stage should be easy to review and commit independently.
 - Add React API, hook, and minimal Translation panel wired to the stub/storage commands.
 - Load translation state lazily when the Translation tab is opened so normal Search/Library startup does not touch translation storage.
 - Display capabilities, planned model metadata, translated-variant list/delete state, and clear unavailable messaging.
-- Keep job controls disabled while native translation is unavailable. Do not add fake progress.
+- Add a **Check Readiness** preflight action for selected documents. It may validate source/job shape, but it must still communicate that native translation is unavailable until an engine ships.
+- Do not add fake progress.
 
 ### Stage 5A: Engine And Segmentation Contracts
 

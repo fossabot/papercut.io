@@ -1,5 +1,10 @@
 import './TranslationPanel.css'
-import type { TranslatedDocumentInfo, TranslationCapabilities, TranslationDeleteResult } from '../api/nativeTranslation'
+import type {
+  TranslatedDocumentInfo,
+  TranslationCapabilities,
+  TranslationDeleteResult,
+  TranslationStartResult,
+} from '../api/nativeTranslation'
 
 export interface TranslationSeedDocument {
   title: string
@@ -13,8 +18,14 @@ interface TranslationPanelProps {
   error: string
   loading: boolean
   selectedDocument: TranslationSeedDocument | null
+  startState: {
+    checking: boolean
+    result: TranslationStartResult | null
+    message: string
+  }
   translatedDocuments: TranslatedDocumentInfo[]
   onDeleteTranslatedDocument: (id: string) => Promise<void>
+  onStartTranslationPreflight: (document: TranslationSeedDocument) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -24,8 +35,10 @@ export function TranslationPanel({
   error,
   loading,
   selectedDocument,
+  startState,
   translatedDocuments,
   onDeleteTranslatedDocument,
+  onStartTranslationPreflight,
   refresh,
 }: TranslationPanelProps) {
   const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
@@ -65,15 +78,30 @@ export function TranslationPanel({
         <div className="translation-selected-document">
           <span className="translation-kicker">Selected Document</span>
           <strong>{selectedDocument.title}</strong>
-          <span>{formatDocumentFormat(selectedDocument.format)} translation setup will start here when the backend lands.</span>
-          <button type="button" disabled title="Translation jobs are not implemented yet">
-            Start Translation
+          <span>{formatDocumentFormat(selectedDocument.format)} readiness can be checked before native translation ships.</span>
+          <button
+            type="button"
+            disabled={startState.checking}
+            title="Validate the selected document against the planned translation job pipeline"
+            onClick={() => { void onStartTranslationPreflight(selectedDocument) }}
+          >
+            {startState.checking ? 'Checking...' : 'Check Readiness'}
           </button>
         </div>
       ) : (
         <div className="translation-empty-state">
           <h3>No document selected</h3>
           <p>Open a document and choose Translate from the document actions menu when the translation backend lands.</p>
+        </div>
+      )}
+
+      {startState.message && (
+        <div
+          className={'translation-alert' + (startState.result ? '' : ' translation-alert-neutral')}
+          role="status"
+        >
+          <strong>{startState.result ? 'Translation job response' : 'Translation preflight'}</strong>
+          <span>{startState.message}</span>
         </div>
       )}
 

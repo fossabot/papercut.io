@@ -66,6 +66,10 @@
   background: var(--surface-danger);
 }
 
+.translation-alert-neutral {
+  border-color: var(--border-strong);
+}
+
 .translation-selected-document,
 .translation-empty-state {
   display: grid;
@@ -91,7 +95,7 @@
   color: var(--text-heading);
 }
 
-.translation-selected-document span:last-child {
+.translation-selected-document > span:not(.translation-kicker) {
   color: var(--text-muted);
 }
 
@@ -102,8 +106,20 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
-  color: var(--text-muted);
+  color: var(--accent);
   font-weight: 700;
+  cursor: pointer;
+}
+
+.translation-selected-document button:hover,
+.translation-selected-document button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.translation-selected-document button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .translation-roadmap-grid {
