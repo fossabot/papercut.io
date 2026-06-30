@@ -93,25 +93,34 @@ pub(crate) fn local_spans_for_fragment(
 
 /// Project source formatting ranges onto one translated text window.
 ///
-/// This is a conservative bridge until true phrase alignment exists. It maps by
-/// relative position, snaps to word boundaries, and rejects overlapping output
-/// so we do not create visibly misleading nested/stacked emphasis.
+/// This is a conservative bridge until true phrase alignment exists. It first
+/// keeps exact carry-over phrases such as names/titles, then maps remaining
+/// ranges by relative position snapped to word boundaries. Overlap rejection is
+/// intentional: wrong emphasis is worse than plain translated text.
 pub(crate) fn projected_translated_spans(
     spans: &[InlineFormattingSpan],
-    source_len: usize,
+    source_text: &str,
     translated_text: &str,
 ) -> Option<Vec<ProjectedInlineSpan>> {
+    let source_len = source_text.chars().count();
     let mut projected = Vec::new();
     for span in spans {
-        let (start, end) = projected_translated_byte_range(span, source_len, translated_text)?;
-        if start >= end {
+        let projected_span = if let Some(exact) =
+            exact_translated_span(span, source_text, translated_text)
+        {
+            exact
+        } else {
+            let (start, end) = projected_translated_byte_range(span, source_len, translated_text)?;
+            ProjectedInlineSpan {
+                start,
+                end,
+                tags: span.tags.clone(),
+            }
+        };
+        if projected_span.start >= projected_span.end {
             return None;
         }
-        projected.push(ProjectedInlineSpan {
-            start,
-            end,
-            tags: span.tags.clone(),
-        });
+        projected.push(projected_span);
     }
 
     projected.sort_by_key(|span| (span.start, span.end));
@@ -122,6 +131,30 @@ pub(crate) fn projected_translated_spans(
     }
 
     Some(projected)
+}
+
+/// Place formatting on an unchanged target phrase when that is unambiguous.
+///
+/// MT often carries proper nouns, quoted labels, and technical loanwords across
+/// unchanged. Matching those exact phrases beats proportional projection for
+/// terms like `Völkisch`; requiring one bounded match avoids styling the wrong
+/// copy when a phrase repeats.
+fn exact_translated_span(
+    span: &InlineFormattingSpan,
+    source_text: &str,
+    translated_text: &str,
+) -> Option<ProjectedInlineSpan> {
+    let source_phrase = char_slice(source_text, span.start, span.end)?;
+    let phrase = source_phrase.trim();
+    if !phrase_is_specific_enough(phrase) {
+        return None;
+    }
+    let (start, end) = find_unique_phrase_byte_range(translated_text, phrase)?;
+    Some(ProjectedInlineSpan {
+        start,
+        end,
+        tags: span.tags.clone(),
+    })
 }
 
 fn collect_inline_formatting_spans(
@@ -219,6 +252,41 @@ fn projected_translated_byte_range(
         end = (start + 1).min(translated_len);
     }
     translated_word_byte_range(translated_text, start, end)
+}
+
+fn phrase_is_specific_enough(phrase: &str) -> bool {
+    phrase.chars().filter(|ch| ch.is_alphanumeric()).count() >= 4
+}
+
+fn find_unique_phrase_byte_range(text: &str, phrase: &str) -> Option<(usize, usize)> {
+    let mut search_start = 0usize;
+    let mut found = None;
+    while search_start <= text.len() {
+        let Some(relative_start) = text[search_start..].find(phrase) else {
+            break;
+        };
+        let start = search_start + relative_start;
+        let end = start + phrase.len();
+        if phrase_has_word_boundaries(text, start, end) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some((start, end));
+        }
+        search_start = end;
+    }
+    found
+}
+
+fn phrase_has_word_boundaries(text: &str, start: usize, end: usize) -> bool {
+    let first = text[start..].chars().next();
+    let last = text[..end].chars().next_back();
+    let before = text[..start].chars().next_back();
+    let after = text[end..].chars().next();
+
+    let left_ok = !first.is_some_and(is_word_char) || !before.is_some_and(is_word_char);
+    let right_ok = !last.is_some_and(is_word_char) || !after.is_some_and(is_word_char);
+    left_ok && right_ok
 }
 
 /// Snap a projected character range to readable word boundaries.
@@ -363,6 +431,26 @@ mod tests {
             },
         ];
 
-        assert!(projected_translated_spans(&spans, 10, "abcdefghij").is_none());
+        assert!(projected_translated_spans(&spans, "abcdefghij", "abcdefghij").is_none());
+    }
+
+    #[test]
+    fn prefers_exact_carryover_for_unique_terms() {
+        let spans = vec![super::InlineFormattingSpan {
+            start: 11,
+            end: 19,
+            tags: vec!["em".into(), "strong".into()],
+        }];
+
+        let projected =
+            projected_translated_spans(&spans, "El regimen Völkisch.", "The Völkisch regime.")
+                .expect("projected");
+
+        assert_eq!(projected.len(), 1);
+        assert_eq!(
+            &"The Völkisch regime."[projected[0].start..projected[0].end],
+            "Völkisch"
+        );
+        assert_eq!(projected[0].tags, vec!["em", "strong"]);
     }
 }

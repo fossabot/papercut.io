@@ -341,7 +341,7 @@ fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &s
     {
         Vec::new()
     } else {
-        projected_translated_spans(&spans, source_len, translated_text).unwrap_or_default()
+        projected_translated_spans(&spans, &source_text, translated_text).unwrap_or_default()
     };
 
     replace_children_with_projected_formatting(node, translated_text, &projected_spans);
@@ -381,12 +381,16 @@ fn replace_text_with_fragment_formatting(
             return false;
         };
         search_start = next_search_start;
-        let local_source_len = source_end.saturating_sub(source_start);
+        let local_source_text = source_text
+            .chars()
+            .skip(source_start)
+            .take(source_end.saturating_sub(source_start))
+            .collect::<String>();
         let local_spans = local_spans_for_fragment(&source_spans, source_start, source_end);
-        let projected_spans = if local_spans.is_empty() || local_source_len == 0 {
+        let projected_spans = if local_spans.is_empty() || local_source_text.is_empty() {
             Vec::new()
         } else {
-            projected_translated_spans(&local_spans, local_source_len, fragment.text.trim())
+            projected_translated_spans(&local_spans, &local_source_text, fragment.text.trim())
                 .unwrap_or_default()
         };
         rendered_fragments.push((fragment.text.trim().to_string(), projected_spans));
