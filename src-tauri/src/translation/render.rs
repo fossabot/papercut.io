@@ -2,17 +2,16 @@
 //!
 //! The preferred path clones the sanitized reader HTML and replaces readable
 //! block text in document order. That preserves links, images, ids, and EPUB
-//! asset rewrites around the text. When a block contains nested anchors/media,
-//! we keep the original block intact and insert translated text nearby instead
-//! of destroying navigation.
+//! asset rewrites around the text. Footnote/link anchors are preserved in
+//! translated blocks; media/table-heavy blocks keep the original block intact
+//! and insert translated text nearby instead of destroying assets.
 
 use kuchikiki::NodeRef;
 
 use super::html::parse_html_document;
 use super::storage::{PersistTranslationRequest, PersistTranslationSection};
 
-const BLOCK_SELECTOR: &str = "h1,h2,h3,h4,h5,h6,p,li,blockquote";
-const PRESERVED_DESCENDANT_SELECTOR: &str = "a,img,table,figure,audio,video";
+const MEDIA_DESCENDANT_SELECTOR: &str = "img,table,figure,audio,video";
 
 /// Render a persisted translated document.
 ///
@@ -26,9 +25,8 @@ pub(crate) fn render_translated_html(title: &str, request: &PersistTranslationRe
 /// Clone the safe reader HTML and replace readable blocks in source order.
 ///
 /// This keeps EPUB-rewritten image links, footnote anchors, and existing ids in
-/// the output. The current mapper follows upload section order, so deeply
-/// nested/mixed inline structures are intentionally handled conservatively until
-/// a stronger text-node locator layer exists.
+/// the output. Render block discovery mirrors upload section extraction so
+/// nested footnote paragraphs do not shift translated sections out of place.
 fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Option<String> {
     if request.source.view_html.trim().is_empty() {
         return None;
@@ -40,7 +38,7 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
     let mut sections = request.translated_sections.iter();
     let mut replaced_any = false;
     let mut mapped_sections = 0usize;
-    for node in document.select(BLOCK_SELECTOR).ok()? {
+    for node in collect_render_blocks(&document) {
         let Some(section) = sections.next() else {
             break;
         };
@@ -49,17 +47,14 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
         if section.text.trim().is_empty() {
             continue;
         }
-        if has_preserved_descendant(node.as_node()) {
-            insert_translation_after(node.as_node(), section);
-        } else if replace_text_preserving_full_inline_formatting(
-            node.as_node(),
-            section.text.trim(),
-        ) {
+        if has_media_descendant(&node) {
+            insert_translation_after(&node, section);
+        } else if replace_text_preserving_full_inline_formatting(&node, section.text.trim()) {
             // The helper already replaced the deepest safe inline wrapper text.
-        } else if replace_text_projecting_inline_formatting(node.as_node(), section.text.trim()) {
+        } else if replace_text_projecting_inline_formatting(&node, section.text.trim()) {
             // The helper projected safe source emphasis spans onto translated text.
         } else {
-            replace_children_with_text(node.as_node(), section.text.trim());
+            replace_children_with_text(&node, section.text.trim());
         }
         replaced_any = true;
     }
@@ -68,6 +63,43 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
         return None;
     }
     serialize_document(&document)
+}
+
+/// Collect the same block units the upload parser extracts.
+///
+/// CSS selection returns both `<li>` and its nested `<p>`, which shifts
+/// translated sections out of alignment and scrambles endnotes. This traversal
+/// takes the first readable block and does not recurse into it, matching the
+/// importer scanner's "consume block and skip its descendants" behavior.
+fn collect_render_blocks(document: &NodeRef) -> Vec<NodeRef> {
+    let root = document
+        .select_first("body")
+        .ok()
+        .map(|body| body.as_node().clone())
+        .unwrap_or_else(|| document.clone());
+    let mut blocks = Vec::new();
+    collect_render_blocks_from(&root, &mut blocks);
+    blocks
+}
+
+fn collect_render_blocks_from(node: &NodeRef, blocks: &mut Vec<NodeRef>) {
+    for child in node.children() {
+        if is_render_block(&child) {
+            blocks.push(child);
+        } else {
+            collect_render_blocks_from(&child, blocks);
+        }
+    }
+}
+
+fn is_render_block(node: &NodeRef) -> bool {
+    let Some(element) = node.as_element() else {
+        return false;
+    };
+    matches!(
+        element.name.local.as_ref(),
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" | "li" | "blockquote"
+    )
 }
 
 /// Build a simple translated document when source DOM preservation is not safe.
@@ -184,11 +216,11 @@ fn annotate_block(node: &NodeRef, section: &PersistTranslationSection) {
     }
 }
 
-/// Preserve link/media-heavy source blocks by inserting translation nearby.
+/// Preserve media/table-heavy source blocks by inserting translation nearby.
 ///
-/// Replacing the text inside a paragraph containing anchors can break footnote
-/// navigation or lose inline assets. For those blocks, the source block remains
-/// intact and the translated text is inserted immediately after it.
+/// Replacing table/image-heavy content can destroy layout or asset references.
+/// For those blocks, the source block remains intact and the translated text is
+/// inserted immediately after it.
 fn insert_translation_after(node: &NodeRef, section: &PersistTranslationSection) {
     let tag = if section.is_heading { "h2" } else { "p" };
     let wrapper = parse_html_document(format!(
@@ -202,9 +234,9 @@ fn insert_translation_after(node: &NodeRef, section: &PersistTranslationSection)
     node.insert_after(inserted.as_node().clone());
 }
 
-/// Detect descendants whose behavior/asset references should survive rendering.
-fn has_preserved_descendant(node: &NodeRef) -> bool {
-    node.select(PRESERVED_DESCENDANT_SELECTOR)
+/// Detect media/table descendants whose behavior should survive rendering.
+fn has_media_descendant(node: &NodeRef) -> bool {
+    node.select(MEDIA_DESCENDANT_SELECTOR)
         .ok()
         .and_then(|mut nodes| nodes.next())
         .is_some()
@@ -296,28 +328,32 @@ struct InlineFormattingSpan {
 /// emphasis.
 fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &str) -> bool {
     let (source_text, spans) = source_text_and_inline_formatting_spans(node);
-    if source_text.is_empty() || translated_text.trim().is_empty() || spans.is_empty() {
-        return false;
-    }
-
-    let source_len = source_text.chars().count();
-    if source_len == 0
-        || spans
-            .iter()
-            .any(|span| span.start == 0 && span.end >= source_len)
+    let preserved_anchors = serialized_anchor_nodes(node);
+    if source_text.is_empty()
+        || translated_text.trim().is_empty()
+        || (spans.is_empty() && preserved_anchors.is_empty())
     {
         return false;
     }
 
-    let Some(projected_spans) = projected_translated_spans(&spans, source_len, translated_text)
-    else {
-        return false;
-    };
-    if projected_spans.is_empty() {
+    let source_len = source_text.chars().count();
+    if source_len == 0 {
         return false;
     }
 
+    let projected_spans = if spans.is_empty() {
+        Vec::new()
+    } else if spans
+        .iter()
+        .any(|span| span.start == 0 && span.end >= source_len)
+    {
+        Vec::new()
+    } else {
+        projected_translated_spans(&spans, source_len, translated_text).unwrap_or_default()
+    };
+
     replace_children_with_projected_formatting(node, translated_text, &projected_spans);
+    append_preserved_anchor_nodes(node, &preserved_anchors);
     true
 }
 
@@ -522,6 +558,24 @@ fn replace_children_with_projected_formatting(
     }
 }
 
+fn serialized_anchor_nodes(node: &NodeRef) -> Vec<String> {
+    let Ok(anchors) = node.select("a") else {
+        return Vec::new();
+    };
+    anchors
+        .filter_map(|anchor| serialize_node(anchor.as_node()))
+        .collect()
+}
+
+fn append_preserved_anchor_nodes(node: &NodeRef, anchors: &[String]) {
+    for anchor in anchors {
+        node.append(NodeRef::new_text(" "));
+        if let Some(cloned) = parsed_first_element(anchor, "a") {
+            node.append(cloned);
+        }
+    }
+}
+
 fn formatted_inline_node(tags: &[String], text: &str) -> Option<NodeRef> {
     let outer = tags.first()?;
     let mut html = String::from("<!doctype html><html><body>");
@@ -538,17 +592,32 @@ fn formatted_inline_node(tags: &[String], text: &str) -> Option<NodeRef> {
     }
     html.push_str("</body></html>");
     let wrapper = parse_html_document(html);
-    wrapper
-        .select_first(outer.as_str())
+    parsed_first_element_from_document(&wrapper, outer)
+}
+
+fn parsed_first_element(html: &str, selector: &str) -> Option<NodeRef> {
+    let wrapper = parse_html_document(format!("<!doctype html><html><body>{html}</body></html>"));
+    parsed_first_element_from_document(&wrapper, selector)
+}
+
+fn parsed_first_element_from_document(document: &NodeRef, selector: &str) -> Option<NodeRef> {
+    document
+        .select_first(selector)
         .ok()
         .map(|node| node.as_node().clone())
+}
+
+fn serialize_node(node: &NodeRef) -> Option<String> {
+    let mut bytes = Vec::new();
+    node.serialize(&mut bytes).ok()?;
+    String::from_utf8(bytes).ok()
 }
 
 /// Replace all child nodes with one text node.
 ///
 /// This is the plain-text fallback for blocks whose inline formatting is too
 /// ambiguous for the current span projection. Richer replacement should
-/// wait for exact source-text-node locators.
+/// wait for phrase alignment that can survive translated word reordering.
 fn replace_children_with_text(node: &NodeRef, text: &str) {
     let children = node.children().collect::<Vec<_>>();
     for child in children {
@@ -667,6 +736,29 @@ mod tests {
         assert!(html.contains(">This is <strong>important</strong> and <em>urgent</em>.</p>"));
         assert!(!html.contains("importante"));
         assert!(!html.contains("urgente"));
+    }
+
+    #[test]
+    fn preserves_ordered_footnote_items_and_backlinks() {
+        let request = request(
+            "<!doctype html><html><body><article><p>Texto<a href=\"#sdfootnote1sym\" id=\"sdfootnote1anc\" role=\"doc-noteref\"><sup>1</sup></a>.</p><section role=\"doc-endnotes\"><ol><li id=\"sdfootnote1sym\"><p>Nota uno<a href=\"#sdfootnote1anc\" role=\"doc-backlink\">↩︎</a></p></li><li id=\"sdfootnote2sym\"><p>Nota dos<a href=\"#sdfootnote2anc\" role=\"doc-backlink\">↩︎</a></p></li></ol></section></article></body></html>",
+            vec![
+                section(0, false, "Body text."),
+                section(1, false, "First note."),
+                section(2, false, "Second note."),
+            ],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("<ol>"));
+        assert!(html.contains("<li id=\"sdfootnote1sym\""));
+        assert!(html.contains("First note."));
+        assert!(html.contains("Second note."));
+        assert!(html.contains("href=\"#sdfootnote1anc\""));
+        assert!(html.contains("role=\"doc-backlink\""));
+        assert!(!html.contains("Nota uno"));
+        assert!(!html.contains("Nota dos"));
     }
 
     #[test]

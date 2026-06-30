@@ -438,10 +438,12 @@ Status:
 - Add first-pass DOM transform rendering:
   - Use the sanitized reader `view_html` as the source of truth.
   - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
+  - Collect render blocks with the same descendant-skipping behavior as the importer so nested endnote `<li><p>...</p></li>` structures do not shift section mapping.
   - Preserve simple block attributes, existing ids, links, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
   - Preserve whole-block inline emphasis when one safe formatting wrapper owns the entire source block, such as `<strong>...</strong>` or nested `<em><strong>...</strong></em>`.
   - Project safe partial inline emphasis spans onto translated text by relative text position snapped to word boundaries, but only when projected ranges do not overlap.
-  - Insert translated fallback text beside blocks that contain anchors/media instead of destroying navigation.
+  - Preserve footnote/noteref anchors and ordered-list endnote structure when replacing translated text.
+  - Insert translated fallback text beside blocks that contain media/table content instead of destroying assets or table structure.
 - Next preservation work requires a stronger section locator layer:
   - Map translated segments to exact DOM text nodes rather than only block order.
   - Add coverage for complex nested links, footnotes, reordered phrases, and tables.
@@ -451,7 +453,7 @@ Status:
 
 Status:
 
-- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; simple block text is replaced in place; whole-block inline emphasis is preserved when structurally unambiguous; non-overlapping partial inline emphasis spans can be projected onto translated word boundaries; link/media-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; render block collection now matches importer block units; simple block text is replaced in place; whole-block inline emphasis is preserved when structurally unambiguous; non-overlapping partial inline emphasis spans can be projected onto translated word boundaries; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
 - Done: first-pass broken internal-link and empty-output validation.
 - Still needed: true phrase alignment for reordered translations, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 
