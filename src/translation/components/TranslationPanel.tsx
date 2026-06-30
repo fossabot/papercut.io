@@ -1,8 +1,10 @@
+import { useMemo, useState } from 'react'
 import './TranslationPanel.css'
 import type {
   TranslatedDocumentInfo,
   TranslationCapabilities,
   TranslationDeleteResult,
+  TranslationStartRequest,
   TranslationStartResult,
 } from '../api/nativeTranslation'
 
@@ -25,7 +27,7 @@ interface TranslationPanelProps {
   }
   translatedDocuments: TranslatedDocumentInfo[]
   onDeleteTranslatedDocument: (id: string) => Promise<void>
-  onStartTranslationPreflight: (document: TranslationSeedDocument) => Promise<void>
+  onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -42,6 +44,36 @@ export function TranslationPanel({
   refresh,
 }: TranslationPanelProps) {
   const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
+  const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
+  const [modelId, setModelId] = useState('')
+  const [sourceLanguage, setSourceLanguage] = useState('auto')
+  const [targetLanguage, setTargetLanguage] = useState('en')
+  const [qualityMode, setQualityMode] = useState('balanced')
+  const activeModelId = modelOptions.some((model) => model.id === modelId) ? modelId : modelOptions[0]?.id ?? ''
+  const selectedModel = useMemo(
+    () => modelOptions.find((model) => model.id === activeModelId) ?? null,
+    [activeModelId, modelOptions],
+  )
+  const sourceLanguages = useMemo(
+    () => uniqueOptions(['auto', ...(selectedModel?.sourceLanguages ?? [])]),
+    [selectedModel],
+  )
+  const targetLanguages = useMemo(
+    () => uniqueOptions(selectedModel?.targetLanguages.length ? selectedModel.targetLanguages : ['en']),
+    [selectedModel],
+  )
+  const qualityModes = useMemo(
+    () => uniqueOptions([
+      selectedModel?.defaultQualityMode ?? capabilities?.defaultQualityMode ?? 'balanced',
+      'fast',
+      'balanced',
+      'quality',
+    ]),
+    [capabilities, selectedModel],
+  )
+  const activeSourceLanguage = sourceLanguages.includes(sourceLanguage) ? sourceLanguage : 'auto'
+  const activeTargetLanguage = targetLanguages.includes(targetLanguage) ? targetLanguage : targetLanguages[0] ?? 'en'
+  const activeQualityMode = qualityModes.includes(qualityMode) ? qualityMode : qualityModes[0] ?? 'balanced'
 
   return (
     <section className="translation-panel" aria-label="Offline translation">
@@ -79,11 +111,86 @@ export function TranslationPanel({
           <span className="translation-kicker">Selected Document</span>
           <strong>{selectedDocument.title}</strong>
           <span>{formatDocumentFormat(selectedDocument.format)} readiness can be checked before native translation ships.</span>
+          <div className="translation-preflight-controls" aria-label="Translation readiness options">
+            <label>
+              <span>Model</span>
+              <select
+                value={activeModelId}
+                disabled={!modelOptions.length || startState.checking}
+                onChange={(event) => {
+                  const nextModelId = event.target.value
+                  const nextModel = modelOptions.find((model) => model.id === nextModelId)
+                  setModelId(nextModelId)
+                  setSourceLanguage('auto')
+                  setTargetLanguage(nextModel?.targetLanguages[0] ?? 'en')
+                  setQualityMode(nextModel?.defaultQualityMode ?? capabilities?.defaultQualityMode ?? 'balanced')
+                }}
+              >
+                {modelOptions.length ? modelOptions.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                )) : (
+                  <option value="">No planned models</option>
+                )}
+              </select>
+            </label>
+            <label>
+              <span>Source</span>
+              <select
+                value={activeSourceLanguage}
+                disabled={startState.checking}
+                onChange={(event) => setSourceLanguage(event.target.value)}
+              >
+                {sourceLanguages.map((language) => (
+                  <option key={language} value={language}>
+                    {formatLanguageLabel(language)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Target</span>
+              <select
+                value={activeTargetLanguage}
+                disabled={startState.checking}
+                onChange={(event) => setTargetLanguage(event.target.value)}
+              >
+                {targetLanguages.map((language) => (
+                  <option key={language} value={language}>
+                    {formatLanguageLabel(language)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Quality</span>
+              <select
+                value={activeQualityMode}
+                disabled={startState.checking}
+                onChange={(event) => setQualityMode(event.target.value)}
+              >
+                {qualityModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {formatQualityLabel(mode)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <button
             type="button"
-            disabled={startState.checking}
+            disabled={startState.checking || !activeModelId}
             title="Validate the selected document against the planned translation job pipeline"
-            onClick={() => { void onStartTranslationPreflight(selectedDocument) }}
+            onClick={() => {
+              void onStartTranslationPreflight({
+                documentUrl: selectedDocument.url,
+                sourceLanguage: activeSourceLanguage,
+                targetLanguage: activeTargetLanguage,
+                modelId: activeModelId,
+                qualityMode: activeQualityMode,
+              })
+            }}
           >
             {startState.checking ? 'Checking...' : 'Check Readiness'}
           </button>
@@ -185,4 +292,17 @@ export function TranslationPanel({
 function formatDocumentFormat(format?: string): string {
   if (!format) return 'Document'
   return format.toUpperCase()
+}
+
+function formatLanguageLabel(language: string): string {
+  if (language === 'auto') return 'Auto detect'
+  return language.toUpperCase()
+}
+
+function formatQualityLabel(mode: string): string {
+  return mode.charAt(0).toUpperCase() + mode.slice(1)
+}
+
+function uniqueOptions(values: string[]): string[] {
+  return values.filter((value, index) => value && values.indexOf(value) === index)
 }

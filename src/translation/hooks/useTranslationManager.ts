@@ -7,12 +7,9 @@ import {
   type TranslatedDocumentInfo,
   type TranslationCapabilities,
   type TranslationDeleteResult,
+  type TranslationStartRequest,
   type TranslationStartResult,
 } from '../api/nativeTranslation'
-
-interface TranslationStartDocument {
-  url: string
-}
 
 interface TranslationStartState {
   checking: boolean
@@ -28,7 +25,7 @@ interface TranslationManagerState {
   startState: TranslationStartState
   translatedDocuments: TranslatedDocumentInfo[]
   onDeleteTranslatedDocument: (id: string) => Promise<void>
-  onStartTranslationPreflight: (document: TranslationStartDocument) => Promise<void>
+  onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -86,17 +83,10 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
     }
   }, [refresh])
 
-  const onStartTranslationPreflight = useCallback(async (document: TranslationStartDocument) => {
+  const onStartTranslationPreflight = useCallback(async (request: TranslationStartRequest) => {
     setStartState({ checking: true, result: null, message: '' })
     try {
-      const model = capabilities?.models[0]
-      const result = await startTranslationJob({
-        documentUrl: document.url,
-        sourceLanguage: 'auto',
-        targetLanguage: 'en',
-        modelId: model?.id ?? 'planned-translation-model',
-        qualityMode: model?.defaultQualityMode ?? capabilities?.defaultQualityMode ?? 'balanced',
-      })
+      const result = await startTranslationJob(request)
       setStartState({
         checking: false,
         result,
@@ -109,7 +99,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         message: err instanceof Error ? err.message : String(err),
       })
     }
-  }, [capabilities])
+  }, [])
 
   return {
     capabilities,

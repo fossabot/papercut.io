@@ -99,6 +99,40 @@
   color: var(--text-muted);
 }
 
+.translation-preflight-controls {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) repeat(3, minmax(8rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+}
+
+.translation-preflight-controls label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.translation-preflight-controls select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.3rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.translation-preflight-controls select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .translation-selected-document button {
   justify-self: start;
   margin-top: 0.35rem;
@@ -235,6 +269,10 @@
   .translation-empty-state,
   .translation-alert {
     margin: 0 1rem;
+  }
+
+  .translation-preflight-controls {
+    grid-template-columns: 1fr;
   }
 
   .translation-roadmap-grid,
