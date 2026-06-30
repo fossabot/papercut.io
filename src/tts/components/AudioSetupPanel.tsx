@@ -76,7 +76,7 @@ export function AudioSetupPanel({
     modelInstallProgress.status !== 'installed' &&
     modelInstallProgress.status !== 'error'
   )
-  const modelInstalled = Boolean(modelStatus?.installed)
+  const modelInstalled = Boolean(modelStatus?.installed || modelInstallProgress?.status === 'installed')
   const modelPercent = modelInstallProgress?.percent ?? 0
   const modelSize = formatModelSize(modelStatus?.archiveBytes ?? modelInstallProgress?.totalBytes ?? 0)
   const threadOptions = Array.from({ length: maxThreadCount }, (_, index) => index + 1)
