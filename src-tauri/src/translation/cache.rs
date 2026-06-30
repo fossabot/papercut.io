@@ -29,6 +29,8 @@ pub(crate) struct TranslationSegmentCache {
     max_segment_chars: usize,
     batch_segment_limit: usize,
     segments: BTreeMap<String, CachedTranslationSegment>,
+    #[serde(default)]
+    memory: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,15 +56,35 @@ impl TranslationSegmentCache {
         }
     }
 
+    /// Return a translation for repeated source text regardless of segment id.
+    ///
+    /// This is the first translation-memory slice: exact repeated paragraphs or
+    /// sentences should not call the native engine again just because they live
+    /// in a different block. The source hash keeps reuse scoped to identical
+    /// text under the same job settings.
+    pub(crate) fn translated_text_for_source(
+        &self,
+        segment: &TranslationTextSegment,
+    ) -> Option<&str> {
+        self.memory
+            .get(&hash_segment_text(&segment.text))
+            .map(String::as_str)
+    }
+
     pub(crate) fn store_translation(
         &mut self,
         segment: &TranslationTextSegment,
         translated_text: String,
     ) {
+        let source_hash = hash_segment_text(&segment.text);
+        if !translated_text.trim().is_empty() {
+            self.memory
+                .insert(source_hash.clone(), translated_text.clone());
+        }
         self.segments.insert(
             segment.id.clone(),
             CachedTranslationSegment {
-                source_hash: hash_segment_text(&segment.text),
+                source_hash,
                 translated_text,
             },
         );
@@ -134,6 +156,7 @@ fn new_segment_cache(plan: &TranslationJobPlan) -> TranslationSegmentCache {
         max_segment_chars: plan.max_segment_chars,
         batch_segment_limit: plan.batch_segment_limit,
         segments: BTreeMap::new(),
+        memory: BTreeMap::new(),
     }
 }
 
@@ -227,6 +250,19 @@ mod tests {
         let mut changed = segment.clone();
         changed.text = "Changed text".into();
         assert_eq!(cache.translated_text_for(&changed), None);
+    }
+
+    #[test]
+    fn cache_reuses_exact_source_text_across_segment_ids() {
+        let plan = plan();
+        let first = plan.batches[0].segments[0].clone();
+        let mut second = plan.batches[0].segments[0].clone();
+        second.id = "source-block-99-segment-1".into();
+        let mut cache = new_segment_cache(&plan);
+        cache.store_translation(&first, "uno".into());
+
+        assert_eq!(cache.translated_text_for(&second), None);
+        assert_eq!(cache.translated_text_for_source(&second), Some("uno"));
     }
 
     #[test]

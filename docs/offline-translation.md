@@ -405,8 +405,13 @@ Each stage should be easy to review and commit independently.
   - Reject extreme source/translation length-ratio failures that look like truncation or decoder loops.
   - Reject repeated long translated bodies across many sections.
   - Reject generated HTML with broken internal `#anchor` links before storage.
+- Add exact-match translation memory through the existing segment cache:
+  - Store translated text by source-text hash as well as segment id.
+  - Reuse exact repeated source text across later batches and retries before calling the native engine.
+  - Materialize reused translations back into positional segment entries so retries remain stable.
+  - Keep this in the existing `serde_json` cache manifest; no new library is needed for exact-match memory.
+  - Later optimize duplicate segments inside the same batch if benchmarks show repeated paragraphs are common enough to matter.
 - Add glossary support.
-- Add translation memory.
 - Add named-entity consistency checks.
 - Add section regeneration.
 - Add optional chapter repair pass.

@@ -320,19 +320,36 @@ fn run_translation_batches<R: tauri::Runtime>(
             segments: Vec::new(),
         };
         let mut reused_segments_in_batch = 0;
+        let mut materialized_memory_reuse = false;
         for segment in &batch.segments {
-            if let Some(cached_text) = cache.translated_text_for(segment) {
+            if let Some(cached_text) = cache.translated_text_for(segment).map(str::to_owned) {
                 completed_segments += 1;
                 cached_segments += 1;
                 reused_segments_in_batch += 1;
                 append_translated_segment(
                     &mut translated_blocks,
                     segment.source_block_index,
-                    cached_text,
+                    &cached_text,
                 );
                 if preview.is_empty() && !cached_text.trim().is_empty() {
                     preview = cached_text.trim().to_string();
                 }
+            } else if let Some(memory_text) =
+                cache.translated_text_for_source(segment).map(str::to_owned)
+            {
+                completed_segments += 1;
+                cached_segments += 1;
+                reused_segments_in_batch += 1;
+                materialized_memory_reuse = true;
+                append_translated_segment(
+                    &mut translated_blocks,
+                    segment.source_block_index,
+                    &memory_text,
+                );
+                if preview.is_empty() && !memory_text.trim().is_empty() {
+                    preview = memory_text.trim().to_string();
+                }
+                cache.store_translation(segment, memory_text);
             } else {
                 pending_batch.segments.push(segment.clone());
             }
@@ -356,6 +373,8 @@ fn run_translation_batches<R: tauri::Runtime>(
                 cache.store_translation(segment, translated_text);
             }
             completed_segments += translated_count;
+            save_segment_cache(app, plan, &cache)?;
+        } else if materialized_memory_reuse {
             save_segment_cache(app, plan, &cache)?;
         }
 
