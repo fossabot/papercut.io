@@ -50,6 +50,11 @@ pub(crate) fn open_document_uploads_db<R: tauri::Runtime>(
 /// Persist a generated document variant through the same reader/search contract
 /// as imports without exposing parser-private `ParsedDocument` outside this
 /// feature.
+///
+/// The source file is written through a staging directory first. Once the file
+/// is complete, the directory is promoted and only then are reader/search rows
+/// upserted. If the database write fails, the promoted directory is removed so
+/// generated variants do not leave half-visible files behind.
 pub(crate) fn persist_derived_document<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     id: &str,
@@ -62,14 +67,39 @@ pub(crate) fn persist_derived_document<R: tauri::Runtime>(
     bytes: u64,
 ) -> Result<(), String> {
     let dir = storage::upload_dir(app, id)?;
-    std::fs::create_dir_all(&dir).map_err(|err| {
+    let staging_dir = storage::upload_dir(app, &format!("{id}.staging"))?;
+    if staging_dir.exists() {
+        std::fs::remove_dir_all(&staging_dir).map_err(|err| {
+            format!(
+                "Failed to clear stale derived document staging directory {}: {err}",
+                staging_dir.display()
+            )
+        })?;
+    }
+    std::fs::create_dir_all(&staging_dir).map_err(|err| {
         format!(
-            "Failed to create derived document directory {}: {err}",
-            dir.display()
+            "Failed to create derived document staging directory {}: {err}",
+            staging_dir.display()
         )
     })?;
-    std::fs::write(dir.join("source.html"), view_html.as_bytes())
-        .map_err(|err| format!("Failed to write derived document source: {err}"))?;
+    if let Err(err) = std::fs::write(staging_dir.join("source.html"), view_html.as_bytes()) {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(format!("Failed to write derived document source: {err}"));
+    }
+    if dir.exists() {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(format!(
+            "Derived document directory already exists: {}",
+            dir.display()
+        ));
+    }
+    if let Err(err) = std::fs::rename(&staging_dir, &dir) {
+        let _ = std::fs::remove_dir_all(&staging_dir);
+        return Err(format!(
+            "Failed to promote derived document directory {}: {err}",
+            dir.display()
+        ));
+    }
 
     let parsed = parsed::ParsedDocument {
         title: title.into(),
@@ -84,7 +114,11 @@ pub(crate) fn persist_derived_document<R: tauri::Runtime>(
             .collect(),
     };
     let mut db = store::open_db(app)?;
-    store::upsert_document(&mut db, id, url, &parsed, imported_at_ms, bytes)
+    if let Err(err) = store::upsert_document(&mut db, id, url, &parsed, imported_at_ms, bytes) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(err);
+    }
+    Ok(())
 }
 
 /// Delete a generated document variant from the upload/search store by id.

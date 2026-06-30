@@ -373,8 +373,12 @@ Each stage should be easy to review and commit independently.
   - Key cache compatibility by model, language pair, quality mode, segment limits, and source text hash.
   - Reuse cached segments before calling the native engine so cancelled or failed large-book runs do not throw away completed batches.
   - Save the manifest after each completed batch to keep retries useful without waiting for the whole book to finish.
+- Add staged writes/cleanup for translated-document persistence:
+  - Write generated safe HTML through a staging directory before promoting it into upload storage.
+  - Remove promoted generated files if upload/search indexing fails.
+  - Remove the generated upload if translation provenance metadata fails to commit.
+  - Keep original source documents untouched throughout cleanup.
 - Next implementation steps:
-  - Add staged writes/cleanup for interrupted persistence so very large translated books never leave confusing partial variants.
   - Add visible resumed/cached segment counts to the Translation progress UI.
 
 ### Stage 6: HTML/EPUB Preservation

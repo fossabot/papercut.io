@@ -113,50 +113,55 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         bytes,
     )?;
 
-    let mut db = open_translation_db(app)?;
     let settings_json = serde_json::json!({
         "jobId": request.job_id,
         "qualityMode": request.quality_mode,
         "sourceFormat": request.source.format,
     })
     .to_string();
-    let tx = db.transaction().map_err(db_err)?;
-    tx.execute(
-        "INSERT INTO translated_documents \
-         (id, source_document_id, source_document_url, title, source_language, target_language, \
-          model_id, engine_id, quality_mode, settings_json, glossary_hash, status, source_path, \
-          created_at_ms, updated_at_ms) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ctranslate2', ?8, ?9, NULL, 'ready', ?10, ?11, ?12) \
-         ON CONFLICT(id) DO UPDATE SET \
-           source_document_id = excluded.source_document_id, \
-           source_document_url = excluded.source_document_url, \
-           title = excluded.title, \
-           source_language = excluded.source_language, \
-           target_language = excluded.target_language, \
-           model_id = excluded.model_id, \
-           engine_id = excluded.engine_id, \
-           quality_mode = excluded.quality_mode, \
-           settings_json = excluded.settings_json, \
-           status = excluded.status, \
-           source_path = excluded.source_path, \
-           updated_at_ms = excluded.updated_at_ms",
-        params![
-            id,
-            request.source.document_id,
-            request.source.document_url,
-            title,
-            request.source_language,
-            request.target_language,
-            request.model_id,
-            request.quality_mode,
-            settings_json,
-            document_url,
-            now as i64,
-            now as i64,
-        ],
-    )
-    .map_err(db_err)?;
-    tx.commit().map_err(db_err)?;
+    let metadata_result = (|| -> Result<(), String> {
+        let mut db = open_translation_db(app)?;
+        let tx = db.transaction().map_err(db_err)?;
+        tx.execute(
+            "INSERT INTO translated_documents \
+             (id, source_document_id, source_document_url, title, source_language, target_language, \
+              model_id, engine_id, quality_mode, settings_json, glossary_hash, status, source_path, \
+              created_at_ms, updated_at_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ctranslate2', ?8, ?9, NULL, 'ready', ?10, ?11, ?12) \
+             ON CONFLICT(id) DO UPDATE SET \
+               source_document_id = excluded.source_document_id, \
+               source_document_url = excluded.source_document_url, \
+               title = excluded.title, \
+               source_language = excluded.source_language, \
+               target_language = excluded.target_language, \
+               model_id = excluded.model_id, \
+               engine_id = excluded.engine_id, \
+               quality_mode = excluded.quality_mode, \
+               settings_json = excluded.settings_json, \
+               status = excluded.status, \
+               source_path = excluded.source_path, \
+               updated_at_ms = excluded.updated_at_ms",
+            params![
+                id.as_str(),
+                request.source.document_id.as_str(),
+                request.source.document_url.as_str(),
+                title.as_str(),
+                request.source_language.as_str(),
+                request.target_language.as_str(),
+                request.model_id.as_str(),
+                request.quality_mode.as_str(),
+                settings_json.as_str(),
+                document_url.as_str(),
+                now as i64,
+                now as i64,
+            ],
+        )
+        .map_err(db_err)?;
+        tx.commit().map_err(db_err)
+    })();
+    if let Err(err) = metadata_result {
+        return Err(cleanup_failed_translated_variant(app, &id, err));
+    }
 
     Ok(TranslatedDocumentInfo {
         id,
@@ -170,6 +175,19 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         created_at_ms: now,
         updated_at_ms: now,
     })
+}
+
+fn cleanup_failed_translated_variant<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    id: &str,
+    err: String,
+) -> String {
+    match delete_derived_document(app, id) {
+        Ok(_) => err,
+        Err(cleanup_err) => {
+            format!("{err}; also failed to clean up generated translated document: {cleanup_err}")
+        }
+    }
 }
 
 /// Delete one translated variant without touching the original source document.
