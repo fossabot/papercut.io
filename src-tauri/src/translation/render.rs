@@ -51,6 +51,11 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
         }
         if has_preserved_descendant(node.as_node()) {
             insert_translation_after(node.as_node(), section);
+        } else if replace_text_preserving_full_inline_formatting(
+            node.as_node(),
+            section.text.trim(),
+        ) {
+            // The helper already replaced the deepest safe inline wrapper text.
         } else {
             replace_children_with_text(node.as_node(), section.text.trim());
         }
@@ -203,11 +208,81 @@ fn has_preserved_descendant(node: &NodeRef) -> bool {
         .is_some()
 }
 
+/// Preserve whole-block inline emphasis when it is structurally unambiguous.
+///
+/// MT works on plain text, so we cannot safely place word-level markup after
+/// translation without alignment. This narrow path handles the reliable case:
+/// one formatting wrapper owns the entire block, for example
+/// `<p><em>...</em></p>` or `<p><strong><em>...</em></strong></p>`.
+fn replace_text_preserving_full_inline_formatting(node: &NodeRef, text: &str) -> bool {
+    let Some(leaf) = full_block_inline_formatting_leaf(node) else {
+        return false;
+    };
+    replace_children_with_text(&leaf, text);
+    true
+}
+
+fn full_block_inline_formatting_leaf(node: &NodeRef) -> Option<NodeRef> {
+    let significant = significant_children(node);
+    if significant.len() != 1 || !is_inline_formatting_element(&significant[0]) {
+        return None;
+    }
+
+    let mut leaf = significant[0].clone();
+    if !subtree_is_inline_formatting_only(&leaf) {
+        return None;
+    }
+
+    loop {
+        let children = significant_children(&leaf);
+        if children.len() != 1 || !is_inline_formatting_element(&children[0]) {
+            break;
+        }
+        leaf = children[0].clone();
+    }
+
+    Some(leaf)
+}
+
+fn significant_children(node: &NodeRef) -> Vec<NodeRef> {
+    node.children()
+        .filter(|child| !is_whitespace_text(child))
+        .collect()
+}
+
+fn is_whitespace_text(node: &NodeRef) -> bool {
+    node.as_text()
+        .map(|text| text.borrow().trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn subtree_is_inline_formatting_only(node: &NodeRef) -> bool {
+    if node.as_text().is_some() {
+        return true;
+    }
+    if !is_inline_formatting_element(node) {
+        return false;
+    }
+    node.children()
+        .filter(|child| !is_whitespace_text(child))
+        .all(|child| subtree_is_inline_formatting_only(&child))
+}
+
+fn is_inline_formatting_element(node: &NodeRef) -> bool {
+    let Some(element) = node.as_element() else {
+        return false;
+    };
+    matches!(
+        element.name.local.as_ref(),
+        "b" | "strong" | "i" | "em" | "u" | "s" | "sub" | "sup" | "code" | "mark"
+    )
+}
+
 /// Replace all child nodes with one text node.
 ///
-/// This intentionally drops simple inline formatting for now. The tradeoff is
-/// safe escaped text with predictable mapping; richer inline replacement should
-/// wait for exact source-text-node locators.
+/// This is the plain-text fallback for blocks whose inline formatting is mixed
+/// or ambiguous. Richer word-level replacement should wait for exact
+/// source-text-node locators.
 fn replace_children_with_text(node: &NodeRef, text: &str) {
     let children = node.children().collect::<Vec<_>>();
     for child in children {
@@ -282,6 +357,36 @@ mod tests {
         assert!(html.contains("<p"));
         assert!(html.contains(">Hello</p>"));
         assert!(!html.contains(">Chapitre</h1>"));
+    }
+
+    #[test]
+    fn preserves_whole_block_inline_emphasis() {
+        let request = request(
+            "<!doctype html><html><body><article><p><strong>Importante.</strong></p><p><em><strong>Muy urgente.</strong></em></p></article></body></html>",
+            vec![
+                section(0, false, "Important."),
+                section(1, false, "Very urgent."),
+            ],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("<strong>Important.</strong>"));
+        assert!(html.contains("<em><strong>Very urgent.</strong></em>"));
+        assert!(!html.contains("Importante."));
+    }
+
+    #[test]
+    fn drops_partial_inline_emphasis_until_alignment_exists() {
+        let request = request(
+            "<!doctype html><html><body><article><p>Esto es <strong>importante</strong>.</p></article></body></html>",
+            vec![section(0, false, "This is important.")],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains(">This is important.</p>"));
+        assert!(!html.contains("<strong>important</strong>"));
     }
 
     #[test]

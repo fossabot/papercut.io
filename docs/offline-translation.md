@@ -118,7 +118,7 @@ Long documents need bounded, resumable work. Recommended flow:
 
 1. Validate selected source document and target language.
 2. Load source section metadata and stored safe HTML.
-3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges.
+3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges. Current builds preserve only unambiguous whole-block inline emphasis during render; word-level protected ranges need the future locator/alignment layer.
 4. Build a document memory packet:
    - title
    - author, if known
@@ -439,19 +439,20 @@ Status:
   - Use the sanitized reader `view_html` as the source of truth.
   - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
   - Preserve simple block attributes, existing ids, links, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
+  - Preserve whole-block inline emphasis when one safe formatting wrapper owns the entire source block, such as `<strong>...</strong>` or nested `<em><strong>...</strong></em>`.
   - Insert translated fallback text beside blocks that contain anchors/media instead of destroying navigation.
 - Next preservation work requires a stronger section locator layer:
   - Map translated segments to exact DOM text nodes rather than only block order.
-  - Add coverage for complex nested links, footnotes, mixed inline formatting, and tables.
+  - Add coverage for complex nested links, footnotes, mixed/word-level inline formatting, and tables.
 - Add fixtures for footnotes, links, RTL text, images, and tables.
 - Add first-pass quality checks for broken internal links and empty translated output before storing translated variants.
 - Later quality checks should add language detection, repeated-output detection, length-ratio checks, protected term checks, and richer tag/anchor validation.
 
 Status:
 
-- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; simple block text is replaced in place; link/media-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; simple block text is replaced in place; whole-block inline emphasis is preserved when structurally unambiguous; link/media-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
 - Done: first-pass broken internal-link and empty-output validation.
-- Still needed: exact DOM text-node locators for complex nested inline formatting, broader fixtures, table-specific behavior, and richer tag/anchor validation.
+- Still needed: exact DOM text-node locators for mixed or word-level inline formatting, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 
 ### Stage 7: Quality Upgrades - Mostly Done
 
