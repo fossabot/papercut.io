@@ -7,10 +7,12 @@ import {
   formatAudiobookVoiceMeta,
   formatDownloadSavedStatus,
   formatDuration,
+  formatSpeedLabel,
   formatStorageSize,
 } from '../utils/format'
 import { Panel } from '../../components/Panel/Panel'
 import { AudioSetupPanel, type AudioSetupPanelProps } from './AudioSetupPanel'
+import './AudiobooksPanel.css'
 
 interface ActiveAudiobookSave {
   title: string
@@ -86,6 +88,7 @@ export function AudiobooksPanel({
   const queueCount = queuedDownloads.length
   const meta = formatAudiobookMeta(isSaving, queueCount, savedCount)
   const hasAudiobooks = isSaving || queueCount > 0 || savedCount > 0
+  const setupSummary = formatAudioSetupSummary(audioSetup)
 
   return (
     <Panel
@@ -95,7 +98,7 @@ export function AudiobooksPanel({
       meta={meta}
       defaultOpen
     >
-      <div className="audiobooks-toolbar">
+      <div className="audiobooks-actions-row">
         <button
           type="button"
           className="audiobooks-import-btn"
@@ -104,15 +107,20 @@ export function AudiobooksPanel({
         >
           {importState.status === 'importing' ? '📂 Importing Bundle' : '📁 Import Bundle'}
         </button>
+
         <button
           type="button"
-          className={'audiobooks-setup-btn' + (setupOpen ? ' audiobooks-setup-btn-open' : '')}
+          className={'audiobooks-setup-disclosure' + (setupOpen ? ' audiobooks-setup-disclosure-open' : '')}
           aria-expanded={setupOpen}
-          aria-label={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
-          title={setupOpen ? 'Hide audio setup' : 'Show audio setup'}
+          aria-controls="audiobooks-audio-setup"
           onClick={() => setSetupOpen((value) => !value)}
         >
-          <span aria-hidden="true">⚙</span>
+          <span className="audiobooks-setup-disclosure-icon" aria-hidden="true">⚙</span>
+          <span className="audiobooks-setup-disclosure-main">
+            <span className="audiobooks-setup-disclosure-title">Audio Setup</span>
+            <span className="audiobooks-setup-disclosure-summary">{setupSummary}</span>
+          </span>
+          <span className="audiobooks-setup-disclosure-chevron" aria-hidden="true">{setupOpen ? '▲' : '▼'}</span>
         </button>
         {importState.message && importState.status !== 'idle' && (
           <span className={'audiobooks-import-status document-import-' + importState.status}>
@@ -122,8 +130,7 @@ export function AudiobooksPanel({
       </div>
 
       {setupOpen && (
-        <section className="audiobooks-section audiobooks-setup" aria-label="Audio setup">
-          <h3 className="audiobooks-section-title">Audio setup</h3>
+        <section id="audiobooks-audio-setup" className="audiobooks-section audiobooks-setup" aria-label="Audio Setup">
           <AudioSetupPanel {...audioSetup} />
         </section>
       )}
@@ -147,10 +154,10 @@ export function AudiobooksPanel({
               <div className="audiobook-status-text">
                 {activeDownload ? formatAudiobookVoiceMeta(activeDownload.modelId, activeDownload.voice, activeDownload.speed, activeDownload.dtype, activeDownload.textPreprocessor) + ' - ' : ''}{formatDownloadSavedStatus(downloadState.audioDurationSec, activePercent, downloadState.wavBytes)}
               </div>
-              <div className="audiobook-meter" aria-label={'Saving audiobook ' + activePercent + '% complete'}>
+              <div className="audio-progress-meter" aria-label={'Saving audiobook ' + activePercent + '% complete'}>
                 <span style={{ width: activePercent + '%' }} />
               </div>
-              <button className="audiobook-secondary" onClick={onCancelSave}>Pause</button>
+              <button className="audiobook-text-action audiobook-secondary" onClick={onCancelSave}>Pause</button>
             </div>
           </section>
         )}
@@ -169,15 +176,15 @@ export function AudiobooksPanel({
                   <div className="audiobook-status-text">
                     {formatAudiobookVoiceMeta(record.modelId, record.voice, record.speed, record.dtype, record.textPreprocessor) + ' - ' + formatDownloadSavedStatus(record.audioDurationSec, percent, record.wavBytes)}
                   </div>
-                  <div className="audiobook-meter" aria-label={'Audiobook save ' + percent + '% complete'}>
+                  <div className="audio-progress-meter" aria-label={'Audiobook save ' + percent + '% complete'}>
                     <span style={{ width: percent + '%' }} />
                   </div>
                   <div className="audiobook-actions">
                     <span className="audiobook-status-text">{record.message || record.status}</span>
-                    <button className="audiobook-resume" onClick={() => onResumeQueued(record)}>
+                    <button className="audiobook-text-action audiobook-resume" onClick={() => onResumeQueued(record)}>
                       {record.status === 'error' ? 'Retry' : 'Resume'}
                     </button>
-                    <button className="audiobook-secondary" onClick={() => onRemoveQueued(record.id)}>Remove</button>
+                    <button className="audiobook-text-action audiobook-secondary" onClick={() => onRemoveQueued(record.id)}>Remove</button>
                   </div>
                 </div>
               )
@@ -210,14 +217,14 @@ export function AudiobooksPanel({
                     </span>
                   </button>
                   <button
-                    className="audiobook-export"
+                    className="audiobook-text-action audiobook-export"
                     disabled={exporting || deleting}
                     onClick={() => onExportSaved(record)}
                   >
                     {exporting ? 'Exporting' : 'Export Bundle'}
                   </button>
                   <button
-                    className="audiobook-delete"
+                    className="audiobook-text-action audiobook-delete"
                     disabled={exporting || deleting}
                     onClick={() => onDeleteSaved(record)}
                   >
@@ -266,4 +273,34 @@ function formatAudiobookMeta(isSaving: boolean, queueCount: number, savedCount: 
 function getDownloadPercent(cachedChunks: number, totalChunks: number): number {
   if (totalChunks <= 0) return 0
   return Math.round((cachedChunks / totalChunks) * 100)
+}
+
+function formatAudioSetupSummary(audioSetup: AudioSetupPanelProps): string {
+  const model = audioSetup.models.find((item) => item.id === audioSetup.modelId)
+  const voice = audioSetup.voices.find((item) => item.id === audioSetup.voice)
+  const pieces = [
+    model?.name ?? 'Model',
+    voice?.name ?? audioSetup.voice,
+    formatSpeedLabel(audioSetup.speed),
+  ]
+
+  const installSummary = formatModelInstallSummary(audioSetup.modelInstallProgress)
+  if (installSummary) {
+    pieces.push(installSummary)
+  } else if (audioSetup.modelStatus?.installed) {
+    pieces.push('Installed')
+  }
+
+  return pieces.join(' · ')
+}
+
+function formatModelInstallSummary(
+  progress: AudioSetupPanelProps['modelInstallProgress'],
+): string | undefined {
+  if (!progress || progress.status === 'installed') return undefined
+  if (progress.status === 'error') return 'Install failed'
+  if (progress.status === 'extracting') return 'Extracting'
+  if (progress.status === 'starting') return 'Starting download'
+  if (progress.status === 'downloading') return 'Downloading ' + progress.percent + '%'
+  return progress.message || progress.status
 }

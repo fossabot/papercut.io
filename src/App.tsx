@@ -20,6 +20,7 @@ import { useDocumentFilters } from './hooks/useDocumentFilters'
 import { useTheme } from './hooks/useTheme'
 import type { DocumentInfo } from './types/search'
 import { clearPhraseFetchCache } from './utils/phraseSearch'
+import { isDebugEnabled, setDebugEnabled } from './utils/debugFlags'
 import { AudioControls } from './tts/components/AudioControls'
 import { TtsDiagnosticsPanel } from './tts/components/TtsDiagnosticsPanel'
 import { AudiobooksPanel } from './tts/components/AudiobooksPanel'
@@ -65,6 +66,7 @@ function App() {
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([])
   const [uploadedLibraryOrganization, setUploadedLibraryOrganization] = useState<UploadedLibraryOrganization>({ folders: [], documentLocations: [] })
   const [documentImport, setDocumentImport] = useState<{ status: 'idle' | 'importing' | 'imported' | 'deleting' | 'deleted' | 'cancelled' | 'error'; message: string }>({ status: 'idle', message: '' })
+  const [ttsDiagnosticsEnabled, setTtsDiagnosticsEnabled] = useState(() => isDebugEnabled())
   const { pagefindRef, pagefindReady, allDocuments, documentsLoading } = usePagefind()
 
   const loadHtmlDocument = useCallback(async (url: string): Promise<string> => {
@@ -128,6 +130,11 @@ function App() {
 
   const handleUserUploadsChanged = useCallback(() => {
     setUserUploads(getUserUploads())
+  }, [])
+
+  const handleTtsDiagnosticsChange = useCallback((enabled: boolean) => {
+    setDebugEnabled(enabled)
+    setTtsDiagnosticsEnabled(enabled)
   }, [])
 
   const audiobook = useAudiobookManager({
@@ -330,7 +337,7 @@ function App() {
         className={hasFloatingAudioControls ? 'app-audio-floating' : ''}
         appControls={<ThemeToggle choice={theme.choice} onChange={theme.setChoice} />}
         headerControls={<AudioControls {...audioControlsProps} />}
-        beforeDocument={<TtsDiagnosticsPanel />}
+        beforeDocument={<TtsDiagnosticsPanel enabled={ttsDiagnosticsEnabled} />}
         ttsHighlight={ttsHighlight}
         loading={documentLoad.status === 'loading' && documentLoad.url === selectedDoc}
         loadError={documentLoad.status === 'error' && documentLoad.url === selectedDoc ? documentLoad.message : undefined}
@@ -446,7 +453,11 @@ function App() {
         <section className="tab-panel" role="tabpanel" aria-label="Audiobooks">
           <AudiobooksPanel
             {...audiobooksPanelProps}
-            audioSetup={audioSetupProps}
+            audioSetup={{
+              ...audioSetupProps,
+              debugEnabled: ttsDiagnosticsEnabled,
+              onDiagnosticsChange: handleTtsDiagnosticsChange,
+            }}
             importState={audiobookImport}
             documentOpening={documentOpening}
             onImportAudiobook={handleImportAudiobook}
@@ -455,7 +466,7 @@ function App() {
             }}
           />
 
-          <TtsDiagnosticsPanel />
+          <TtsDiagnosticsPanel enabled={ttsDiagnosticsEnabled} />
         </section>
       )}
     </div>

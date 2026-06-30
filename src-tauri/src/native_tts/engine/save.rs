@@ -70,6 +70,16 @@ struct NativeAudiobookManifestHeader {
 }
 
 const PLAYBACK_TIMING_TOLERANCE_SEC: f64 = 0.05;
+#[derive(Default)]
+struct SavePerformanceStats {
+    total_source_chars: usize,
+    total_synthesis_chars: usize,
+    total_preprocess_ms: u128,
+    total_synthesis_ms: u128,
+    total_write_ms: u128,
+    total_validate_ms: u128,
+    total_indexing_ms: u128,
+}
 
 /// Preserve manifests written before model selection existed by treating them as Kokoro.
 fn default_model_id() -> String {
@@ -177,6 +187,7 @@ fn save_audiobook_native_blocking(
     let mut total_generate_ms = 0u128;
     let mut generated_audio_duration_sec = 0f32;
     let mut generated_wav_bytes = 0usize;
+    let mut performance = SavePerformanceStats::default();
     let thread_count = resolve_thread_count(request.thread_count);
 
     // Initial "checking" progress so the UI shows the cache state immediately.
@@ -194,6 +205,14 @@ fn save_audiobook_native_blocking(
             text_chars: None,
             text_preview: None,
             generate_ms: None,
+            preprocess_ms: None,
+            synthesis_ms: None,
+            write_ms: None,
+            validate_ms: None,
+            indexing_ms: None,
+            synthesis_text_chars: None,
+            total_source_chars: None,
+            total_synthesis_chars: None,
             audio_duration_sec: None,
             wav_bytes: None,
             total_audio_duration_sec: scan.audio_duration_sec,
@@ -236,6 +255,14 @@ fn save_audiobook_native_blocking(
                     text_chars: None,
                     text_preview: Some(text_preview(&chunk.text)),
                     generate_ms: None,
+                    preprocess_ms: None,
+                    synthesis_ms: None,
+                    write_ms: None,
+                    validate_ms: None,
+                    indexing_ms: None,
+                    synthesis_text_chars: None,
+                    total_source_chars: None,
+                    total_synthesis_chars: None,
                     audio_duration_sec: None,
                     wav_bytes: None,
                     total_audio_duration_sec: scan.audio_duration_sec,
@@ -256,6 +283,7 @@ fn save_audiobook_native_blocking(
             let _ = fs::remove_file(&output_path);
         }
 
+        let source_chars = chunk.text.chars().count();
         // "Generating chunk N/total" before the (slow) synthesis call.
         emit_progress(
             &app,
@@ -268,9 +296,17 @@ fn save_audiobook_native_blocking(
                 generated_chunks,
                 chunk_id: Some(chunk.id.clone()),
                 chunk_number: Some(index + 1),
-                text_chars: Some(chunk.text.chars().count()),
+                text_chars: Some(source_chars),
                 text_preview: Some(text_preview(&chunk.text)),
                 generate_ms: None,
+                preprocess_ms: None,
+                synthesis_ms: None,
+                write_ms: None,
+                validate_ms: None,
+                indexing_ms: None,
+                synthesis_text_chars: None,
+                total_source_chars: None,
+                total_synthesis_chars: None,
                 audio_duration_sec: None,
                 wav_bytes: None,
                 total_audio_duration_sec: scan.audio_duration_sec,
@@ -281,12 +317,15 @@ fn save_audiobook_native_blocking(
         );
 
         // Synthesize this chunk to its file and fold its stats into the totals.
+        let preprocess_started = Instant::now();
         let synthesis_text = text_preprocessor.process(&chunk.text)?;
+        let preprocess_ms = preprocess_started.elapsed().as_millis();
+        let synthesis_chars = synthesis_text.chars().count();
         log::debug!(
             "Prepared synthesis text: preprocessor={}, source_chars={}, synthesis_chars={}, source_preview={:?}, synthesis_preview={:?}",
             text_preprocessor.id(),
-            chunk.text.chars().count(),
-            synthesis_text.chars().count(),
+            source_chars,
+            synthesis_chars,
             text_preview(&chunk.text),
             text_preview(&synthesis_text),
         );
@@ -302,6 +341,12 @@ fn save_audiobook_native_blocking(
         total_generate_ms += result.generate_ms;
         generated_audio_duration_sec += result.audio_duration_sec;
         generated_wav_bytes += result.wav_bytes;
+        performance.total_source_chars += source_chars;
+        performance.total_synthesis_chars += synthesis_chars;
+        performance.total_preprocess_ms += preprocess_ms;
+        performance.total_synthesis_ms += result.synthesis_ms;
+        performance.total_write_ms += result.write_ms;
+        performance.total_validate_ms += result.validate_ms;
         scan.audio_duration_sec += result.audio_duration_sec;
         scan.wav_bytes += result.wav_bytes;
 
@@ -317,9 +362,17 @@ fn save_audiobook_native_blocking(
                 generated_chunks,
                 chunk_id: Some(chunk.id.clone()),
                 chunk_number: Some(index + 1),
-                text_chars: Some(chunk.text.chars().count()),
+                text_chars: Some(source_chars),
                 text_preview: Some(text_preview(&chunk.text)),
                 generate_ms: Some(result.generate_ms),
+                preprocess_ms: Some(preprocess_ms),
+                synthesis_ms: Some(result.synthesis_ms),
+                write_ms: Some(result.write_ms),
+                validate_ms: Some(result.validate_ms),
+                indexing_ms: None,
+                synthesis_text_chars: Some(synthesis_chars),
+                total_source_chars: Some(performance.total_source_chars),
+                total_synthesis_chars: Some(performance.total_synthesis_chars),
                 audio_duration_sec: Some(result.audio_duration_sec),
                 wav_bytes: Some(result.wav_bytes),
                 total_audio_duration_sec: scan.audio_duration_sec,
@@ -339,8 +392,10 @@ fn save_audiobook_native_blocking(
     // Record the manifest and clear any cancellation flag for this job. The
     // returned totals are measured from WAV headers, so they are the canonical
     // values to report instead of the per-chunk f32 running sum.
+    let indexing_started = Instant::now();
     let (total_audio_duration_sec, total_wav_bytes) =
         write_manifest(&dir, &request, &chunks, thread_count)?;
+    performance.total_indexing_ms = indexing_started.elapsed().as_millis();
     clear_cancelled(&cancelled_jobs, &request.job_id)?;
 
     // Final "saved" event with whole-job totals.
@@ -358,6 +413,14 @@ fn save_audiobook_native_blocking(
             text_chars: None,
             text_preview: None,
             generate_ms: Some(total_generate_ms),
+            preprocess_ms: Some(performance.total_preprocess_ms),
+            synthesis_ms: Some(performance.total_synthesis_ms),
+            write_ms: Some(performance.total_write_ms),
+            validate_ms: Some(performance.total_validate_ms),
+            indexing_ms: Some(performance.total_indexing_ms),
+            synthesis_text_chars: None,
+            total_source_chars: Some(performance.total_source_chars),
+            total_synthesis_chars: Some(performance.total_synthesis_chars),
             audio_duration_sec: Some(generated_audio_duration_sec),
             wav_bytes: Some(generated_wav_bytes),
             total_audio_duration_sec: total_audio_duration_sec as f32,
@@ -645,7 +708,11 @@ fn prune_orphan_chunk_files(dir: &Path, chunks: &[NativeTtsInputChunk]) {
         return;
     };
     for entry in entries.flatten() {
-        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+        if !entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
             continue;
         }
         let path = entry.path();
@@ -674,7 +741,11 @@ fn prune_stale_temp_files(dir: &Path, cutoff: SystemTime) {
         return;
     };
     for entry in entries.flatten() {
-        if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+        if !entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
             continue;
         }
         let path = entry.path();

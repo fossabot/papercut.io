@@ -7,7 +7,7 @@ import {
   saveNativeAudiobook,
   type NativeAudiobookSaveProgress,
 } from '../api/nativeTts'
-import { logTtsDiagnostic } from '../diagnostics/TtsDiagnostics'
+import { logTtsDiagnostic, summarizeTtsCapabilities } from '../diagnostics/TtsDiagnostics'
 import {
   resolveTtsDtype,
   type TtsOptions,
@@ -127,7 +127,7 @@ export function useAudiobookCache() {
       let unlisten: (() => void) | null = null
       try {
         const capabilities = await getNativeTtsCapabilities()
-        logTtsDiagnostic('[tts-native] capabilities', { ...capabilities })
+        logTtsDiagnostic('[tts-native] capabilities', summarizeTtsCapabilities(capabilities))
         if (!capabilities.available) throw new Error(capabilities.reason)
         if (!options.documentUrl) throw new Error('Native audiobook save requires a document URL')
         if (jobIdRef.current !== jobId) return
@@ -248,11 +248,43 @@ export function useAudiobookCache() {
         textChars: progress.textChars,
         textPreview: progress.textPreview,
         generateMs: progress.generateMs,
+        preprocessMs: progress.preprocessMs ?? 0,
+        synthesisMs: progress.synthesisMs ?? 0,
+        writeMs: progress.writeMs ?? 0,
+        validateMs: progress.validateMs ?? 0,
+        synthesisTextChars: progress.synthesisTextChars ?? 0,
         audioDurationSec: progress.audioDurationSec ? Number(progress.audioDurationSec.toFixed(2)) : 0,
         realTimeFactor: progress.audioDurationSec && progress.audioDurationSec > 0
           ? Number((progress.generateMs / 1000 / progress.audioDurationSec).toFixed(2))
           : 0,
         wavBytes: progress.wavBytes,
+        backend: progress.backend,
+        dtype: resolveTtsDtype(options),
+        threadCount: options.threadCount,
+        appliedThreadCount: progress.appliedThreadCount,
+      })
+    }
+
+    if (progress.status === 'saved' && progress.generateMs) {
+      const generatedAudioDurationSec = progress.audioDurationSec ?? 0
+      logTtsDiagnostic('[tts-save] native performance summary', {
+        generatedChunks: progress.generatedChunks,
+        totalChunks: progress.totalChunks,
+        generateMs: progress.generateMs,
+        preprocessMs: progress.preprocessMs ?? 0,
+        synthesisMs: progress.synthesisMs ?? 0,
+        writeMs: progress.writeMs ?? 0,
+        validateMs: progress.validateMs ?? 0,
+        indexingMs: progress.indexingMs ?? 0,
+        totalSourceChars: progress.totalSourceChars ?? 0,
+        totalSynthesisChars: progress.totalSynthesisChars ?? 0,
+        audioDurationSec: Number(generatedAudioDurationSec.toFixed(2)),
+        totalAudioDurationSec: Number(progress.totalAudioDurationSec.toFixed(2)),
+        realTimeFactor: generatedAudioDurationSec > 0
+          ? Number((progress.generateMs / 1000 / generatedAudioDurationSec).toFixed(2))
+          : 0,
+        wavBytes: progress.wavBytes ?? 0,
+        totalWavBytes: progress.totalWavBytes,
         backend: progress.backend,
         dtype: resolveTtsDtype(options),
         threadCount: options.threadCount,

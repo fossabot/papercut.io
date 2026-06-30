@@ -18,6 +18,11 @@ export function formatDuration(seconds: number): string {
   return minutes + ':' + String(remainingSeconds).padStart(2, '0')
 }
 
+export function formatSpeedLabel(speed: number): string {
+  if (!Number.isFinite(speed)) return '1x'
+  return speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x'
+}
+
 // export function formatStorageSize(bytes: number | undefined): string | null {
 //   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return null
 //   if (bytes >= 1024 * 1024 * 1024) {
@@ -35,9 +40,8 @@ export function formatAudiobookVoiceMeta(
   textPreprocessor?: string,
 ): string {
   const voiceName = getTtsVoiceName(FALLBACK_TTS_MODELS, modelId, voice)
-  const speedLabel = Number.isFinite(speed) ? speed.toFixed(speed % 1 === 0 ? 0 : 2).replace(/0$/, '').replace(/\.$/, '') + 'x' : '1x'
   const processingLabel = textPreprocessor === LIBTASHKEEL_TEXT_PREPROCESSOR ? ' • Arabic tashkeel' : ''
-  return 'Voice 🔊 ' + voiceName + ' • ⚡' + speedLabel + ' • ' + dtype + processingLabel
+  return 'Voice 🔊 ' + voiceName + ' • ⚡' + formatSpeedLabel(speed) + ' • ' + dtype + processingLabel
 }
 
 export function formatDownloadSavedStatus(seconds: number | undefined, percent: number, bytes?: number): string {

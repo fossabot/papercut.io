@@ -66,7 +66,7 @@ pub(crate) fn model_status(
     let installing = state
         .model_installing
         .lock()
-        .map(|guard| guard.contains(model.id))
+        .map(|guard| guard.contains(model.directory_name))
         .unwrap_or(false);
     match resolve_model_dir(&app, model) {
         Ok(model_dir) => NativeTtsModelStatus {
@@ -123,7 +123,7 @@ pub(crate) async fn install_model(
         let mut guard = installing
             .lock()
             .map_err(|_| "Native TTS model install lock poisoned".to_string())?;
-        if !guard.insert(model.id.to_string()) {
+        if !guard.insert(model.directory_name.to_string()) {
             return Err(format!(
                 "{} download is already in progress",
                 model.display_name
@@ -139,7 +139,7 @@ pub(crate) async fn install_model(
             .and_then(|inner| inner);
 
     if let Ok(mut guard) = installing.lock() {
-        guard.remove(model.id);
+        guard.remove(model.directory_name);
     }
     result
 }

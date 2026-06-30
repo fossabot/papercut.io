@@ -9,6 +9,7 @@ use crate::native_tts::types::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// sherpa-onnx configuration family used to build the correct native model block.
 pub(super) enum SherpaModelFamily {
+    Supertonic,
     Kokoro,
     Vits,
 }
@@ -42,6 +43,7 @@ pub(super) struct ModelDefinition {
     pub(super) family: SherpaModelFamily,
     pub(super) language: &'static str,
     pub(super) language_label: &'static str,
+    pub(super) supertonic_lang: Option<&'static str>,
     pub(super) source_label: &'static str,
     pub(super) source_url: &'static str,
     pub(super) sha256: &'static str,
@@ -93,6 +95,7 @@ impl ModelDefinition {
     pub(super) fn backend_name(&self) -> &'static str {
         match self.family {
             SherpaModelFamily::Kokoro => "sherpa-onnx-kokoro",
+            SherpaModelFamily::Supertonic => "sherpa-onnx-supertonic",
             SherpaModelFamily::Vits => "sherpa-onnx-vits",
         }
     }
@@ -104,6 +107,7 @@ impl ModelDefinition {
             name: self.display_name.into(),
             family: match self.family {
                 SherpaModelFamily::Kokoro => "kokoro",
+                SherpaModelFamily::Supertonic => "supertonic",
                 SherpaModelFamily::Vits => "vits",
             }
             .into(),
@@ -270,6 +274,12 @@ const KOKORO_VOICES: &[VoiceDefinition] = &[
     },
 ];
 
+const SUPERTONIC_VOICES: &[VoiceDefinition] = &[VoiceDefinition {
+    id: "speaker_6",
+    name: "Speaker 6",
+    speaker_id: 6,
+}];
+
 const PIPER_KAREEM_VOICES: &[VoiceDefinition] = &[VoiceDefinition {
     id: "kareem",
     name: "Kareem",
@@ -312,6 +322,16 @@ const KOKORO_REQUIRED_FILES: &[&str] = &[
     "lexicon-us-en.txt",
 ];
 
+const SUPERTONIC_REQUIRED_FILES: &[&str] = &[
+    "duration_predictor.int8.onnx",
+    "text_encoder.int8.onnx",
+    "vector_estimator.int8.onnx",
+    "vocoder.int8.onnx",
+    "tts.json",
+    "unicode_indexer.bin",
+    "voice.bin",
+];
+
 const PIPER_REQUIRED_FILES: &[&str] = &[
     "ar_JO-kareem-medium.onnx",
     "tokens.txt",
@@ -329,6 +349,7 @@ pub(super) const MODELS: &[ModelDefinition] = &[
         family: SherpaModelFamily::Kokoro,
         language: "en-US",
         language_label: "English",
+        supertonic_lang: None,
         source_label: "k2-fsa/sherpa-onnx Kokoro multi-lang v1.0",
         source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2",
         sha256: "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046",
@@ -341,12 +362,51 @@ pub(super) const MODELS: &[ModelDefinition] = &[
         text_preprocessors: IDENTITY_TEXT_PREPROCESSORS,
     },
     ModelDefinition {
+        id: "sherpa-onnx/supertonic-3-en",
+        directory_name: "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+        display_name: "Supertonic 3 English",
+        family: SherpaModelFamily::Supertonic,
+        language: "en-US",
+        language_label: "English",
+        supertonic_lang: Some("en"),
+        source_label: "k2-fsa/sherpa-onnx SupertonicTTS 3 int8",
+        source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+        sha256: "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427",
+        archive_bytes: 123_000_000,
+        model_file: "vocoder.int8.onnx",
+        required_files: SUPERTONIC_REQUIRED_FILES,
+        default_voice: "speaker_6",
+        voices: SUPERTONIC_VOICES,
+        default_text_preprocessor: TEXT_PREPROCESSOR_NONE,
+        text_preprocessors: IDENTITY_TEXT_PREPROCESSORS,
+    },
+    ModelDefinition {
+        id: "sherpa-onnx/supertonic-3-ar",
+        directory_name: "sherpa-onnx-supertonic-3-tts-int8-2026-05-11",
+        display_name: "Supertonic 3 Arabic",
+        family: SherpaModelFamily::Supertonic,
+        language: "ar",
+        language_label: "Arabic",
+        supertonic_lang: Some("ar"),
+        source_label: "k2-fsa/sherpa-onnx SupertonicTTS 3 int8",
+        source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+        sha256: "82fa96f91c4ef8abaae3a14a3f4153facf88bed821d1f7331cec2700f432c427",
+        archive_bytes: 123_000_000,
+        model_file: "vocoder.int8.onnx",
+        required_files: SUPERTONIC_REQUIRED_FILES,
+        default_voice: "speaker_6",
+        voices: SUPERTONIC_VOICES,
+        default_text_preprocessor: TEXT_PREPROCESSOR_NONE,
+        text_preprocessors: IDENTITY_TEXT_PREPROCESSORS,
+    },
+    ModelDefinition {
         id: "sherpa-onnx/vits-piper-ar_JO-kareem-medium",
         directory_name: "vits-piper-ar_JO-kareem-medium",
         display_name: "Piper Kareem Medium",
         family: SherpaModelFamily::Vits,
         language: "ar-JO",
         language_label: "Arabic (Jordan)",
+        supertonic_lang: None,
         source_label: "k2-fsa/sherpa-onnx Piper ar_JO Kareem medium",
         source_url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ar_JO-kareem-medium.tar.bz2",
         sha256: "9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce",
@@ -384,6 +444,18 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn supertonic_entries_share_archive_and_have_lang_codes() {
+        let en = model_definition("sherpa-onnx/supertonic-3-en").unwrap();
+        let ar = model_definition("sherpa-onnx/supertonic-3-ar").unwrap();
+        assert_eq!(en.family, SherpaModelFamily::Supertonic);
+        assert_eq!(ar.family, SherpaModelFamily::Supertonic);
+        assert_eq!(en.directory_name, ar.directory_name);
+        assert_eq!(en.supertonic_lang, Some("en"));
+        assert_eq!(ar.supertonic_lang, Some("ar"));
+        assert_eq!(en.speaker_id("speaker_6").unwrap(), 6);
+    }
+
     fn piper_kareem_has_one_valid_voice() {
         let model = model_definition("sherpa-onnx/vits-piper-ar_JO-kareem-medium").unwrap();
         assert_eq!(model.family, SherpaModelFamily::Vits);
