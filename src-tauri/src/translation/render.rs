@@ -43,7 +43,7 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
             break;
         };
         mapped_sections += 1;
-        annotate_block(node.as_node(), section);
+        annotate_block(&node, section);
         if section.text.trim().is_empty() {
             continue;
         }

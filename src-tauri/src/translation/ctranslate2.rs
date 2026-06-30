@@ -170,7 +170,7 @@ impl TranslationEngine for CTranslate2Engine {
                 append_translated_part(&mut joined_outputs[source.owner_index], &text);
             }
 
-            return Ok(input
+            Ok(input
                 .segments
                 .into_iter()
                 .enumerate()
@@ -179,17 +179,17 @@ impl TranslationEngine for CTranslate2Engine {
                     text: joined_outputs[index].clone(),
                     engine_elapsed,
                 })
-                .collect());
+                .collect())
         }
 
         #[cfg(not(feature = "native-translation-ctranslate2"))]
         {
             let _ = input;
+            Err(
+                "CTranslate2 translation is selected for the MVP, but this build was not compiled with native-translation-ctranslate2."
+                    .into(),
+            )
         }
-        Err(
-            "CTranslate2 translation is selected for the MVP, but this build was not compiled with native-translation-ctranslate2."
-                .into(),
-        )
     }
 }
 
