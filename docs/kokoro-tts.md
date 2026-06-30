@@ -211,6 +211,7 @@ Interpretation guide:
 
 - High first-chunk time usually means native model load plus first inference warmup.
 - High `realTimeFactor` after warmup means synthesis is the bottleneck.
+- Save-summary `realTimeFactor` uses generated-run `audioDurationSec`; `totalAudioDurationSec` includes cached chunks and is for whole-audiobook progress, not generation-speed benchmarking.
 - Compare `synthesisMs` and `preprocessMs` before blaming model speed; Arabic diacritization can add preprocessing time while Kokoro/Piper inference shows up under synthesis time.
 - High `writeMs`, `validateMs`, or `indexingMs` points to disk or manifest-index work rather than model inference, especially on very large saved books.
 - If a higher `threadCount` improves `realTimeFactor`, keep it for that device; if it crashes, heats up, or throttles during long saves, return to 1 thread on Android.
