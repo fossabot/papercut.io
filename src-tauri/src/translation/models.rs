@@ -66,17 +66,30 @@ impl TranslationModelDefinition {
 /// even though these candidates are visible to development builds.
 pub(crate) const PLANNED_TRANSLATION_MODELS: &[TranslationModelDefinition] = &[
     TranslationModelDefinition {
-        id: "opus-mt-pair-ctranslate2",
-        name: "OPUS-MT Pair Model",
+        id: "opus-mt-es-en-ctranslate2",
+        name: "OPUS-MT Spanish to English",
         engine: "ctranslate2",
         tier: "fast",
         manifest_state: "candidate-only",
-        source_languages: &["ar", "de", "es", "fr", "ru", "zh"],
+        source_languages: &["es"],
         target_languages: &["en"],
         recommended_platforms: &["desktop", "android"],
-        license_notes: "Requires pair-specific license and model-card review before download support.",
-        size_notes: "Varies by language pair; expected to be the smallest first spike.",
-        notes: "Fast pair-specific baseline; each language pair needs license and quality review.",
+        license_notes: "Requires Helsinki-NLP/OPUS-MT model-card and redistribution review before download support.",
+        size_notes: "Expected to be small enough for desktop and Android MVP benchmarking after conversion.",
+        notes: "First CTranslate2 MVP candidate; use this to prove model install, batching, and indexing before wider language support.",
+    },
+    TranslationModelDefinition {
+        id: "opus-mt-fr-en-ctranslate2",
+        name: "OPUS-MT French to English",
+        engine: "ctranslate2",
+        tier: "fast",
+        manifest_state: "candidate-only",
+        source_languages: &["fr"],
+        target_languages: &["en"],
+        recommended_platforms: &["desktop", "android"],
+        license_notes: "Requires Helsinki-NLP/OPUS-MT model-card and redistribution review before download support.",
+        size_notes: "Expected to be small enough for desktop and Android MVP benchmarking after conversion.",
+        notes: "Second CTranslate2 MVP candidate; useful comparison against Spanish for quality and packaging behavior.",
     },
     TranslationModelDefinition {
         id: "translategemma-4b",
@@ -151,7 +164,7 @@ mod tests {
 
     #[test]
     fn finds_planned_model_by_id() {
-        let model = find_planned_model("opus-mt-pair-ctranslate2").expect("model");
+        let model = find_planned_model("opus-mt-es-en-ctranslate2").expect("model");
 
         assert_eq!(model.engine, "ctranslate2");
         assert!(find_planned_model("missing-model").is_none());

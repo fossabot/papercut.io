@@ -193,11 +193,16 @@ Each pair should have at least one short sample, one long chapter sample, and on
    - Designed for optimized Transformer inference.
    - Supports Marian/OPUS-MT, NLLB, MADLAD-400, T5-style models, and quantization.
    - Native C++ packaging work is the main cost.
+   - Start with OPUS-MT/Marian Spanish -> English and French -> English candidates.
+   - Use `ct2rs` as the fastest desktop proof if it builds cleanly, but keep Papercut's `TranslationEngine` trait as the real boundary.
+   - Before marking Android supported, validate whether `ct2rs` can package CTranslate2 cleanly with the Android NDK. If not, keep the Rust API and replace the internals with a thin direct C++/FFI wrapper.
+   - iOS should be treated as a later packaging validation target, not assumed from the desktop spike.
 
 2. **llama.cpp / GGUF spike**
    - Best path for TranslateGemma and Qwen-style local LLMs.
    - Good desktop ecosystem and quantization support.
    - Prompting must be tightly constrained to avoid paraphrase drift and hallucination.
+   - This is the next best quality jump after the CTranslate2 MVP. TranslateGemma should be tried first for task-specific translation quality; Qwen should be compared for academic prose/context handling with stricter QA against paraphrase drift.
 
 3. **Bergamot spike**
    - Valuable for HTML alignment and sentence iteration.
@@ -328,8 +333,9 @@ Each stage should be easy to review and commit independently.
 
 ### Stage 5B: CTranslate2 MVP
 
-- Add native engine spike for one or two pair models.
-- Choose a Rust binding or direct FFI path after validating desktop and Android packaging.
+- Add native engine spike for OPUS-MT/Marian Spanish -> English and French -> English candidates.
+- Keep `ct2rs` as the first desktop proof route, but do not couple storage/job code to it.
+- Validate desktop and Android packaging before treating the CTranslate2 backend as supported. Use direct C++/FFI if Rust binding packaging is not good enough for Android/iOS.
 - Implement model download/verify/install with checksum manifest.
 - Translate bounded text segments.
 - Emit progress events.
@@ -408,6 +414,7 @@ Language samples:
 - Qwen3 8B model card: https://huggingface.co/Qwen/Qwen3-8B
 - MADLAD-400 3B MT model card: https://huggingface.co/google/madlad400-3b-mt
 - NLLB model card and limitations: https://huggingface.co/facebook/nllb-200-distilled-600M
-- OPUS-MT example model card: https://huggingface.co/Helsinki-NLP/opus-mt-en-es
+- OPUS-MT Spanish -> English model card: https://huggingface.co/Helsinki-NLP/opus-mt-es-en
+- OPUS-MT French -> English model card: https://huggingface.co/Helsinki-NLP/opus-mt-fr-en
 - Bergamot / Firefox Translations docs: https://firefox-source-docs.mozilla.org/toolkit/components/translations/resources/03_bergamot.html
 - ALMA / X-ALMA repository: https://github.com/fe1ixxu/ALMA

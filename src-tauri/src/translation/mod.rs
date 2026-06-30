@@ -9,6 +9,7 @@
 
 pub(crate) mod commands;
 mod config;
+mod ctranslate2;
 mod engine;
 mod job;
 mod models;

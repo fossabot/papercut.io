@@ -24,6 +24,8 @@ native-tts-core = ["dep:bzip2", "dep:num2words", "dep:reqwest", "dep:sha2", "dep
 native-text-preprocessing = ["dep:libtashkeel_base", "dep:ort", "dep:ort-sys"]
 native-tts-static = ["native-tts-core", "sherpa-onnx/static"]
 native-tts-shared = ["native-tts-core", "native-text-preprocessing", "sherpa-onnx/shared"]
+native-translation = []
+native-translation-ctranslate2 = ["native-translation"]
 
 [dependencies]
 serde_json = "1.0"
