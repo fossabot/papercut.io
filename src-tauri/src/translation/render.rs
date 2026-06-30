@@ -348,6 +348,7 @@ mod tests {
             model_id: "opus-mt-fr-en-ctranslate2".into(),
             quality_mode: "balanced".into(),
             job_id: "job1".into(),
+            glossary: Vec::new(),
             translated_sections,
         }
     }

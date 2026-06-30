@@ -11,6 +11,7 @@ use kuchikiki::{parse_html, traits::TendrilSink, NodeRef};
 
 use super::source::TranslationSourceBlock;
 use super::storage::PersistTranslationSection;
+use super::types::TranslationGlossaryEntry;
 
 const MIN_RATIO_SOURCE_CHARS: usize = 120;
 const MIN_TRANSLATED_REPEAT_CHARS: usize = 24;
@@ -27,10 +28,12 @@ pub(crate) fn validate_translated_output(
     html: &str,
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
+    glossary: &[TranslationGlossaryEntry],
 ) -> Result<(), String> {
     validate_non_empty_sections(sections)?;
     validate_length_ratios(source_blocks, sections)?;
     validate_repeated_outputs(sections)?;
+    validate_glossary_terms(source_blocks, sections, glossary)?;
     let document = parse_html().one(html.to_string());
     validate_internal_links(&document)?;
     Ok(())
@@ -107,6 +110,40 @@ fn validate_repeated_outputs(sections: &[PersistTranslationSection]) -> Result<(
     Ok(())
 }
 
+/// Ensure protected glossary terms survive in translated output.
+///
+/// Glossary entries are user instructions, not soft hints. If the source section
+/// contains the source term and the translated section does not contain the
+/// requested target term, storing the variant would make the glossary look
+/// successful while silently ignoring it.
+fn validate_glossary_terms(
+    source_blocks: &[TranslationSourceBlock],
+    sections: &[PersistTranslationSection],
+    glossary: &[TranslationGlossaryEntry],
+) -> Result<(), String> {
+    if glossary.is_empty() {
+        return Ok(());
+    }
+    for (index, section) in sections.iter().enumerate() {
+        let Some(source) = source_block_for_section(source_blocks, section, index) else {
+            continue;
+        };
+        for entry in glossary {
+            if contains_case_insensitive(&source.text, &entry.source)
+                && !contains_case_insensitive(&section.text, &entry.target)
+            {
+                return Err(format!(
+                    "Translation output missed glossary target {:?} for source term {:?} at source section {}",
+                    entry.target.trim(),
+                    entry.source.trim(),
+                    source.ordinal + 1
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Ensure local `#anchor` links still point at an id in generated HTML.
 ///
 /// This catches the common preservation regression: footnote/table-of-contents
@@ -174,6 +211,14 @@ fn normalize_quality_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn contains_case_insensitive(text: &str, needle: &str) -> bool {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return false;
+    }
+    text.to_lowercase().contains(&needle.to_lowercase())
+}
+
 fn truncate_quality_preview(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
     let preview = chars.by_ref().take(max_chars).collect::<String>();
@@ -189,6 +234,7 @@ mod tests {
     use super::validate_translated_output;
     use crate::translation::source::TranslationSourceBlock;
     use crate::translation::storage::PersistTranslationSection;
+    use crate::translation::types::TranslationGlossaryEntry;
 
     #[test]
     fn accepts_internal_links_with_targets() {
@@ -196,6 +242,7 @@ mod tests {
             "<article><p><a href=\"#note-1\">note</a></p><p id=\"note-1\">body</p></article>",
             &[source_block(0, "Source text")],
             &[section("Translated text")],
+            &[],
         )
         .expect("valid links");
     }
@@ -206,6 +253,7 @@ mod tests {
             "<article><p><a href=\"#missing\">note</a></p></article>",
             &[source_block(0, "Source text")],
             &[section("Translated text")],
+            &[],
         )
         .expect_err("broken target");
 
@@ -218,6 +266,7 @@ mod tests {
             "<article></article>",
             &[source_block(0, "Source text")],
             &[section("   ")],
+            &[],
         )
         .expect_err("empty translation");
 
@@ -231,6 +280,7 @@ mod tests {
             "<article><p>tiny</p></article>",
             &[source_block(0, &source)],
             &[section("tiny")],
+            &[],
         )
         .expect_err("unsafe length");
 
@@ -245,10 +295,35 @@ mod tests {
             .collect::<Vec<_>>();
         let sections = (0..5).map(|_| section(repeated)).collect::<Vec<_>>();
 
-        let error = validate_translated_output("<article></article>", &sources, &sections)
+        let error = validate_translated_output("<article></article>", &sources, &sections, &[])
             .expect_err("repeated output");
 
         assert!(error.contains("repeats"));
+    }
+
+    #[test]
+    fn accepts_glossary_target_when_source_term_is_present() {
+        validate_translated_output(
+            "<article><p>State and Revolution</p></article>",
+            &[source_block(0, "Estado y revolucion")],
+            &[section("State and Revolution")],
+            &[glossary("Estado", "State")],
+        )
+        .expect("glossary target present");
+    }
+
+    #[test]
+    fn rejects_missing_glossary_target() {
+        let error = validate_translated_output(
+            "<article><p>Government and Revolution</p></article>",
+            &[source_block(0, "Estado y revolucion")],
+            &[section("Government and Revolution")],
+            &[glossary("Estado", "State")],
+        )
+        .expect_err("missing glossary target");
+
+        assert!(error.contains("glossary"));
+        assert!(error.contains("State"));
     }
 
     fn section(text: &str) -> PersistTranslationSection {
@@ -266,6 +341,14 @@ mod tests {
             ordinal,
             heading: None,
             text: text.into(),
+        }
+    }
+
+    fn glossary(source: &str, target: &str) -> TranslationGlossaryEntry {
+        TranslationGlossaryEntry {
+            source: source.into(),
+            target: target.into(),
+            note: None,
         }
     }
 }

@@ -192,6 +192,7 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                             model_id: plan.request.model_id.clone(),
                             quality_mode: plan.request.quality_mode.clone(),
                             job_id: job_id.clone(),
+                            glossary: plan.request.glossary.clone(),
                             translated_sections: summary.sections,
                         },
                     )?;

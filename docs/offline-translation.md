@@ -415,6 +415,8 @@ Each stage should be easy to review and commit independently.
   - Accept glossary entries on translation job requests as source term, target term, and optional note.
   - Include glossary entries in job cache identity so changed protected terms do not reuse incompatible cached output.
   - Pass only exact source-term matches into each segment context to keep engine prompt/context payloads bounded.
+  - Reject stored output when a section contains a glossary source term but misses the requested target term.
+  - Store glossary-entry count and hash in translation provenance metadata.
   - Use standard string matching for now; add fuzzy matching libraries only if glossary miss rates justify the extra dependency.
 - Add named-entity consistency checks.
 - Add section regeneration.

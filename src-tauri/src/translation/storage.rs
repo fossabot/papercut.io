@@ -20,7 +20,7 @@ use crate::document_uploads::{
 use super::quality::validate_translated_output;
 use super::render::render_translated_html;
 use super::source::TranslationSourceDocument;
-use super::types::{TranslatedDocumentInfo, TranslationDeleteResponse};
+use super::types::{TranslatedDocumentInfo, TranslationDeleteResponse, TranslationGlossaryEntry};
 
 const TRANSLATION_SCHEMA_VERSION: &str = "1";
 
@@ -62,6 +62,7 @@ pub(crate) struct PersistTranslationRequest {
     pub(crate) model_id: String,
     pub(crate) quality_mode: String,
     pub(crate) job_id: String,
+    pub(crate) glossary: Vec<TranslationGlossaryEntry>,
     pub(crate) translated_sections: Vec<PersistTranslationSection>,
 }
 
@@ -100,6 +101,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         &view_html,
         &request.source.blocks,
         &request.translated_sections,
+        &request.glossary,
     )?;
     let bytes = view_html.as_bytes().len() as u64;
     let sections = request
@@ -127,8 +129,10 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         "jobId": request.job_id,
         "qualityMode": request.quality_mode,
         "sourceFormat": request.source.format,
+        "glossaryEntries": request.glossary.len(),
     })
     .to_string();
+    let glossary_hash = translation_glossary_hash(&request.glossary);
     let metadata_result = (|| -> Result<(), String> {
         let mut db = open_translation_db(app)?;
         let tx = db.transaction().map_err(db_err)?;
@@ -137,7 +141,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
              (id, source_document_id, source_document_url, title, source_language, target_language, \
               model_id, engine_id, quality_mode, settings_json, glossary_hash, status, source_path, \
               created_at_ms, updated_at_ms) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ctranslate2', ?8, ?9, NULL, 'ready', ?10, ?11, ?12) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ctranslate2', ?8, ?9, ?10, 'ready', ?11, ?12, ?13) \
              ON CONFLICT(id) DO UPDATE SET \
                source_document_id = excluded.source_document_id, \
                source_document_url = excluded.source_document_url, \
@@ -161,6 +165,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
                 request.model_id.as_str(),
                 request.quality_mode.as_str(),
                 settings_json.as_str(),
+                glossary_hash.as_deref(),
                 document_url.as_str(),
                 now as i64,
                 now as i64,
@@ -299,9 +304,27 @@ fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> Str
     request.target_language.hash(&mut hasher);
     request.model_id.hash(&mut hasher);
     request.quality_mode.hash(&mut hasher);
+    hash_glossary_entries(&request.glossary, &mut hasher);
     request.job_id.hash(&mut hasher);
     now.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn translation_glossary_hash(glossary: &[TranslationGlossaryEntry]) -> Option<String> {
+    if glossary.is_empty() {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    hash_glossary_entries(glossary, &mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+fn hash_glossary_entries(glossary: &[TranslationGlossaryEntry], hasher: &mut DefaultHasher) {
+    for entry in glossary {
+        entry.source.trim().hash(hasher);
+        entry.target.trim().hash(hasher);
+        entry.note.as_deref().unwrap_or("").trim().hash(hasher);
+    }
 }
 
 fn format_language_label(language: &str) -> String {
@@ -391,6 +414,7 @@ mod tests {
             model_id: "opus-mt-fr-en-ctranslate2".into(),
             quality_mode: "balanced".into(),
             job_id: "job1".into(),
+            glossary: Vec::new(),
             translated_sections: vec![
                 PersistTranslationSection {
                     heading: Some("Chapitre".into()),
