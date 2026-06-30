@@ -284,6 +284,7 @@ mod tests {
                 target_language: "en".into(),
                 model_id: "opus-mt-es-en-ctranslate2".into(),
                 quality_mode: "balanced".into(),
+                glossary: Vec::new(),
             },
             ["Hola mundo."],
             100,

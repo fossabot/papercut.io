@@ -60,6 +60,13 @@ export interface TranslationStartRequest {
   targetLanguage: string
   modelId: string
   qualityMode: string
+  glossary?: TranslationGlossaryEntry[]
+}
+
+export interface TranslationGlossaryEntry {
+  source: string
+  target: string
+  note?: string | null
 }
 
 export interface TranslationStartResult {

@@ -411,7 +411,11 @@ Each stage should be easy to review and commit independently.
   - Materialize reused translations back into positional segment entries so retries remain stable.
   - Keep this in the existing `serde_json` cache manifest; no new library is needed for exact-match memory.
   - Later optimize duplicate segments inside the same batch if benchmarks show repeated paragraphs are common enough to matter.
-- Add glossary support.
+- Add glossary support scaffolding:
+  - Accept glossary entries on translation job requests as source term, target term, and optional note.
+  - Include glossary entries in job cache identity so changed protected terms do not reuse incompatible cached output.
+  - Pass only exact source-term matches into each segment context to keep engine prompt/context payloads bounded.
+  - Use standard string matching for now; add fuzzy matching libraries only if glossary miss rates justify the extra dependency.
 - Add named-entity consistency checks.
 - Add section regeneration.
 - Add optional chapter repair pass.

@@ -10,6 +10,8 @@
 use super::segment::{segment_text_blocks, TranslationTextSegment};
 use super::types::TranslationStartRequest;
 
+const MAX_GLOSSARY_TERMS: usize = 200;
+
 #[derive(Debug, Clone)]
 pub(crate) struct TranslationJobPlan {
     pub(crate) cache_key: String,
@@ -88,6 +90,11 @@ pub(crate) fn build_translation_cache_key(request: &TranslationStartRequest) -> 
     hash_cache_part(&mut hash, &request.target_language);
     hash_cache_part(&mut hash, &request.model_id);
     hash_cache_part(&mut hash, &request.quality_mode);
+    for entry in &request.glossary {
+        hash_cache_part(&mut hash, entry.source.trim());
+        hash_cache_part(&mut hash, entry.target.trim());
+        hash_cache_part(&mut hash, entry.note.as_deref().unwrap_or("").trim());
+    }
     format!("{hash:016x}")
 }
 
@@ -114,6 +121,35 @@ fn validate_request_shape(request: &TranslationStartRequest) -> Result<(), Strin
     if request.quality_mode.trim().is_empty() {
         return Err("Translation quality mode is required".into());
     }
+    validate_glossary_shape(request)?;
+    Ok(())
+}
+
+/// Validate user glossary shape before it enters cache keys or engine prompts.
+///
+/// This stays deliberately light: real glossary management comes later, but the
+/// job planner must already reject empty/prohibitively large protected-term
+/// payloads so engine adapters never receive ambiguous instructions.
+fn validate_glossary_shape(request: &TranslationStartRequest) -> Result<(), String> {
+    if request.glossary.len() > MAX_GLOSSARY_TERMS {
+        return Err(format!(
+            "Translation glossary has too many entries. Maximum is {MAX_GLOSSARY_TERMS}."
+        ));
+    }
+    for (index, entry) in request.glossary.iter().enumerate() {
+        if entry.source.trim().is_empty() {
+            return Err(format!(
+                "Translation glossary entry {} has an empty source term",
+                index + 1
+            ));
+        }
+        if entry.target.trim().is_empty() {
+            return Err(format!(
+                "Translation glossary entry {} has an empty target term",
+                index + 1
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -129,6 +165,7 @@ mod tests {
             target_language: "en".into(),
             model_id: "opus-ar-en".into(),
             quality_mode: "balanced".into(),
+            glossary: Vec::new(),
         }
     }
 
@@ -173,5 +210,38 @@ mod tests {
             build_translation_cache_key(&first),
             build_translation_cache_key(&second)
         );
+    }
+
+    #[test]
+    fn cache_key_changes_with_glossary_terms() {
+        let first = request();
+        let mut second = request();
+        second
+            .glossary
+            .push(crate::translation::types::TranslationGlossaryEntry {
+                source: "Estado".into(),
+                target: "State".into(),
+                note: Some("Political term".into()),
+            });
+
+        assert_ne!(
+            build_translation_cache_key(&first),
+            build_translation_cache_key(&second)
+        );
+    }
+
+    #[test]
+    fn rejects_empty_glossary_terms() {
+        let mut bad = request();
+        bad.glossary
+            .push(crate::translation::types::TranslationGlossaryEntry {
+                source: " ".into(),
+                target: "State".into(),
+                note: None,
+            });
+
+        let error = plan_translation_job(bad, ["Text."], 100, 4).expect_err("bad glossary");
+
+        assert!(error.contains("glossary"));
     }
 }

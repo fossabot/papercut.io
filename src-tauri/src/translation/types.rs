@@ -84,6 +84,17 @@ pub(crate) struct TranslationStartRequest {
     pub(crate) target_language: String,
     pub(crate) model_id: String,
     pub(crate) quality_mode: String,
+    #[serde(default)]
+    pub(crate) glossary: Vec<TranslationGlossaryEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TranslationGlossaryEntry {
+    pub(crate) source: String,
+    pub(crate) target: String,
+    #[serde(default)]
+    pub(crate) note: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

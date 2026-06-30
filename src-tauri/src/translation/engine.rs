@@ -8,12 +8,15 @@
 
 use std::time::Duration;
 
+use super::types::TranslationGlossaryEntry;
+
 #[derive(Debug, Clone)]
 pub(crate) struct TranslationBatchInput {
     pub(crate) model_id: String,
     pub(crate) source_language: String,
     pub(crate) target_language: String,
     pub(crate) quality_mode: String,
+    pub(crate) glossary: Vec<TranslationGlossaryEntry>,
     pub(crate) segments: Vec<TranslationSegmentInput>,
 }
 
@@ -30,6 +33,7 @@ pub(crate) struct TranslationSegmentContext {
     pub(crate) heading: Option<String>,
     pub(crate) previous_text: Option<String>,
     pub(crate) next_text: Option<String>,
+    pub(crate) glossary: Vec<TranslationGlossaryEntry>,
 }
 
 #[derive(Debug, Clone)]

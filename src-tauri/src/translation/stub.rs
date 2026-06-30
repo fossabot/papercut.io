@@ -26,9 +26,9 @@ use super::storage::{
     persist_translated_document, PersistTranslationRequest, PersistTranslationSection,
 };
 use super::types::{
-    TranslationCancelRequest, TranslationCapabilities, TranslationJobProgress,
-    TranslationModelStatus, TranslationModelStatusRequest, TranslationStartRequest,
-    TranslationStartResponse,
+    TranslationCancelRequest, TranslationCapabilities, TranslationGlossaryEntry,
+    TranslationJobProgress, TranslationModelStatus, TranslationModelStatusRequest,
+    TranslationStartRequest, TranslationStartResponse,
 };
 
 const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemented in this build.";
@@ -478,16 +478,37 @@ fn batch_input(
         source_language: plan.request.source_language.clone(),
         target_language: plan.request.target_language.clone(),
         quality_mode: plan.request.quality_mode.clone(),
+        glossary: plan.request.glossary.clone(),
         segments: batch
             .segments
             .iter()
             .map(|segment| TranslationSegmentInput {
                 id: segment.id.clone(),
                 text: segment.text.clone(),
-                context: TranslationSegmentContext::default(),
+                context: TranslationSegmentContext {
+                    glossary: glossary_for_segment(&plan.request.glossary, &segment.text),
+                    ..TranslationSegmentContext::default()
+                },
             })
             .collect(),
     }
+}
+
+/// Select glossary entries relevant to one segment by exact source-term match.
+///
+/// This keeps prompt/context payloads bounded today. Fuzzy glossary matching
+/// can come later if needed; exact matching uses standard string search and
+/// avoids a text-similarity dependency until benchmarks justify one.
+fn glossary_for_segment(
+    glossary: &[TranslationGlossaryEntry],
+    segment_text: &str,
+) -> Vec<TranslationGlossaryEntry> {
+    let lower_segment = segment_text.to_lowercase();
+    glossary
+        .iter()
+        .filter(|entry| lower_segment.contains(&entry.source.to_lowercase()))
+        .cloned()
+        .collect()
 }
 
 /// Build the frontend progress event from source/batch counters.
