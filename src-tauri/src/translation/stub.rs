@@ -8,6 +8,9 @@ use super::config::{
     TRANSLATION_BACKEND_UNAVAILABLE,
 };
 use super::ctranslate2::CTranslate2Engine;
+use super::engine::{
+    TranslationBatchInput, TranslationEngine, TranslationSegmentContext, TranslationSegmentInput,
+};
 use super::job::plan_translation_job;
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
@@ -130,16 +133,32 @@ pub(super) fn start_translation<R: tauri::Runtime>(
     );
     match plan {
         Ok(plan) => {
-            let engine =
-                CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir);
-            Err(format!(
-                "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native CTranslate2 inference is not wired yet.",
-                plan.total_segments,
-                plan.batches.len(),
-                source.title,
-                engine.config().model_id,
-                engine.config().model_dir.display()
-            ))
+            let mut engine =
+                CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir)?;
+            match run_smoke_translation(&mut engine, &plan) {
+                Ok(preview) => Ok(TranslationStartResponse {
+                    job_id: plan.cache_key,
+                    status: "preflight-ready".into(),
+                    message: format!(
+                        "Native translation smoke test succeeded for '{}': {} segment(s), {} batch(es), preview: {}. Full translated-document storage is the next implementation stage.",
+                        source.title,
+                        plan.total_segments,
+                        plan.batches.len(),
+                        preview
+                    ),
+                }),
+                Err(err) => {
+                    let message = format!(
+                        "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native smoke translation did not complete: {err}",
+                        plan.total_segments,
+                        plan.batches.len(),
+                        source.title,
+                        engine.config().model_id,
+                        engine.config().model_dir.display()
+                    );
+                    Err(message)
+                }
+            }
         }
         Err(err) => Err(err),
     }
@@ -148,6 +167,53 @@ pub(super) fn start_translation<R: tauri::Runtime>(
 pub(super) fn cancel_translation(request: TranslationCancelRequest) -> Result<(), String> {
     let _ = request.job_id;
     Ok(())
+}
+
+/// Translate the first planned batch only.
+///
+/// This deliberately stops short of writing a translated document. It proves
+/// the installed OPUS-MT files, tokenizer discovery, and CTranslate2 runtime
+/// can cooperate before we add resumable full-book jobs and indexed variants.
+fn run_smoke_translation(
+    engine: &mut CTranslate2Engine,
+    plan: &super::job::TranslationJobPlan,
+) -> Result<String, String> {
+    let first_batch = plan
+        .batches
+        .first()
+        .ok_or_else(|| "Translation plan has no batches".to_string())?;
+    let input = TranslationBatchInput {
+        model_id: plan.request.model_id.clone(),
+        source_language: plan.request.source_language.clone(),
+        target_language: plan.request.target_language.clone(),
+        quality_mode: plan.request.quality_mode.clone(),
+        segments: first_batch
+            .segments
+            .iter()
+            .map(|segment| TranslationSegmentInput {
+                id: segment.id.clone(),
+                text: segment.text.clone(),
+                context: TranslationSegmentContext::default(),
+            })
+            .collect(),
+    };
+    let outputs = engine.translate_batch(input)?;
+    let preview = outputs
+        .first()
+        .map(|output| output.text.trim())
+        .filter(|text| !text.is_empty())
+        .unwrap_or("(empty output)");
+    Ok(truncate_preview(preview, 240))
+}
+
+fn truncate_preview(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let preview = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        format!("{preview}...")
+    } else {
+        preview
+    }
 }
 
 fn validate_language_pair(

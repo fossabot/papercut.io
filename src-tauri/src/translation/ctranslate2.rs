@@ -1,14 +1,19 @@
-//! CTranslate2 engine slot for the OPUS-MT/Marian MVP.
+//! CTranslate2 engine adapter for the OPUS-MT/Marian MVP.
 //!
-//! This is intentionally a non-inference shell. It fixes where CTranslate2
-//! integration will attach while we validate whether `ct2rs` is enough for
-//! desktop + Android or whether Papercut needs a direct C++/FFI wrapper.
+//! The real native binding remains feature-gated so normal builds do not pull
+//! in C++/SentencePiece dependencies. When `native-translation-ctranslate2` is
+//! enabled, this adapter loads `ct2rs::Translator` from a verified on-disk
+//! model directory and can translate bounded batches. That lets us smoke-test
+//! OPUS-MT before committing to full document rewrite/storage semantics.
 
 #![allow(dead_code)]
 
 use std::path::PathBuf;
 
 use super::engine::{TranslationBatchInput, TranslationEngine, TranslationSegmentOutput};
+
+#[cfg(feature = "native-translation-ctranslate2")]
+type NativeTranslator = ct2rs::Translator<ct2rs::tokenizers::auto::Tokenizer>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct CTranslate2EngineConfig {
@@ -26,23 +31,28 @@ pub(crate) enum CTranslate2Device {
 
 pub(crate) struct CTranslate2Engine {
     config: CTranslate2EngineConfig,
+    #[cfg(feature = "native-translation-ctranslate2")]
+    translator: Option<NativeTranslator>,
 }
 
 impl CTranslate2Engine {
-    /// Prepare the future native runtime from a verified on-disk model folder.
+    /// Load the native runtime from a verified on-disk model folder.
     ///
-    /// This still does not load CTranslate2. It is the handoff point between
-    /// model-install validation and the eventual native binding/wrapper, so
-    /// `translation_start` can prove it has a real model directory before
-    /// returning the current "inference not wired" response.
-    pub(crate) fn for_installed_model(model_id: impl Into<String>, model_dir: PathBuf) -> Self {
-        Self::new(CTranslate2EngineConfig {
+    /// This is intentionally separate from `new` because loading CTranslate2
+    /// can mmap model weights, initialize tokenizers, and fail on platform
+    /// linkage. Callers should do this only after model-manifest validation.
+    pub(crate) fn for_installed_model(
+        model_id: impl Into<String>,
+        model_dir: PathBuf,
+    ) -> Result<Self, String> {
+        let config = CTranslate2EngineConfig {
             model_id: model_id.into(),
             model_dir,
             device: CTranslate2Device::Cpu,
             inter_threads: 1,
             intra_threads: default_intra_threads(),
-        })
+        };
+        Self::load(config)
     }
 
     /// Create the future CTranslate2 engine adapter without loading native code.
@@ -51,7 +61,35 @@ impl CTranslate2Engine {
     /// initialize the chosen binding/wrapper. Keeping construction explicit
     /// avoids hiding expensive model loads inside job planning code.
     pub(crate) fn new(config: CTranslate2EngineConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            #[cfg(feature = "native-translation-ctranslate2")]
+            translator: None,
+        }
+    }
+
+    fn load(config: CTranslate2EngineConfig) -> Result<Self, String> {
+        #[cfg(feature = "native-translation-ctranslate2")]
+        {
+            let translator_config = native_config(&config);
+            let translator = ct2rs::Translator::new(&config.model_dir, &translator_config)
+                .map_err(|err| {
+                    format!(
+                        "Failed to load CTranslate2 model {} at {}: {err}",
+                        config.model_id,
+                        config.model_dir.display()
+                    )
+                })?;
+            return Ok(Self {
+                config,
+                translator: Some(translator),
+            });
+        }
+
+        #[cfg(not(feature = "native-translation-ctranslate2"))]
+        {
+            Ok(Self::new(config))
+        }
     }
 
     pub(crate) fn config(&self) -> &CTranslate2EngineConfig {
@@ -62,13 +100,71 @@ impl CTranslate2Engine {
 impl TranslationEngine for CTranslate2Engine {
     fn translate_batch(
         &mut self,
-        _input: TranslationBatchInput,
+        input: TranslationBatchInput,
     ) -> Result<Vec<TranslationSegmentOutput>, String> {
+        #[cfg(feature = "native-translation-ctranslate2")]
+        {
+            let translator = self.translator.as_ref().ok_or_else(|| {
+                "CTranslate2 runtime was not loaded. Use for_installed_model before translation."
+                    .to_string()
+            })?;
+            let sources = input
+                .segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect::<Vec<_>>();
+            let mut options: ct2rs::TranslationOptions<String, String> = Default::default();
+            options.max_batch_size = sources.len().max(1);
+            options.replace_unknowns = true;
+
+            let started = std::time::Instant::now();
+            let translated = translator
+                .translate_batch(&sources, &options, None)
+                .map_err(|err| format!("CTranslate2 batch translation failed: {err}"))?;
+            let engine_elapsed = started.elapsed();
+            if translated.len() != input.segments.len() {
+                return Err(format!(
+                    "CTranslate2 returned {} outputs for {} input segments",
+                    translated.len(),
+                    input.segments.len()
+                ));
+            }
+
+            return Ok(input
+                .segments
+                .into_iter()
+                .zip(translated)
+                .map(|(segment, (text, _score))| TranslationSegmentOutput {
+                    id: segment.id,
+                    text,
+                    engine_elapsed,
+                })
+                .collect());
+        }
+
+        #[cfg(not(feature = "native-translation-ctranslate2"))]
+        {
+            let _ = input;
+        }
         Err(
-            "CTranslate2 translation is selected for the MVP, but the native binding is not wired yet."
+            "CTranslate2 translation is selected for the MVP, but this build was not compiled with native-translation-ctranslate2."
                 .into(),
         )
     }
+}
+
+#[cfg(feature = "native-translation-ctranslate2")]
+fn native_config(config: &CTranslate2EngineConfig) -> ct2rs::Config {
+    let mut native = ct2rs::Config {
+        device: match config.device {
+            CTranslate2Device::Cpu => ct2rs::Device::CPU,
+        },
+        num_threads_per_replica: config.intra_threads,
+        max_queued_batches: config.inter_threads.max(1) as i32,
+        ..Default::default()
+    };
+    native.device_indices = vec![0];
+    native
 }
 
 fn default_intra_threads() -> usize {
@@ -97,12 +193,14 @@ mod tests {
         assert_eq!(engine.config().device, CTranslate2Device::Cpu);
     }
 
+    #[cfg(not(feature = "native-translation-ctranslate2"))]
     #[test]
-    fn prepares_engine_from_installed_model_dir() {
+    fn prepares_engine_from_installed_model_dir_without_native_feature() {
         let engine = CTranslate2Engine::for_installed_model(
             "opus-mt-fr-en-ctranslate2",
             PathBuf::from("/tmp/fr-en"),
-        );
+        )
+        .expect("engine");
 
         assert_eq!(engine.config().model_id, "opus-mt-fr-en-ctranslate2");
         assert_eq!(engine.config().model_dir, PathBuf::from("/tmp/fr-en"));

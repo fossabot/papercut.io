@@ -359,11 +359,14 @@ Each stage should be easy to review and commit independently.
   - Reject unknown models and unsupported language pairs before reading large documents.
   - Require the selected pinned CTranslate2 model to be installed before job planning.
   - Build the future CTranslate2 engine config from the verified model directory.
-  - Still stop before inference until CTranslate2 loading and tokenization are wired.
-- Keep translated output unavailable until the CTranslate2 engine and tokenizer are wired.
-- Translate bounded text segments.
-- Emit progress events.
-- Store translated output and index it.
+  - In default builds, still stop with a clear message when the native CTranslate2 feature is not compiled.
+  - In `native-translation-ctranslate2` builds, load `ct2rs::Translator` from the installed model directory and run a first-batch smoke translation through the same engine boundary that full jobs will use.
+  - Keep smoke translation intentionally bounded to the first planned batch so we can validate model files, tokenizer discovery, native linkage, and CPU threading before writing any translated document variants.
+- Keep translated output unavailable until full translated-document writing is wired.
+- Next implementation steps:
+  - Translate all bounded text segments with progress events and cancellation.
+  - Store translated output as a separate document variant and index it.
+  - Add resume-safe per-segment cache manifests before large-book retries ship.
 
 ### Stage 6: HTML/EPUB Preservation
 
