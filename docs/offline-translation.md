@@ -386,10 +386,14 @@ Each stage should be easy to review and commit independently.
   - Carry source section ordinals into translated output.
   - Render translated heading blocks as headings instead of duplicating original-language headings.
   - Add stable translated-section anchors and source metadata attributes.
-- Next preservation work requires a section locator/DOM transform layer:
+- Add first-pass DOM transform rendering:
   - Use the sanitized reader `view_html` as the source of truth.
   - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
-  - Preserve TOC links, footnotes, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
+  - Preserve simple block attributes, existing ids, links, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
+  - Insert translated fallback text beside blocks that contain anchors/media instead of destroying navigation.
+- Next preservation work requires a stronger section locator layer:
+  - Map translated segments to exact DOM text nodes rather than only block order.
+  - Add coverage for complex nested links, footnotes, mixed inline formatting, and tables.
 - Add fixtures for footnotes, links, RTL text, mixed-language paragraphs, and tables.
 - Add quality checks for broken links and empty output.
 

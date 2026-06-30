@@ -1,15 +1,16 @@
 //! Source-document reads for translation jobs.
 //!
-//! Upload parsers already normalize HTML/EPUB into `uploaded_sections`. Future
-//! translation jobs should consume that durable, format-neutral shape instead
-//! of re-opening original files or depending on parser internals.
+//! Upload parsers already normalize HTML/EPUB into `uploaded_sections` and a
+//! sanitized reader HTML file. Translation consumes both: sections drive stable
+//! batching/search text, while reader HTML lets rendered translations preserve
+//! document structure where possible.
 
 #![allow(dead_code)]
 
 use rusqlite::{params, OptionalExtension};
 use tauri::Runtime;
 
-use crate::document_uploads::open_document_uploads_db;
+use crate::document_uploads::{open_document_uploads_db, read_uploaded_document_source};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TranslationSourceDocument {
@@ -17,6 +18,7 @@ pub(crate) struct TranslationSourceDocument {
     pub(crate) document_url: String,
     pub(crate) title: String,
     pub(crate) format: String,
+    pub(crate) view_html: String,
     pub(crate) blocks: Vec<TranslationSourceBlock>,
 }
 
@@ -37,7 +39,9 @@ pub(crate) fn load_translation_source_document<R: Runtime>(
     document_url: &str,
 ) -> Result<TranslationSourceDocument, String> {
     let db = open_document_uploads_db(app)?;
-    query_translation_source_document(&db, document_url)
+    let mut source = query_translation_source_document(&db, document_url)?;
+    source.view_html = read_uploaded_document_source(app, document_url)?;
+    Ok(source)
 }
 
 fn query_translation_source_document(
@@ -95,6 +99,7 @@ fn query_translation_source_document(
         document_url,
         title,
         format,
+        view_html: String::new(),
         blocks,
     })
 }
@@ -120,6 +125,7 @@ mod tests {
         assert_eq!(source.document_url, "/user-uploads/book.html");
         assert_eq!(source.title, "Book");
         assert_eq!(source.format, "html");
+        assert_eq!(source.view_html, "");
         assert_eq!(source.blocks.len(), 2);
         assert_eq!(source.blocks[0].ordinal, 0);
         assert_eq!(source.blocks[0].heading.as_deref(), Some("Intro"));

@@ -17,6 +17,7 @@ use crate::document_uploads::{
     DerivedDocumentSection,
 };
 
+use super::render::render_translated_html;
 use super::source::TranslationSourceDocument;
 use super::types::{TranslatedDocumentInfo, TranslationDeleteResponse};
 
@@ -65,6 +66,7 @@ pub(crate) struct PersistTranslationRequest {
 
 pub(crate) struct PersistTranslationSection {
     pub(crate) heading: Option<String>,
+    pub(crate) source_heading: Option<String>,
     pub(crate) source_ordinal: usize,
     pub(crate) is_heading: bool,
     pub(crate) text: String,
@@ -284,59 +286,6 @@ fn ensure_translation_schema(db: &rusqlite::Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn render_translated_html(title: &str, request: &PersistTranslationRequest) -> String {
-    let mut body = String::new();
-    for section in &request.translated_sections {
-        let section_id = format!("translation-section-{}", section.source_ordinal + 1);
-        body.push_str("<section id=\"");
-        body.push_str(&section_id);
-        body.push_str("\" data-source-ordinal=\"");
-        body.push_str(&section.source_ordinal.to_string());
-        body.push('"');
-        if let Some(heading) = section
-            .heading
-            .as_deref()
-            .filter(|heading| !heading.trim().is_empty())
-        {
-            body.push_str(" data-source-heading=\"");
-            body.push_str(&escape_html(heading));
-            body.push('"');
-        }
-        body.push('>');
-        if section.is_heading {
-            body.push_str("<h2 id=\"");
-            body.push_str(&section_id);
-            body.push_str("-heading\">");
-            body.push_str(&escape_html(section.text.trim()));
-            body.push_str("</h2>");
-            body.push_str("</section>");
-            continue;
-        }
-        for paragraph in section
-            .text
-            .split('\n')
-            .map(str::trim)
-            .filter(|paragraph| !paragraph.is_empty())
-        {
-            body.push_str("<p>");
-            body.push_str(&escape_html(paragraph));
-            body.push_str("</p>");
-        }
-        body.push_str("</section>");
-    }
-
-    format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title></head>\
-         <body><article data-papercut-translation=\"true\" data-source-document=\"{}\" data-target-language=\"{}\">\
-         <h1>{}</h1>{}</article></body></html>",
-        escape_html(title),
-        escape_html(&request.source.document_url),
-        escape_html(&request.target_language),
-        escape_html(title),
-        body
-    )
-}
-
 fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> String {
     let mut hasher = DefaultHasher::new();
     request.source.document_id.hash(&mut hasher);
@@ -357,21 +306,6 @@ fn format_language_label(language: &str) -> String {
     }
 }
 
-fn escape_html(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 fn now_ms() -> Result<u128, String> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -387,10 +321,8 @@ fn db_err(err: rusqlite::Error) -> String {
 mod tests {
     use rusqlite::Connection;
 
-    use super::{
-        ensure_translation_schema, render_translated_html, PersistTranslationRequest,
-        PersistTranslationSection,
-    };
+    use super::{ensure_translation_schema, PersistTranslationRequest, PersistTranslationSection};
+    use crate::translation::render::render_translated_html;
     use crate::translation::source::{TranslationSourceBlock, TranslationSourceDocument};
 
     #[test]
@@ -434,6 +366,7 @@ mod tests {
                 document_url: "/uploads/source1.html".into(),
                 title: "Livre".into(),
                 format: "html".into(),
+                view_html: String::new(),
                 blocks: vec![
                     TranslationSourceBlock {
                         ordinal: 0,
@@ -455,12 +388,14 @@ mod tests {
             translated_sections: vec![
                 PersistTranslationSection {
                     heading: Some("Chapitre".into()),
+                    source_heading: Some("Chapitre".into()),
                     source_ordinal: 0,
                     is_heading: true,
                     text: "Chapter".into(),
                 },
                 PersistTranslationSection {
                     heading: Some("Chapitre".into()),
+                    source_heading: Some("Chapitre".into()),
                     source_ordinal: 1,
                     is_heading: false,
                     text: "Hello".into(),

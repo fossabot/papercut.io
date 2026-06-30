@@ -33,6 +33,10 @@ use super::types::{
 
 const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemented in this build.";
 
+/// Report translation capability shape even when a backend is unavailable.
+///
+/// The UI uses this stable payload to render model choices and feature gates
+/// before every platform has native inference support.
 pub(super) fn translation_capabilities() -> TranslationCapabilities {
     TranslationCapabilities {
         available: false,
@@ -46,6 +50,10 @@ pub(super) fn translation_capabilities() -> TranslationCapabilities {
     }
 }
 
+/// Return install status for one catalog model.
+///
+/// This bridges planning and runtime: non-downloadable catalog entries explain
+/// why they cannot run yet, while pinned manifests can report real disk state.
 pub(super) fn translation_model_status<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &tauri::State<'_, TranslationState>,
@@ -108,6 +116,11 @@ pub(super) fn translation_model_status<R: tauri::Runtime>(
     }
 }
 
+/// Start a translation job and persist the completed output as a derived upload.
+///
+/// Despite the module name, this path now performs real preflight, cache reuse,
+/// optional native CTranslate2 execution, and durable storage when the selected
+/// model is installable and the native backend is compiled in.
 pub(super) fn start_translation<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &TranslationState,
@@ -226,6 +239,11 @@ pub(super) fn start_translation<R: tauri::Runtime>(
     }
 }
 
+/// Mark a running job as cancelled.
+///
+/// The batch loop checks this cooperative flag between batches so cancellation
+/// stays simple and avoids interrupting native inference in the middle of a
+/// backend call.
 pub(super) fn cancel_translation(
     state: &TranslationState,
     request: TranslationCancelRequest,
@@ -376,6 +394,7 @@ fn run_translation_batches<R: tauri::Runtime>(
         ),
     )?;
     clear_cancelled(&state.cancelled_jobs, job_id)?;
+    let mut current_translated_heading: Option<String> = None;
     let sections = translated_blocks
         .into_iter()
         .enumerate()
@@ -392,8 +411,14 @@ fn run_translation_batches<R: tauri::Runtime>(
                     .as_deref()
                     .is_some_and(|heading| heading.trim() == block.text.trim())
             });
+            if is_heading {
+                current_translated_heading = Some(text.clone());
+            }
             Some(PersistTranslationSection {
-                heading,
+                heading: current_translated_heading
+                    .clone()
+                    .or_else(|| heading.clone()),
+                source_heading: heading,
                 source_ordinal: source_block.map(|block| block.ordinal).unwrap_or(index),
                 is_heading,
                 text,
@@ -421,6 +446,10 @@ fn append_translated_segment(blocks: &mut [String], source_block_index: usize, t
     block_text.push_str(text);
 }
 
+/// Convert a planned batch into the engine-agnostic input shape.
+///
+/// Keeping this small boundary lets future engines add context/glossary fields
+/// without changing the planner or storage code.
 fn batch_input(
     plan: &TranslationJobPlan,
     batch: &super::job::TranslationBatchPlan,
@@ -442,6 +471,10 @@ fn batch_input(
     }
 }
 
+/// Build the frontend progress event from source/batch counters.
+///
+/// `cached_segments` and `reused_segments_in_batch` are separate so the UI can
+/// distinguish overall resume wins from a single batch that was fully reused.
 fn progress(
     job_id: &str,
     status: &str,
@@ -474,6 +507,7 @@ fn progress(
     }
 }
 
+/// Emit progress through the single event name the React hook listens to.
 fn emit_translation_progress<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     progress: TranslationJobProgress,
@@ -482,6 +516,7 @@ fn emit_translation_progress<R: tauri::Runtime>(
         .map_err(|err| format!("Failed to emit translation progress: {err}"))
 }
 
+/// Check the cooperative cancellation set without exposing the lock shape.
 fn is_cancelled(
     cancelled_jobs: &Arc<Mutex<HashSet<String>>>,
     job_id: &str,
@@ -492,6 +527,7 @@ fn is_cancelled(
     Ok(cancelled.contains(job_id))
 }
 
+/// Remove a completed/cancelled job id so a later retry starts cleanly.
 fn clear_cancelled(
     cancelled_jobs: &Arc<Mutex<HashSet<String>>>,
     job_id: &str,
@@ -503,6 +539,7 @@ fn clear_cancelled(
     Ok(())
 }
 
+/// Keep progress previews readable and event payloads small.
 fn truncate_preview(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
     let preview = chars.by_ref().take(max_chars).collect::<String>();
@@ -513,6 +550,10 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
     }
 }
 
+/// Validate request languages against the selected model catalog entry.
+///
+/// The UI should prevent invalid pairs, but this backend check protects saved
+/// jobs, direct command calls, and future import/export replay paths.
 fn validate_language_pair(
     model: TranslationModelDefinition,
     request: &TranslationStartRequest,

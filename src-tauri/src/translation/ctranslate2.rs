@@ -68,6 +68,10 @@ impl CTranslate2Engine {
         }
     }
 
+    /// Initialize the native translator only when the feature is compiled in.
+    ///
+    /// Non-native builds still construct the adapter so shared planning/storage
+    /// code compiles, but translation returns a clear feature-gate error.
     fn load(config: CTranslate2EngineConfig) -> Result<Self, String> {
         #[cfg(feature = "native-translation-ctranslate2")]
         {
@@ -153,6 +157,10 @@ impl TranslationEngine for CTranslate2Engine {
     }
 }
 
+/// Convert Papercut's small runtime config into ct2rs options.
+///
+/// The MVP is CPU-only because that is the common desktop/Android baseline.
+/// GPU/device selection should be added here later without touching callers.
 #[cfg(feature = "native-translation-ctranslate2")]
 fn native_config(config: &CTranslate2EngineConfig) -> ct2rs::Config {
     let mut native = ct2rs::Config {
@@ -167,6 +175,11 @@ fn native_config(config: &CTranslate2EngineConfig) -> ct2rs::Config {
     native
 }
 
+/// Pick a conservative CPU thread count for long-running translation jobs.
+///
+/// Translation runs can sit beside UI, TTS, and downloads. Capping at 8 avoids
+/// oversubscribing large desktops while still using enough parallelism to make
+/// OPUS-MT practical.
 fn default_intra_threads() -> usize {
     std::thread::available_parallelism()
         .map(|count| count.get().clamp(1, 8))

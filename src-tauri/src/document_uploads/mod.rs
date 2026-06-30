@@ -47,6 +47,21 @@ pub(crate) fn open_document_uploads_db<R: tauri::Runtime>(
     store::open_db(app)
 }
 
+/// Read a stored upload's sanitized reader HTML by virtual document URL.
+///
+/// Translation uses this to clone the reader DOM for structure-preserving
+/// output. Keeping the lookup here avoids exposing upload filesystem internals
+/// to translation.
+pub(crate) fn read_uploaded_document_source<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    document_url: &str,
+) -> Result<String, String> {
+    let id = storage::upload_id_from_url(document_url)?;
+    let path = storage::upload_dir(app, &id)?.join("source.html");
+    std::fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read uploaded document {}: {err}", path.display()))
+}
+
 /// Persist a generated document variant through the same reader/search contract
 /// as imports without exposing parser-private `ParsedDocument` outside this
 /// feature.

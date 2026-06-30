@@ -1,9 +1,8 @@
 //! Tauri command edge for offline translation.
 //!
-//! Commands are intentionally thin. The current backend is a stub that reports
-//! planned capabilities without doing model download or translation work; future
-//! engine commits should keep this command layer stable and move blocking work
-//! onto `spawn_blocking` just like document uploads and native TTS.
+//! Commands are intentionally thin. Model installs, translation jobs, and
+//! translated-document storage live behind backend modules so the Tauri command
+//! surface stays stable as engines and packaging evolve.
 
 use super::model_install::install_translation_model as install_translation_model_backend;
 use super::state::TranslationState;
@@ -50,7 +49,7 @@ pub async fn translation_install_model<R: tauri::Runtime>(
     install_translation_model_backend(app, state, model_id).await
 }
 
-/// Start a document translation job once a real engine exists.
+/// Start a document translation job when the selected backend is available.
 #[tauri::command]
 pub async fn translation_start<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -74,9 +73,9 @@ pub fn translation_cancel(
 
 /// List durable translated document variants.
 ///
-/// This command is real before inference exists so the frontend can be built
-/// against the eventual library surface. It returns an empty list until a later
-/// stage creates translated variants.
+/// Translated variants are durable generated documents, so listing them stays
+/// separate from the normal upload list while sharing the same reader/search
+/// storage underneath.
 #[tauri::command]
 pub async fn translation_list_documents<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
