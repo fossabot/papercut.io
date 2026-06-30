@@ -910,6 +910,7 @@ export function useAudiobookManager({
       enabled: Boolean(ttsState.currentText),
       currentChunkIndex: ttsState.currentChunkIndex,
       chunks: ttsHighlightChunks,
+      allowDomFallback: Boolean(selectedDoc && isUserUploadUrl(selectedDoc)),
     },
   }
 }

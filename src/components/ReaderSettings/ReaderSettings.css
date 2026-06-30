@@ -10,9 +10,9 @@
   height: 2.25rem;
   padding: 0;
   background: none;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: #4b5563;
+  color: var(--text-body);
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
@@ -21,15 +21,15 @@
 
 .reader-settings-btn:hover:not(:disabled),
 .reader-settings-btn[aria-expanded="true"] {
-  border-color: #6366f1;
-  color: #6366f1;
-  background: #eef2ff;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface-accent);
 }
 
 .reader-settings-btn:disabled {
-  color: #9ca3af;
+  color: var(--text-soft);
   cursor: not-allowed;
-  background: #f9fafb;
+  background: var(--surface-muted);
 }
 
 .reader-settings-popover {
@@ -41,11 +41,11 @@
   gap: 0.65rem;
   width: min(19rem, calc(100vw - 2rem));
   padding: 0.85rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
-  color: #1f2937;
+  background: var(--surface);
+  box-shadow: 0 12px 28px var(--shadow-popover);
+  color: var(--text-heading);
   text-align: left;
 }
 
@@ -59,7 +59,7 @@
 }
 
 .reader-setting-row span {
-  color: #4b5563;
+  color: var(--text-body);
 }
 
 .reader-setting-select {
@@ -68,17 +68,17 @@
   width: 100%;
   min-height: 2.2rem;
   padding: 0 0.55rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 7px;
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--text-heading);
   font-size: 0.82rem;
 }
 
 .reader-setting-slider {
   min-width: 0;
   width: 100%;
-  accent-color: #6366f1;
+  accent-color: var(--accent);
 }
 
 .reader-setting-step {
@@ -88,10 +88,10 @@
   width: 1.6rem;
   height: 1.6rem;
   padding: 0;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
-  color: #4b5563;
+  background: var(--surface);
+  color: var(--text-body);
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
@@ -100,8 +100,8 @@
 
 .reader-setting-step:hover:not(:disabled),
 .reader-setting-step:focus-visible {
-  border-color: #6366f1;
-  color: #6366f1;
+  border-color: var(--accent);
+  color: var(--accent);
   outline: none;
 }
 
@@ -112,7 +112,7 @@
 
 .reader-setting-row output {
   justify-self: end;
-  color: #6b7280;
+  color: var(--text-muted);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
 }
@@ -121,19 +121,19 @@
   justify-self: end;
   min-height: 2rem;
   padding: 0 0.65rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #f9fafb;
-  color: #4b5563;
+  background: var(--surface-muted);
+  color: var(--text-body);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .reader-settings-reset:hover {
-  border-color: #6366f1;
-  color: #6366f1;
-  background: #eef2ff;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface-accent);
 }
 
 @media (max-width: 767px) {

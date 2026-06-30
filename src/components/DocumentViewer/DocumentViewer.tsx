@@ -14,6 +14,7 @@ interface TtsHighlightOptions {
   enabled: boolean
   currentChunkIndex: number | null
   chunks: TtsChunk[]
+  allowDomFallback?: boolean
 }
 
 interface DocumentViewerProps {
@@ -22,6 +23,7 @@ interface DocumentViewerProps {
   format?: string
   content: string
   className?: string
+  appControls?: ReactNode
   headerControls?: ReactNode
   beforeDocument?: ReactNode
   ttsHighlight?: TtsHighlightOptions
@@ -36,6 +38,7 @@ export function DocumentViewer({
   format,
   content,
   className = '',
+  appControls,
   headerControls,
   beforeDocument,
   ttsHighlight,
@@ -151,6 +154,7 @@ export function DocumentViewer({
           <h1 className="app-title doc-title" title={title}>{title ?? 'Papercut'}</h1>
         </div>
         <div className="header-right">
+          {appControls}
           {headerControls && (
             <div className={'header-controls-slot' + (loading ? ' header-controls-slot-disabled' : '')}>
               {headerControls}

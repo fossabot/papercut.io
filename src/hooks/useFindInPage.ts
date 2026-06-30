@@ -46,8 +46,8 @@ export function useFindInPage(
       const style = doc.createElement('style')
       style.id = 'find-styles'
       style.textContent =
-        'mark[data-find] { background: #fef08a; color: inherit; padding: 0; border-radius: 2px; }' +
-        'mark[data-find].current { background: #f97316; color: #fff; }'
+        'mark[data-find] { background: var(--highlight-find, #fef08a); color: inherit; padding: 0; border-radius: 2px; }' +
+        'mark[data-find].current { background: var(--highlight-current, #f97316); color: var(--highlight-current-text, #fff); }'
       doc.head.appendChild(style)
     }
 

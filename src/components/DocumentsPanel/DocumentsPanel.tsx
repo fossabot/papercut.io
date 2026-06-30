@@ -101,7 +101,7 @@ export function DocumentsPanel({
 
   return (
     <Panel
-      className="documents-panel"
+      className={'documents-panel' + (importMenuOpen ? ' documents-panel-menu-open' : '')}
       ariaLabel="Documents"
       title={`Documents (${allDocuments.length})`}
       open={showDocuments}

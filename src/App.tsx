@@ -15,7 +15,9 @@ import { DocumentsPanel } from './components/DocumentsPanel/DocumentsPanel'
 import { DocumentViewer } from './components/DocumentViewer/DocumentViewer'
 import { TabNav, type AppTab } from './components/TabNav/TabNav'
 import { SearchScope } from './components/SearchScope/SearchScope'
+import { ThemeToggle } from './components/ThemeToggle/ThemeToggle'
 import { useDocumentFilters } from './hooks/useDocumentFilters'
+import { useTheme } from './hooks/useTheme'
 import type { DocumentInfo } from './types/search'
 import { clearPhraseFetchCache } from './utils/phraseSearch'
 import { AudioControls } from './tts/components/AudioControls'
@@ -52,6 +54,7 @@ type UploadedLibraryState = {
 }
 
 function App() {
+  const theme = useTheme()
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null)
   const [docContent, setDocContent] = useState('')
   const [documentLoad, setDocumentLoad] = useState<DocumentLoadState>({ status: 'idle' })
@@ -325,6 +328,7 @@ function App() {
         format={selectedFormat}
         content={docContent}
         className={hasFloatingAudioControls ? 'app-audio-floating' : ''}
+        appControls={<ThemeToggle choice={theme.choice} onChange={theme.setChoice} />}
         headerControls={<AudioControls {...audioControlsProps} />}
         beforeDocument={<TtsDiagnosticsPanel />}
         ttsHighlight={ttsHighlight}
@@ -338,6 +342,9 @@ function App() {
   return (
     <div className="app">
       <header className="header">
+        <div className="header-actions">
+          <ThemeToggle choice={theme.choice} onChange={theme.setChoice} />
+        </div>
         <h1 className="app-title">
           <img className="app-title-icon" src={papercutIcon} alt="" aria-hidden="true" />
           <span>Papercut</span>
