@@ -89,7 +89,10 @@ function normalizeData(data: Record<string, unknown>): Record<string, unknown> {
   return normalized
 }
 
-function normalizeDiagnosticValue(value: unknown): unknown {
+function normalizeDiagnosticValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): unknown {
   if (
     value === null ||
     typeof value === 'string' ||
@@ -100,12 +103,16 @@ function normalizeDiagnosticValue(value: unknown): unknown {
   }
   if (value === undefined) return ''
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_ARRAY_ITEMS).map(normalizeDiagnosticValue)
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
+    return value.slice(0, MAX_ARRAY_ITEMS).map((item) => normalizeDiagnosticValue(item, seen))
   }
   if (typeof value === 'object') {
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
     const normalized: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value).slice(0, MAX_OBJECT_KEYS)) {
-      normalized[key] = normalizeDiagnosticValue(item)
+      normalized[key] = normalizeDiagnosticValue(item, seen)
     }
     return normalized
   }

@@ -284,11 +284,23 @@ function formatAudioSetupSummary(audioSetup: AudioSetupPanelProps): string {
     formatSpeedLabel(audioSetup.speed),
   ]
 
-  if (audioSetup.modelInstallProgress && audioSetup.modelInstallProgress.status !== 'installed') {
-    pieces.push('Downloading ' + audioSetup.modelInstallProgress.percent + '%')
+  const installSummary = formatModelInstallSummary(audioSetup.modelInstallProgress)
+  if (installSummary) {
+    pieces.push(installSummary)
   } else if (audioSetup.modelStatus?.installed) {
     pieces.push('Installed')
   }
 
   return pieces.join(' · ')
+}
+
+function formatModelInstallSummary(
+  progress: AudioSetupPanelProps['modelInstallProgress'],
+): string | undefined {
+  if (!progress || progress.status === 'installed') return undefined
+  if (progress.status === 'error') return 'Install failed'
+  if (progress.status === 'extracting') return 'Extracting'
+  if (progress.status === 'starting') return 'Starting download'
+  if (progress.status === 'downloading') return 'Downloading ' + progress.percent + '%'
+  return progress.message || progress.status
 }
