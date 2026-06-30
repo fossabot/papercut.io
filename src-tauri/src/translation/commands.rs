@@ -29,8 +29,11 @@ pub fn translation_capabilities() -> TranslationCapabilities {
 
 /// Return install status for a planned translation model.
 #[tauri::command]
-pub fn translation_model_status(request: TranslationModelStatusRequest) -> TranslationModelStatus {
-    translation_model_status_backend(request)
+pub fn translation_model_status<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    request: TranslationModelStatusRequest,
+) -> TranslationModelStatus {
+    translation_model_status_backend(&app, request)
 }
 
 /// Start a document translation job once a real engine exists.

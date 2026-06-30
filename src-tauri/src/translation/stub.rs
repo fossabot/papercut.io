@@ -8,6 +8,7 @@ use super::config::{
     TRANSLATION_BACKEND_UNAVAILABLE,
 };
 use super::job::plan_translation_job;
+use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models};
 use super::source::load_translation_source_document;
 use super::types::{
@@ -30,7 +31,8 @@ pub(super) fn translation_capabilities() -> TranslationCapabilities {
     }
 }
 
-pub(super) fn translation_model_status(
+pub(super) fn translation_model_status<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     request: TranslationModelStatusRequest,
 ) -> TranslationModelStatus {
     let Some(model) = find_planned_model(&request.model_id) else {
@@ -48,19 +50,34 @@ pub(super) fn translation_model_status(
         };
     };
 
-    TranslationModelStatus {
-        model_id: model.id.into(),
-        installed: false,
-        installing: false,
-        model_dir: None,
-        source_url: String::new(),
-        source_label: format!("{} ({})", model.name, model.manifest_state),
-        archive_bytes: 0,
-        installed_bytes: 0,
-        sha256: String::new(),
-        message: format!(
-            "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
-        ),
+    let manifest = manifest_for(model);
+    match resolve_translation_model_dir(app, manifest) {
+        Ok(model_dir) => TranslationModelStatus {
+            model_id: manifest.model_id.into(),
+            installed: true,
+            installing: false,
+            model_dir: Some(model_dir.display().to_string()),
+            source_url: manifest.source_url.into(),
+            source_label: manifest.source_label.into(),
+            archive_bytes: manifest.archive_bytes,
+            installed_bytes: directory_size(&model_dir).unwrap_or(0),
+            sha256: manifest.sha256.into(),
+            message: "Offline translation model installed".into(),
+        },
+        Err(_) => TranslationModelStatus {
+            model_id: manifest.model_id.into(),
+            installed: false,
+            installing: false,
+            model_dir: None,
+            source_url: manifest.source_url.into(),
+            source_label: format!("{} ({})", model.name, model.manifest_state),
+            archive_bytes: manifest.archive_bytes,
+            installed_bytes: 0,
+            sha256: manifest.sha256.into(),
+            message: format!(
+                "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
+            ),
+        },
     }
 }
 

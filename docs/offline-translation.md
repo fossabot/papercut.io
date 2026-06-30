@@ -336,7 +336,11 @@ Each stage should be easy to review and commit independently.
 - Add native engine spike for OPUS-MT/Marian Spanish -> English and French -> English candidates.
 - Keep `ct2rs` as the first desktop proof route, but do not couple storage/job code to it.
 - Validate desktop and Android packaging before treating the CTranslate2 backend as supported. Use direct C++/FFI if Rust binding packaging is not good enough for Android/iOS.
-- Implement model download/verify/install with checksum manifest.
+- Add model manifest/cache plumbing before downloads:
+  - Translation model files live under `<app-data>/translation/models/{model-id}`.
+  - Future installer scratch work should live under the OS cache directory, then promote verified files into app data.
+  - Candidate-only entries must stay non-installable until real converted archives have pinned source URLs, SHA-256 hashes, archive sizes, required-file validation, license review, and platform gates.
+- Implement model download/verify/install only after the checksum manifest is pinned.
 - Translate bounded text segments.
 - Emit progress events.
 - Store translated output and index it.

@@ -12,6 +12,7 @@ mod config;
 mod ctranslate2;
 mod engine;
 mod job;
+mod model_store;
 mod models;
 mod segment;
 mod source;
