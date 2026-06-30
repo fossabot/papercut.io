@@ -30,6 +30,7 @@ pub(crate) struct TranslationQualityIssue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TranslationQualityIssueKind {
     EmptyOutput,
+    SectionCoverage,
     LengthRatio,
     RepeatedOutput,
     GlossaryTarget,
@@ -69,6 +70,7 @@ pub(crate) fn validate_translated_output(
     glossary: &[TranslationGlossaryEntry],
 ) -> Result<(), String> {
     validate_non_empty_sections(sections).map_err(format_quality_issue)?;
+    validate_section_coverage(source_blocks, sections).map_err(format_quality_issue)?;
     validate_length_ratios(source_blocks, sections).map_err(format_quality_issue)?;
     validate_repeated_outputs(sections).map_err(format_quality_issue)?;
     validate_glossary_terms(source_blocks, sections, glossary).map_err(format_quality_issue)?;
@@ -97,6 +99,30 @@ fn validate_non_empty_sections(
             "Translation output was empty",
         ))
     }
+}
+
+/// Reject partial jobs before storage promotes them into normal documents.
+///
+/// Segment caches can prove the engine translated many individual chunks, but
+/// the durable reader/search document must have one output section for every
+/// source block. Otherwise failures like "only the title translated" look like
+/// successful jobs and become harder to diagnose after import.
+fn validate_section_coverage(
+    source_blocks: &[TranslationSourceBlock],
+    sections: &[PersistTranslationSection],
+) -> Result<(), TranslationQualityIssue> {
+    if sections.len() == source_blocks.len() {
+        return Ok(());
+    }
+    Err(TranslationQualityIssue::new(
+        TranslationQualityIssueKind::SectionCoverage,
+        None,
+        format!(
+            "Translation output is incomplete: {} source section(s), {} translated section(s)",
+            source_blocks.len(),
+            sections.len()
+        ),
+    ))
 }
 
 /// Catch source/translation length mismatches that are almost certainly engine failures.
@@ -345,6 +371,20 @@ mod tests {
         .expect_err("empty translation");
 
         assert!(error.contains("empty"));
+    }
+
+    #[test]
+    fn rejects_incomplete_section_coverage() {
+        let error = validate_translated_output(
+            "<article><h1>Title</h1></article>",
+            &[source_block(0, "Title"), source_block(1, "Body text")],
+            &[section("Title")],
+            &[],
+        )
+        .expect_err("missing translated body");
+
+        assert!(error.contains("incomplete"));
+        assert!(error.contains("2 source section"));
     }
 
     #[test]

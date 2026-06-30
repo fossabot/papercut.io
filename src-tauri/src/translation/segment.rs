@@ -203,6 +203,21 @@ mod tests {
     }
 
     #[test]
+    fn keeps_long_spanish_paragraph_segments_under_opus_mt_char_cap() {
+        let paragraph = "Últimamente crecen las especulaciones sobre la forma que podría adquirir la segunda fase del alto el fuego cocinado entre Estados Unidos e Israel. ".repeat(18);
+        let segments = segment_text_blocks(
+            [paragraph],
+            crate::translation::config::DEFAULT_MAX_SEGMENT_CHARS,
+        )
+        .expect("segments");
+
+        assert!(segments.len() > 1);
+        assert!(segments.iter().all(|segment| {
+            segment.text.chars().count() <= crate::translation::config::DEFAULT_MAX_SEGMENT_CHARS
+        }));
+    }
+
+    #[test]
     fn rejects_zero_limit() {
         let error = segment_text_blocks(["text"], 0).expect_err("zero limit should fail");
 

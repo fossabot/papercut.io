@@ -10,6 +10,7 @@ The goal is high-quality offline translation for long-form HTML and EPUB books, 
 - `npm run desktop:no-translation` keeps the desktop build on native TTS only for packaging/debug isolation.
 - Spanish -> English and French -> English OPUS-MT CTranslate2 model manifests are pinned and installable.
 - Translation jobs run through the native engine boundary, emit progress/cancel events, reuse segment cache entries, run first-pass quality gates, and persist successful output as derived uploaded documents.
+- OPUS-MT jobs currently use a conservative 900-character segment cap to stay below Marian/CTranslate2's 512-position limit on long Spanish/French prose. Tokenizer-aware splitting is the next required reliability upgrade.
 - Translated variants are separate durable documents that can be opened, searched, deleted, and later used by the normal TTS flow.
 - HTML/EPUB rendering uses the sanitized reader HTML where possible and preserves links, ids, images, tables, and EPUB-rewritten assets conservatively.
 - Stage 5B is functionally wired for desktop, but still needs manual proof with real model downloads and translation jobs before being treated as release-ready.
@@ -164,6 +165,7 @@ High-value quality upgrades:
 - Keep model inference off the WebView thread.
 - Download models on demand, verify checksums, and atomically promote complete installs.
 - Batch sentences or paragraphs, but cap total tokens per request.
+- Treat character caps as a temporary guardrail only. OPUS-MT/Marian models can fail when tokenized input reaches the model's positional limit, so the long-term splitter must use the installed tokenizer or an engine-provided token estimate before batching.
 - Cache segment translations so resume work does not recompute finished sections.
 - Persist job state after each section or batch.
 - Stream progress events with current chapter, completed segments, total segments, elapsed time, and current model.

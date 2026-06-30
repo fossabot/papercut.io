@@ -244,13 +244,30 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                 }
                 Err(err) => {
                     let _ = clear_cancelled(&state.cancelled_jobs, &job_id);
+                    if err.status != "cancelled" {
+                        let _ = emit_translation_progress(
+                            app,
+                            progress(
+                                &job_id,
+                                err.status,
+                                &err.message,
+                                &plan,
+                                err.completed_segments,
+                                err.cached_segments,
+                                0,
+                                err.completed_batches,
+                                &err.preview,
+                            ),
+                        );
+                    }
                     let message = format!(
-                        "{NOT_IMPLEMENTED} Preflight found {} translatable segments in {} batches for '{}', and confirmed installed model {} at {}. Native in-memory translation did not complete: {err}",
+                        "Translation did not complete. Planned {} translatable segments in {} batches for '{}', using installed model {} at {}. {}",
                         plan.total_segments,
                         plan.batches.len(),
                         source.title,
                         engine.config().model_id,
-                        engine.config().model_dir.display()
+                        engine.config().model_dir.display(),
+                        err.message
                     );
                     Err(message)
                 }
@@ -283,6 +300,15 @@ struct TranslationRunSummary {
     sections: Vec<PersistTranslationSection>,
 }
 
+struct TranslationRunFailure {
+    status: &'static str,
+    message: String,
+    completed_segments: usize,
+    cached_segments: usize,
+    completed_batches: usize,
+    preview: String,
+}
+
 /// Translate every planned batch and keep source-block order intact.
 ///
 /// Segments are batched for engine throughput, but storage needs section-sized
@@ -295,7 +321,7 @@ fn run_translation_batches<R: tauri::Runtime>(
     plan: &TranslationJobPlan,
     source: &TranslationSourceDocument,
     job_id: &str,
-) -> Result<TranslationRunSummary, String> {
+) -> Result<TranslationRunSummary, TranslationRunFailure> {
     emit_translation_progress(
         app,
         progress(
@@ -309,15 +335,26 @@ fn run_translation_batches<R: tauri::Runtime>(
             0,
             "",
         ),
-    )?;
+    )
+    .map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
 
     let mut completed_segments = 0;
     let mut cached_segments = 0;
     let mut preview = String::new();
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
-    let mut cache = load_segment_cache(app, plan)?;
+    let mut cache =
+        load_segment_cache(app, plan).map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
     for batch in &plan.batches {
-        if is_cancelled(&state.cancelled_jobs, job_id)? {
+        if is_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
+            run_failure(
+                "failed",
+                err,
+                completed_segments,
+                cached_segments,
+                batch.index,
+                &preview,
+            )
+        })? {
             emit_translation_progress(
                 app,
                 progress(
@@ -331,9 +368,35 @@ fn run_translation_batches<R: tauri::Runtime>(
                     batch.index,
                     &preview,
                 ),
-            )?;
-            clear_cancelled(&state.cancelled_jobs, job_id)?;
-            return Err("Translation cancelled".into());
+            )
+            .map_err(|err| {
+                run_failure(
+                    "failed",
+                    err,
+                    completed_segments,
+                    cached_segments,
+                    batch.index,
+                    &preview,
+                )
+            })?;
+            clear_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
+                run_failure(
+                    "failed",
+                    err,
+                    completed_segments,
+                    cached_segments,
+                    batch.index,
+                    &preview,
+                )
+            })?;
+            return Err(run_failure(
+                "cancelled",
+                "Translation cancelled",
+                completed_segments,
+                cached_segments,
+                batch.index,
+                &preview,
+            ));
         }
 
         let mut pending_batch = TranslationBatchPlan {
@@ -378,7 +441,18 @@ fn run_translation_batches<R: tauri::Runtime>(
 
         let reused_only = pending_batch.segments.is_empty();
         if !reused_only {
-            let outputs = engine.translate_batch(batch_input(plan, &pending_batch))?;
+            let outputs = engine
+                .translate_batch(batch_input(plan, &pending_batch))
+                .map_err(|err| {
+                    run_failure(
+                        "failed",
+                        format!("Native in-memory translation did not complete: {err}"),
+                        completed_segments,
+                        cached_segments,
+                        batch.index,
+                        &preview,
+                    )
+                })?;
             let mut translated_count = 0;
             for (segment, output) in pending_batch.segments.iter().zip(outputs.iter()) {
                 translated_count += 1;
@@ -394,9 +468,27 @@ fn run_translation_batches<R: tauri::Runtime>(
                 cache.store_translation(segment, translated_text);
             }
             completed_segments += translated_count;
-            save_segment_cache(app, plan, &cache)?;
+            save_segment_cache(app, plan, &cache).map_err(|err| {
+                run_failure(
+                    "failed",
+                    err,
+                    completed_segments,
+                    cached_segments,
+                    batch.index,
+                    &preview,
+                )
+            })?;
         } else if materialized_memory_reuse {
-            save_segment_cache(app, plan, &cache)?;
+            save_segment_cache(app, plan, &cache).map_err(|err| {
+                run_failure(
+                    "failed",
+                    err,
+                    completed_segments,
+                    cached_segments,
+                    batch.index,
+                    &preview,
+                )
+            })?;
         }
 
         emit_translation_progress(
@@ -416,7 +508,17 @@ fn run_translation_batches<R: tauri::Runtime>(
                 batch.index + 1,
                 &preview,
             ),
-        )?;
+        )
+        .map_err(|err| {
+            run_failure(
+                "failed",
+                err,
+                completed_segments,
+                cached_segments,
+                batch.index + 1,
+                &preview,
+            )
+        })?;
     }
 
     emit_translation_progress(
@@ -432,8 +534,27 @@ fn run_translation_batches<R: tauri::Runtime>(
             plan.batches.len(),
             &preview,
         ),
-    )?;
-    clear_cancelled(&state.cancelled_jobs, job_id)?;
+    )
+    .map_err(|err| {
+        run_failure(
+            "failed",
+            err,
+            completed_segments,
+            cached_segments,
+            plan.batches.len(),
+            &preview,
+        )
+    })?;
+    clear_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
+        run_failure(
+            "failed",
+            err,
+            completed_segments,
+            cached_segments,
+            plan.batches.len(),
+            &preview,
+        )
+    })?;
     let mut current_translated_heading: Option<String> = None;
     let sections = translated_blocks
         .into_iter()
@@ -470,6 +591,24 @@ fn run_translation_batches<R: tauri::Runtime>(
         cached_segments,
         sections,
     })
+}
+
+fn run_failure(
+    status: &'static str,
+    message: impl Into<String>,
+    completed_segments: usize,
+    cached_segments: usize,
+    completed_batches: usize,
+    preview: &str,
+) -> TranslationRunFailure {
+    TranslationRunFailure {
+        status,
+        message: message.into(),
+        completed_segments,
+        cached_segments,
+        completed_batches,
+        preview: truncate_preview(preview.trim(), 180),
+    }
 }
 
 fn append_translated_segment(blocks: &mut [String], source_block_index: usize, text: &str) {

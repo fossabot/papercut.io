@@ -39,10 +39,12 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
 
     let mut sections = request.translated_sections.iter();
     let mut replaced_any = false;
+    let mut mapped_sections = 0usize;
     for node in document.select(BLOCK_SELECTOR).ok()? {
         let Some(section) = sections.next() else {
             break;
         };
+        mapped_sections += 1;
         annotate_block(node.as_node(), section);
         if section.text.trim().is_empty() {
             continue;
@@ -55,7 +57,7 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
         replaced_any = true;
     }
 
-    if !replaced_any {
+    if !replaced_any || mapped_sections != request.translated_sections.len() {
         return None;
     }
     serialize_document(&document)
@@ -318,6 +320,21 @@ mod tests {
         assert!(html.contains("id=\"fn1\""));
         assert!(html.contains("See note 1."));
         assert!(html.contains("Footnote body."));
+    }
+
+    #[test]
+    fn falls_back_when_dom_cannot_map_every_translated_section() {
+        let request = request(
+            "<!doctype html><html><body><article><h1>Chapitre</h1></article></body></html>",
+            vec![section(0, true, "Chapter"), section(1, false, "Hello")],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("data-papercut-translation=\"true\""));
+        assert!(html.contains("Chapter"));
+        assert!(html.contains("Hello"));
+        assert!(html.contains("translation-section-2"));
     }
 
     fn request(
