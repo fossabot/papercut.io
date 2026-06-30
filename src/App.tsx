@@ -476,6 +476,7 @@ function App() {
           <TranslationPanel
             {...translation}
             selectedDocument={translationSeedDocument}
+            onOpenTranslatedDocument={handleViewDocument}
           />
         </section>
       )}

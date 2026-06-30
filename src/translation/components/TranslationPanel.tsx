@@ -43,6 +43,7 @@ interface TranslationPanelProps {
   translatedDocuments: TranslatedDocumentInfo[]
   onCancelTranslation: () => Promise<void>
   onDeleteTranslatedDocument: (id: string) => Promise<void>
+  onOpenTranslatedDocument: (url: string) => void | Promise<void>
   onInstallTranslationModel: (modelId: string) => Promise<void>
   onStartTranslationPreflight: (request: TranslationStartRequest) => Promise<void>
   refresh: () => Promise<void>
@@ -60,6 +61,7 @@ export function TranslationPanel({
   translatedDocuments,
   onCancelTranslation,
   onDeleteTranslatedDocument,
+  onOpenTranslatedDocument,
   onInstallTranslationModel,
   onStartTranslationPreflight,
   refresh,
@@ -337,6 +339,14 @@ export function TranslationPanel({
                 </div>
                 <button
                   type="button"
+                  className="translation-document-view-btn"
+                  onClick={() => { void onOpenTranslatedDocument(doc.documentUrl) }}
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  className="translation-document-delete-btn"
                   onClick={() => { void onDeleteTranslatedDocument(doc.id) }}
                 >
                   Delete

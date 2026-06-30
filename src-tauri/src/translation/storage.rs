@@ -5,14 +5,19 @@
 //! owns only translation metadata and variant directories; it never mutates the
 //! original uploaded document rows or source files.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, OptionalExtension};
-use tauri::{Manager, Runtime};
+use tauri::Runtime;
 
-use crate::document_uploads::open_document_uploads_db;
+use crate::document_uploads::{
+    delete_derived_document, open_document_uploads_db, persist_derived_document,
+    DerivedDocumentSection,
+};
 
+use super::source::TranslationSourceDocument;
 use super::types::{TranslatedDocumentInfo, TranslationDeleteResponse};
 
 const TRANSLATION_SCHEMA_VERSION: &str = "1";
@@ -23,7 +28,7 @@ pub(super) fn list_translated_documents<R: Runtime>(
     let db = open_translation_db(app)?;
     let mut stmt = db
         .prepare(
-            "SELECT id, source_document_url, title, source_language, target_language, \
+            "SELECT id, source_path, source_document_url, title, source_language, target_language, \
                     model_id, status, created_at_ms, updated_at_ms \
              FROM translated_documents ORDER BY updated_at_ms DESC",
         )
@@ -32,19 +37,139 @@ pub(super) fn list_translated_documents<R: Runtime>(
         .query_map([], |row| {
             Ok(TranslatedDocumentInfo {
                 id: row.get(0)?,
-                source_document_url: row.get(1)?,
-                title: row.get(2)?,
-                source_language: row.get(3)?,
-                target_language: row.get(4)?,
-                model_id: row.get(5)?,
-                status: row.get(6)?,
-                created_at_ms: row.get::<_, i64>(7)? as u128,
-                updated_at_ms: row.get::<_, i64>(8)? as u128,
+                document_url: row.get(1)?,
+                source_document_url: row.get(2)?,
+                title: row.get(3)?,
+                source_language: row.get(4)?,
+                target_language: row.get(5)?,
+                model_id: row.get(6)?,
+                status: row.get(7)?,
+                created_at_ms: row.get::<_, i64>(8)? as u128,
+                updated_at_ms: row.get::<_, i64>(9)? as u128,
             })
         })
         .map_err(db_err)?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(db_err)
+}
+
+pub(crate) struct PersistTranslationRequest {
+    pub(crate) source: TranslationSourceDocument,
+    pub(crate) source_language: String,
+    pub(crate) target_language: String,
+    pub(crate) model_id: String,
+    pub(crate) quality_mode: String,
+    pub(crate) job_id: String,
+    pub(crate) translated_sections: Vec<PersistTranslationSection>,
+}
+
+pub(crate) struct PersistTranslationSection {
+    pub(crate) heading: Option<String>,
+    pub(crate) text: String,
+}
+
+/// Store a completed translation as its own reader/search document.
+///
+/// The translated text is generated as escaped plain HTML, then inserted through
+/// `document_uploads` so Find, search, viewing, and future TTS see the same
+/// contract as imported HTML/EPUB. The translation row only records provenance
+/// and delete/list metadata.
+pub(crate) fn persist_translated_document<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    request: PersistTranslationRequest,
+) -> Result<TranslatedDocumentInfo, String> {
+    if request.translated_sections.is_empty() {
+        return Err("Translation produced no sections to store".into());
+    }
+
+    let now = now_ms()?;
+    let id = translated_document_id(&request, now);
+    let document_url = format!("/uploads/{id}.html");
+    let title = format!(
+        "{} ({})",
+        request.source.title,
+        format_language_label(&request.target_language)
+    );
+    let view_html = render_translated_html(&title, &request);
+    let bytes = view_html.as_bytes().len() as u64;
+    let sections = request
+        .translated_sections
+        .iter()
+        .map(|section| DerivedDocumentSection {
+            heading: section.heading.clone(),
+            text: section.text.clone(),
+        })
+        .collect();
+
+    persist_derived_document(
+        app,
+        &id,
+        &document_url,
+        &title,
+        "html",
+        view_html,
+        sections,
+        now,
+        bytes,
+    )?;
+
+    let mut db = open_translation_db(app)?;
+    let settings_json = serde_json::json!({
+        "jobId": request.job_id,
+        "qualityMode": request.quality_mode,
+        "sourceFormat": request.source.format,
+    })
+    .to_string();
+    let tx = db.transaction().map_err(db_err)?;
+    tx.execute(
+        "INSERT INTO translated_documents \
+         (id, source_document_id, source_document_url, title, source_language, target_language, \
+          model_id, engine_id, quality_mode, settings_json, glossary_hash, status, source_path, \
+          created_at_ms, updated_at_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ctranslate2', ?8, ?9, NULL, 'ready', ?10, ?11, ?12) \
+         ON CONFLICT(id) DO UPDATE SET \
+           source_document_id = excluded.source_document_id, \
+           source_document_url = excluded.source_document_url, \
+           title = excluded.title, \
+           source_language = excluded.source_language, \
+           target_language = excluded.target_language, \
+           model_id = excluded.model_id, \
+           engine_id = excluded.engine_id, \
+           quality_mode = excluded.quality_mode, \
+           settings_json = excluded.settings_json, \
+           status = excluded.status, \
+           source_path = excluded.source_path, \
+           updated_at_ms = excluded.updated_at_ms",
+        params![
+            id,
+            request.source.document_id,
+            request.source.document_url,
+            title,
+            request.source_language,
+            request.target_language,
+            request.model_id,
+            request.quality_mode,
+            settings_json,
+            document_url,
+            now as i64,
+            now as i64,
+        ],
+    )
+    .map_err(db_err)?;
+    tx.commit().map_err(db_err)?;
+
+    Ok(TranslatedDocumentInfo {
+        id,
+        document_url,
+        source_document_url: request.source.document_url,
+        title,
+        source_language: request.source_language,
+        target_language: request.target_language,
+        model_id: request.model_id,
+        status: "ready".into(),
+        created_at_ms: now,
+        updated_at_ms: now,
+    })
 }
 
 /// Delete one translated variant without touching the original source document.
@@ -59,22 +184,13 @@ pub(super) fn delete_translated_document<R: Runtime>(
     id: &str,
 ) -> Result<TranslationDeleteResponse, String> {
     let mut db = open_translation_db(app)?;
-    let variant_dir = translation_variant_dir(app, id)?;
-    let bytes_freed = directory_size(&variant_dir)?;
     let tx = db.transaction().map_err(db_err)?;
     let deleted_rows = tx
         .execute("DELETE FROM translated_documents WHERE id = ?1", [id])
         .map_err(db_err)?;
     tx.commit().map_err(db_err)?;
 
-    if variant_dir.exists() {
-        fs::remove_dir_all(&variant_dir).map_err(|err| {
-            format!(
-                "Failed to delete translated document files {}: {err}",
-                variant_dir.display()
-            )
-        })?;
-    }
+    let bytes_freed = delete_derived_document(app, id)?;
 
     Ok(TranslationDeleteResponse {
         id: id.into(),
@@ -148,63 +264,84 @@ fn ensure_translation_schema(db: &rusqlite::Connection) -> Result<(), String> {
     Ok(())
 }
 
-/// Root for future translated safe-HTML files.
-///
-/// The directory intentionally lives under `document_uploads/` because
-/// translated variants are user-document derivatives, not model caches. Model
-/// files should live in a separate translation model cache once an engine lands.
-fn translations_root<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
-    let app_data = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app data dir for translations: {err}"))?;
-    Ok(app_data.join("document_uploads").join("translations"))
+fn render_translated_html(title: &str, request: &PersistTranslationRequest) -> String {
+    let mut body = String::new();
+    for section in &request.translated_sections {
+        body.push_str("<section>");
+        if let Some(heading) = section
+            .heading
+            .as_deref()
+            .filter(|heading| !heading.trim().is_empty())
+        {
+            body.push_str("<h2>");
+            body.push_str(&escape_html(heading));
+            body.push_str("</h2>");
+        }
+        for paragraph in section
+            .text
+            .split('\n')
+            .map(str::trim)
+            .filter(|paragraph| !paragraph.is_empty())
+        {
+            body.push_str("<p>");
+            body.push_str(&escape_html(paragraph));
+            body.push_str("</p>");
+        }
+        body.push_str("</section>");
+    }
+
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title></head>\
+         <body><article data-papercut-translation=\"true\" data-source-document=\"{}\" data-target-language=\"{}\">\
+         <h1>{}</h1>{}</article></body></html>",
+        escape_html(title),
+        escape_html(&request.source.document_url),
+        escape_html(&request.target_language),
+        escape_html(title),
+        body
+    )
 }
 
-/// Resolve one translated-variant directory while rejecting path-like ids.
-///
-/// The id will eventually come from translation metadata and possibly the
-/// frontend. Restricting it to a boring slug here prevents accidental path
-/// traversal before any filesystem operation touches app data.
-fn translation_variant_dir<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    id: &str,
-) -> Result<PathBuf, String> {
-    if id.is_empty()
-        || !id
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-    {
-        return Err("Translated document id is invalid".into());
-    }
-    Ok(translations_root(app)?.join(id))
+fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> String {
+    let mut hasher = DefaultHasher::new();
+    request.source.document_id.hash(&mut hasher);
+    request.source_language.hash(&mut hasher);
+    request.target_language.hash(&mut hasher);
+    request.model_id.hash(&mut hasher);
+    request.quality_mode.hash(&mut hasher);
+    request.job_id.hash(&mut hasher);
+    now.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
-fn directory_size(path: &Path) -> Result<u64, String> {
-    if !path.exists() {
-        return Ok(0);
+fn format_language_label(language: &str) -> String {
+    if language.eq_ignore_ascii_case("en") {
+        "English translation".into()
+    } else {
+        format!("{} translation", language.to_uppercase())
     }
-    let metadata = fs::metadata(path).map_err(|err| {
-        format!(
-            "Failed to inspect translated document storage {}: {err}",
-            path.display()
-        )
-    })?;
-    if metadata.is_file() {
-        return Ok(metadata.len());
-    }
+}
 
-    let mut total = 0;
-    for entry in fs::read_dir(path).map_err(|err| {
-        format!(
-            "Failed to read translated document storage {}: {err}",
-            path.display()
-        )
-    })? {
-        let entry = entry.map_err(|err| format!("Failed to inspect translated file: {err}"))?;
-        total += directory_size(&entry.path())?;
+fn escape_html(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
     }
-    Ok(total)
+    escaped
+}
+
+fn now_ms() -> Result<u128, String> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("System clock error: {err}"))?
+        .as_millis())
 }
 
 fn db_err(err: rusqlite::Error) -> String {

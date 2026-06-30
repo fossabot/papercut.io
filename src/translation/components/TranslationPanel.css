@@ -335,16 +335,30 @@
 .translation-document-item button {
   flex: 0 0 auto;
   padding: 0.45rem 0.65rem;
-  border: 1px solid var(--danger-border);
   border-radius: 8px;
-  color: var(--danger-accent);
   background: var(--surface);
   font-weight: 700;
   cursor: pointer;
 }
 
-.translation-document-item button:hover,
-.translation-document-item button:focus-visible {
+.translation-document-view-btn {
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.translation-document-delete-btn {
+  border: 1px solid var(--danger-border);
+  color: var(--danger-accent);
+}
+
+.translation-document-view-btn:hover,
+.translation-document-view-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.translation-document-delete-btn:hover,
+.translation-document-delete-btn:focus-visible {
   background: var(--surface-danger);
   outline: none;
 }

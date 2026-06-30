@@ -19,8 +19,11 @@ use super::engine::{
 use super::job::{plan_translation_job, TranslationJobPlan};
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
-use super::source::load_translation_source_document;
+use super::source::{load_translation_source_document, TranslationSourceDocument};
 use super::state::TranslationState;
+use super::storage::{
+    persist_translated_document, PersistTranslationRequest, PersistTranslationSection,
+};
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationJobProgress,
     TranslationModelStatus, TranslationModelStatusRequest, TranslationStartRequest,
@@ -150,18 +153,56 @@ pub(super) fn start_translation<R: tauri::Runtime>(
             clear_cancelled(&state.cancelled_jobs, &job_id)?;
             let mut engine =
                 CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir)?;
-            match run_translation_batches(app, state, &mut engine, &plan, &job_id) {
-                Ok(summary) => Ok(TranslationStartResponse {
-                    job_id,
-                    status: "translated-in-memory".into(),
-                    message: format!(
-                        "Native translation finished in memory for '{}': {} segment(s), {} batch(es), preview: {}. Full translated-document storage is the next implementation stage.",
-                        source.title,
-                        plan.total_segments,
-                        plan.batches.len(),
-                        summary.preview
-                    ),
-                }),
+            match run_translation_batches(app, state, &mut engine, &plan, &source, &job_id) {
+                Ok(summary) => {
+                    emit_translation_progress(
+                        app,
+                        progress(
+                            &job_id,
+                            "storing",
+                            "Storing translated document",
+                            &plan,
+                            plan.total_segments,
+                            plan.batches.len(),
+                            &summary.preview,
+                        ),
+                    )?;
+                    let stored = persist_translated_document(
+                        app,
+                        PersistTranslationRequest {
+                            source: source.clone(),
+                            source_language: plan.request.source_language.clone(),
+                            target_language: plan.request.target_language.clone(),
+                            model_id: plan.request.model_id.clone(),
+                            quality_mode: plan.request.quality_mode.clone(),
+                            job_id: job_id.clone(),
+                            translated_sections: summary.sections,
+                        },
+                    )?;
+                    emit_translation_progress(
+                        app,
+                        progress(
+                            &job_id,
+                            "stored",
+                            "Translated document stored",
+                            &plan,
+                            plan.total_segments,
+                            plan.batches.len(),
+                            &summary.preview,
+                        ),
+                    )?;
+                    Ok(TranslationStartResponse {
+                        job_id,
+                        status: "stored".into(),
+                        message: format!(
+                            "Stored translated document '{}': {} segment(s), {} batch(es), preview: {}",
+                            stored.title,
+                            plan.total_segments,
+                            plan.batches.len(),
+                            summary.preview
+                        ),
+                    })
+                }
                 Err(err) => {
                     let _ = clear_cancelled(&state.cancelled_jobs, &job_id);
                     let message = format!(
@@ -194,19 +235,20 @@ pub(super) fn cancel_translation(
 
 struct TranslationRunSummary {
     preview: String,
+    sections: Vec<PersistTranslationSection>,
 }
 
-/// Translate every planned batch without writing a translated document yet.
+/// Translate every planned batch and keep source-block order intact.
 ///
-/// This is the last validation step before durable variants: it exercises the
-/// same batching/cancellation path a real long-book job will use, while still
-/// avoiding partial output files and index writes until those semantics are
-/// ready.
+/// Segments are batched for engine throughput, but storage needs section-sized
+/// text again. The source block index lets us stitch translated segments back
+/// into their original document sections before the durable variant is written.
 fn run_translation_batches<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &TranslationState,
     engine: &mut CTranslate2Engine,
     plan: &TranslationJobPlan,
+    source: &TranslationSourceDocument,
     job_id: &str,
 ) -> Result<TranslationRunSummary, String> {
     emit_translation_progress(
@@ -224,6 +266,7 @@ fn run_translation_batches<R: tauri::Runtime>(
 
     let mut completed_segments = 0;
     let mut preview = String::new();
+    let mut translated_blocks = vec![String::new(); source.blocks.len()];
     for batch in &plan.batches {
         if is_cancelled(&state.cancelled_jobs, job_id)? {
             emit_translation_progress(
@@ -244,6 +287,14 @@ fn run_translation_batches<R: tauri::Runtime>(
 
         let outputs = engine.translate_batch(batch_input(plan, batch))?;
         completed_segments += outputs.len();
+        for (segment, output) in batch.segments.iter().zip(outputs.iter()) {
+            if let Some(block_text) = translated_blocks.get_mut(segment.source_block_index) {
+                if !block_text.is_empty() {
+                    block_text.push(' ');
+                }
+                block_text.push_str(output.text.trim());
+            }
+        }
         if preview.is_empty() {
             preview = outputs
                 .iter()
@@ -280,8 +331,26 @@ fn run_translation_batches<R: tauri::Runtime>(
         ),
     )?;
     clear_cancelled(&state.cancelled_jobs, job_id)?;
+    let sections = translated_blocks
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, text)| {
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return None;
+            }
+            Some(PersistTranslationSection {
+                heading: source
+                    .blocks
+                    .get(index)
+                    .and_then(|block| block.heading.clone()),
+                text,
+            })
+        })
+        .collect();
     Ok(TranslationRunSummary {
         preview: truncate_preview(preview.trim(), 240),
+        sections,
     })
 }
 

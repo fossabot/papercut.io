@@ -236,6 +236,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         result,
         message: result.message,
       }))
+      await refresh()
     } catch (err) {
       setStartState((current) => ({
         cancelling: false,
@@ -246,7 +247,7 @@ export function useTranslationManager({ enabled }: TranslationManagerOptions): T
         message: err instanceof Error ? err.message : String(err),
       }))
     }
-  }, [])
+  }, [refresh])
 
   const onCancelTranslation = useCallback(async () => {
     const jobId = startState.jobId

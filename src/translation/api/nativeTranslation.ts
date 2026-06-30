@@ -82,6 +82,7 @@ export interface TranslationJobProgress {
 
 export interface TranslatedDocumentInfo {
   id: string
+  documentUrl: string
   sourceDocumentUrl: string
   title: string
   sourceLanguage: string

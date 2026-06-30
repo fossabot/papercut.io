@@ -243,7 +243,7 @@ translated_documents
   settings_json
   glossary_hash
   status
-  source_path
+  source_path or document_url
   created_at
   updated_at
 
@@ -257,7 +257,7 @@ translation_segments
   quality_json
 ```
 
-Search rows can reuse the existing uploaded-document section storage once the translated document is promoted as a variant document.
+Translated variants reuse the existing uploaded-document section storage once promoted. The translation metadata table records provenance and the generated document URL; the upload/search tables own reader HTML, section text, and FTS rows.
 
 ## UI/UX Requirements
 
@@ -307,7 +307,7 @@ Each stage should be easy to review and commit independently.
 ### Stage 3: Translated Variant Storage
 
 - Add SQLite metadata for translated document variants in the existing runtime upload/search database.
-- Add app-data paths under `document_uploads/translations/{translation_id}/` for future translated safe HTML.
+- Store generated safe HTML as derived upload documents under the existing upload/search contract, rather than a parallel translation-only document store.
 - Add list/delete plumbing without model inference. Delete must remove only translated variant metadata/files and must not mutate the original uploaded document.
 - Verify deleting a source document handles variants deliberately.
 
@@ -361,11 +361,16 @@ Each stage should be easy to review and commit independently.
   - Build the future CTranslate2 engine config from the verified model directory.
   - In default builds, still stop with a clear message when the native CTranslate2 feature is not compiled.
   - In `native-translation-ctranslate2` builds, load `ct2rs::Translator` from the installed model directory and run every planned batch through the same engine boundary that stored jobs will use.
-  - Keep translated output intentionally in memory so we can validate model files, tokenizer discovery, native linkage, CPU threading, progress events, and cancellation before writing any translated document variants.
-- Keep translated output unavailable until full translated-document writing is wired.
+  - Run the native engine in bounded batches, keep translated text in memory until all batches finish, and emit progress/cancellation events before durable writes begin.
+- Persist completed runs as separate derived upload documents:
+  - Generate escaped safe HTML from translated sections.
+  - Insert derived upload/source/section/FTS rows so the normal reader, Find, search, and future TTS can consume the translated copy through the same contract as imported HTML.
+  - Record translation provenance in `translated_documents`.
+  - Delete translated variants without mutating the original uploaded document.
 - Next implementation steps:
-  - Store translated output as a separate document variant and index it.
+  - Refresh Library/Search state after a translation creates or deletes a derived upload, so the new variant appears immediately outside the Translation tab.
   - Add resume-safe per-segment cache manifests before large-book retries ship.
+  - Add staged writes/cleanup for interrupted persistence so very large translated books never leave confusing partial variants.
 
 ### Stage 6: HTML/EPUB Preservation
 

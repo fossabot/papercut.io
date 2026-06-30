@@ -118,6 +118,7 @@ pub(crate) struct TranslationCancelRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TranslatedDocumentInfo {
     pub(crate) id: String,
+    pub(crate) document_url: String,
     pub(crate) source_document_url: String,
     pub(crate) title: String,
     pub(crate) source_language: String,
