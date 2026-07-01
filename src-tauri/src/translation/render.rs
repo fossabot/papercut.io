@@ -10,14 +10,21 @@ use kuchikiki::NodeRef;
 
 use super::html::parse_html_document;
 use super::inline_markup::{
-    fragment_char_range, is_inline_formatting_element, local_spans_for_fragment,
-    projected_translated_spans, source_text_and_inline_formatting_spans, ProjectedInlineSpan,
+    fragment_char_range, is_inline_formatting_element, is_nontranslatable_inline_marker,
+    local_spans_for_fragment, projected_translated_spans, source_text_and_inline_formatting_spans,
+    source_text_inline_markers, InlinePreservedMarker, ProjectedInlineSpan,
 };
 use super::storage::{
     PersistTranslationFragment, PersistTranslationRequest, PersistTranslationSection,
 };
 
 const MEDIA_DESCENDANT_SELECTOR: &str = "img,table,figure,audio,video";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProjectedInlineMarker {
+    byte_offset: usize,
+    html: String,
+}
 
 /// Render a persisted translated document.
 ///
@@ -320,10 +327,11 @@ fn subtree_is_inline_formatting_only(node: &NodeRef) -> bool {
 /// emphasis.
 fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &str) -> bool {
     let (source_text, spans) = source_text_and_inline_formatting_spans(node);
+    let preserved_markers = source_text_inline_markers(node);
     let preserved_anchors = serialized_anchor_nodes(node);
     if source_text.is_empty()
         || translated_text.trim().is_empty()
-        || (spans.is_empty() && preserved_anchors.is_empty())
+        || (spans.is_empty() && preserved_markers.is_empty() && preserved_anchors.is_empty())
     {
         return false;
     }
@@ -343,8 +351,15 @@ fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &s
     } else {
         projected_translated_spans(&spans, &source_text, translated_text, &[]).unwrap_or_default()
     };
+    let projected_markers =
+        project_inline_markers(&preserved_markers, 0, source_len, translated_text);
 
-    replace_children_with_projected_formatting(node, translated_text, &projected_spans);
+    replace_children_with_projected_formatting(
+        node,
+        translated_text,
+        &projected_spans,
+        &projected_markers,
+    );
     append_preserved_anchor_nodes(node, &preserved_anchors);
     true
 }
@@ -371,6 +386,7 @@ fn replace_text_with_fragment_formatting(
     if source_text.is_empty() {
         return false;
     }
+    let preserved_markers = source_text_inline_markers(node);
 
     let mut search_start = 0usize;
     let mut rendered_fragments = Vec::new();
@@ -398,7 +414,17 @@ fn replace_text_with_fragment_formatting(
             )
             .unwrap_or_default()
         };
-        rendered_fragments.push((fragment.text.trim().to_string(), projected_spans));
+        let projected_markers = project_inline_markers(
+            &preserved_markers,
+            source_start,
+            source_end,
+            fragment.text.trim(),
+        );
+        rendered_fragments.push((
+            fragment.text.trim().to_string(),
+            projected_spans,
+            projected_markers,
+        ));
     }
 
     let preserved_anchors = serialized_anchor_nodes(node);
@@ -406,11 +432,11 @@ fn replace_text_with_fragment_formatting(
     for child in children {
         child.detach();
     }
-    for (index, (text, spans)) in rendered_fragments.iter().enumerate() {
+    for (index, (text, spans, markers)) in rendered_fragments.iter().enumerate() {
         if index > 0 {
             node.append(NodeRef::new_text(" "));
         }
-        append_projected_formatting(node, text, spans);
+        append_projected_formatting(node, text, spans, markers);
     }
     append_preserved_anchor_nodes(node, &preserved_anchors);
     true
@@ -420,13 +446,14 @@ fn replace_children_with_projected_formatting(
     node: &NodeRef,
     translated_text: &str,
     spans: &[ProjectedInlineSpan],
+    markers: &[ProjectedInlineMarker],
 ) {
     let children = node.children().collect::<Vec<_>>();
     for child in children {
         child.detach();
     }
 
-    append_projected_formatting(node, translated_text, spans);
+    append_projected_formatting(node, translated_text, spans, markers);
 }
 
 /// Append translated text with already-projected inline spans.
@@ -438,23 +465,122 @@ fn append_projected_formatting(
     node: &NodeRef,
     translated_text: &str,
     spans: &[ProjectedInlineSpan],
+    markers: &[ProjectedInlineMarker],
 ) {
     let mut cursor = 0usize;
+    let mut marker_index = 0usize;
     for span in spans {
         if cursor < span.start {
-            node.append(NodeRef::new_text(&translated_text[cursor..span.start]));
+            append_text_range_with_markers(
+                node,
+                translated_text,
+                cursor,
+                span.start,
+                markers,
+                &mut marker_index,
+                &[],
+            );
         }
-        let emphasized = &translated_text[span.start..span.end];
-        if let Some(formatted) = formatted_inline_node(&span.tags, emphasized) {
-            node.append(formatted);
-        } else {
-            node.append(NodeRef::new_text(emphasized));
-        }
+        append_text_range_with_markers(
+            node,
+            translated_text,
+            span.start,
+            span.end,
+            markers,
+            &mut marker_index,
+            &span.tags,
+        );
         cursor = span.end;
     }
     if cursor < translated_text.len() {
-        node.append(NodeRef::new_text(&translated_text[cursor..]));
+        append_text_range_with_markers(
+            node,
+            translated_text,
+            cursor,
+            translated_text.len(),
+            markers,
+            &mut marker_index,
+            &[],
+        );
     }
+    while marker_index < markers.len() {
+        append_projected_marker_node(node, &markers[marker_index]);
+        marker_index += 1;
+    }
+}
+
+fn append_text_range_with_markers(
+    node: &NodeRef,
+    translated_text: &str,
+    start: usize,
+    end: usize,
+    markers: &[ProjectedInlineMarker],
+    marker_index: &mut usize,
+    tags: &[String],
+) {
+    let mut cursor = start;
+    while *marker_index < markers.len() && markers[*marker_index].byte_offset <= end {
+        let marker_offset = markers[*marker_index].byte_offset.max(start).min(end);
+        append_text_piece(node, &translated_text[cursor..marker_offset], tags);
+        append_projected_marker_node(node, &markers[*marker_index]);
+        *marker_index += 1;
+        cursor = marker_offset;
+    }
+    append_text_piece(node, &translated_text[cursor..end], tags);
+}
+
+fn append_text_piece(node: &NodeRef, text: &str, tags: &[String]) {
+    if text.is_empty() {
+        return;
+    }
+    if tags.is_empty() {
+        node.append(NodeRef::new_text(text));
+    } else if let Some(formatted) = formatted_inline_node(tags, text) {
+        node.append(formatted);
+    } else {
+        node.append(NodeRef::new_text(text));
+    }
+}
+
+fn project_inline_markers(
+    markers: &[InlinePreservedMarker],
+    source_start: usize,
+    source_end: usize,
+    translated_text: &str,
+) -> Vec<ProjectedInlineMarker> {
+    let source_len = source_end.saturating_sub(source_start);
+    markers
+        .iter()
+        .filter(|marker| marker.source_offset >= source_start && marker.source_offset <= source_end)
+        .map(|marker| ProjectedInlineMarker {
+            byte_offset: projected_marker_byte_offset(
+                marker.source_offset.saturating_sub(source_start),
+                source_len,
+                translated_text,
+            ),
+            html: marker.html.clone(),
+        })
+        .collect()
+}
+
+fn projected_marker_byte_offset(
+    local_source_offset: usize,
+    local_source_len: usize,
+    translated_text: &str,
+) -> usize {
+    let translated_len = translated_text.chars().count();
+    if local_source_len == 0 || translated_len == 0 {
+        return translated_text.len();
+    }
+    let char_offset = local_source_offset.saturating_mul(translated_len) / local_source_len;
+    byte_index_for_char(translated_text, char_offset.min(translated_len))
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
 }
 
 fn serialized_anchor_nodes(node: &NodeRef) -> Vec<String> {
@@ -462,8 +588,15 @@ fn serialized_anchor_nodes(node: &NodeRef) -> Vec<String> {
         return Vec::new();
     };
     anchors
+        .filter(|anchor| !is_nontranslatable_inline_marker(anchor.as_node()))
         .filter_map(|anchor| serialize_node(anchor.as_node()))
         .collect()
+}
+
+fn append_projected_marker_node(node: &NodeRef, marker: &ProjectedInlineMarker) {
+    if let Some(cloned) = parsed_first_element(&marker.html, "a") {
+        node.append(cloned);
+    }
 }
 
 fn append_preserved_anchor_nodes(node: &NodeRef, anchors: &[String]) {
@@ -642,28 +775,25 @@ mod tests {
     #[test]
     fn projects_inline_spans_inside_translated_fragments() {
         let request = request(
-            "<!doctype html><html><body><article><p>El <em>verso libre</em> es <strong>reaccionario</strong>. El espíritu es <em><strong>Völkisch</strong></em>.</p></article></body></html>",
+            "<!doctype html><html><body><article><p>La <em>puerta azul</em> es <strong>importante</strong>. El codigo es <em><strong>Orion</strong></em>.</p></article></body></html>",
             vec![section_with_fragments(
                 0,
                 false,
-                "The free verse is reactionary. The spirit is Völkisch.",
+                "The blue door is important. The code is Orion.",
                 vec![
-                    fragment(
-                        "El verso libre es reaccionario.",
-                        "The free verse is reactionary.",
-                    ),
-                    fragment("El espíritu es Völkisch.", "The spirit is Völkisch."),
+                    fragment("La puerta azul es importante.", "The blue door is important."),
+                    fragment("El codigo es Orion.", "The code is Orion."),
                 ],
             )],
         );
 
         let html = render_translated_html("Translated", &request);
 
-        assert!(html.contains("<em>free verse</em>"));
-        assert!(html.contains("<strong>reactionary</strong>"));
-        assert!(html.contains("<em><strong>Völkisch</strong></em>"));
-        assert!(!html.contains("verso libre"));
-        assert!(!html.contains("reaccionario"));
+        assert!(html.contains("<em>blue door</em>"));
+        assert!(html.contains("<strong>important</strong>"));
+        assert!(html.contains("<em><strong>Orion</strong></em>"));
+        assert!(!html.contains("puerta azul"));
+        assert!(!html.contains("importante."));
     }
 
     #[test]
@@ -687,6 +817,34 @@ mod tests {
         assert!(html.contains("role=\"doc-backlink\""));
         assert!(!html.contains("Nota uno"));
         assert!(!html.contains("Nota dos"));
+    }
+
+    #[test]
+    fn renders_footnote_marker_without_translating_marker_label_as_text() {
+        let request = request(
+            "<!doctype html><html><body><article><p>Topic<a href=\"#fn1\" id=\"ref1\" role=\"doc-noteref\"><sup>1</sup></a> changes.</p><p id=\"fn1\">Note body<a href=\"#ref1\" role=\"doc-backlink\">↩︎</a></p></article></body></html>",
+            vec![
+                section_with_fragments(
+                    0,
+                    false,
+                    "Topic changes.",
+                    vec![fragment("Topic changes.", "Topic changes.")],
+                ),
+                section(1, false, "Translated note body."),
+            ],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("Topic"));
+        assert!(html.contains("changes."));
+        assert!(html.contains("href=\"#fn1\""));
+        assert!(html.contains("id=\"ref1\""));
+        assert!(html.contains("role=\"doc-noteref\""));
+        assert!(html.contains("<sup>1</sup>"));
+        assert!(html.contains("Translated note body."));
+        assert!(html.contains("role=\"doc-backlink\""));
+        assert!(!html.contains("Topic 1"));
     }
 
     #[test]

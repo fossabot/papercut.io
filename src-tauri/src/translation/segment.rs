@@ -6,6 +6,8 @@
 
 #![allow(dead_code)]
 
+use unicode_segmentation::UnicodeSegmentation;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TranslationTextSegment {
     pub(crate) id: String,
@@ -44,7 +46,13 @@ where
         if normalized.is_empty() {
             continue;
         }
-        let parts = split_block_into_segments(&normalized, max_chars);
+        let parts = split_block_into_segments(&normalized, max_chars)?;
+        if parts.is_empty() {
+            return Err(format!(
+                "Translation planner could not segment source block {}",
+                block_index + 1
+            ));
+        }
         for (part_index, part) in parts.into_iter().enumerate() {
             segments.push(TranslationTextSegment {
                 id: format!("b{block_index}:s{part_index}"),
@@ -73,150 +81,268 @@ struct TranslationTextPart {
 /// Split one normalized block and retain char offsets inside that normalized block.
 ///
 /// Renderer alignment later uses the same whitespace-normalized source text,
-/// so offsets are a more reliable contract than searching repeated fragments
-/// after translation has already completed.
-fn split_block_into_segments(text: &str, max_chars: usize) -> Vec<TranslationTextPart> {
+/// so offsets are produced as the text is split. We avoid rebuilding strings
+/// and searching for them again because URLs, initials, and citations can make
+/// punctuation-based chunks differ from the original source text.
+fn split_block_into_segments(
+    text: &str,
+    max_chars: usize,
+) -> Result<Vec<TranslationTextPart>, String> {
     if text.chars().count() <= max_chars {
-        return vec![TranslationTextPart {
+        return Ok(vec![TranslationTextPart {
             start: 0,
             end: text.chars().count(),
             text: text.to_string(),
-        }];
+        }]);
     }
 
-    let segment_texts = split_block_text_into_segments(text, max_chars);
-    parts_with_offsets(text, segment_texts)
+    split_block_text_into_segments(text, max_chars)
 }
 
-fn split_block_text_into_segments(text: &str, max_chars: usize) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
+fn split_block_text_into_segments(
+    text: &str,
+    max_chars: usize,
+) -> Result<Vec<TranslationTextPart>, String> {
+    let mut segments = Vec::<TranslationTextPart>::new();
+    let mut current: Option<PartBuilder> = None;
 
     for sentence in sentence_like_parts(text) {
-        if sentence.chars().count() > max_chars {
-            push_current(&mut segments, &mut current);
-            segments.extend(split_oversized_part(sentence, max_chars));
+        if sentence.char_len > max_chars {
+            push_current_part(text, &mut segments, &mut current);
+            segments.extend(split_oversized_part(text, sentence, max_chars)?);
             continue;
         }
 
-        let proposed_len =
-            current.chars().count() + sentence.chars().count() + usize::from(!current.is_empty());
+        let proposed_len = current
+            .as_ref()
+            .map(|builder| builder.char_len + sentence.char_len + 1)
+            .unwrap_or(sentence.char_len);
         if proposed_len > max_chars {
-            push_current(&mut segments, &mut current);
+            push_current_part(text, &mut segments, &mut current);
         }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(sentence);
+        append_range(&mut current, sentence);
     }
 
-    push_current(&mut segments, &mut current);
-    segments
+    push_current_part(text, &mut segments, &mut current);
+    Ok(segments)
 }
 
-/// Reattach deterministic source offsets after text-only splitting.
-///
-/// Splitting works with string chunks for readability, then this pass walks
-/// forward through the normalized source. Forward-only search is intentional:
-/// repeated phrases must map to the next occurrence, not the first occurrence
-/// in the block.
-fn parts_with_offsets(text: &str, parts: Vec<String>) -> Vec<TranslationTextPart> {
-    let mut offset_parts = Vec::new();
-    let mut search_start = 0usize;
-    for part in parts {
-        let Some(relative_start) = text[search_start..].find(&part) else {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SourceRange {
+    byte_start: usize,
+    byte_end: usize,
+    char_start: usize,
+    char_end: usize,
+    char_len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PartBuilder {
+    byte_start: usize,
+    byte_end: usize,
+    char_start: usize,
+    char_end: usize,
+    char_len: usize,
+}
+
+impl PartBuilder {
+    fn from_range(range: SourceRange) -> Self {
+        Self {
+            byte_start: range.byte_start,
+            byte_end: range.byte_end,
+            char_start: range.char_start,
+            char_end: range.char_end,
+            char_len: range.char_len,
+        }
+    }
+
+    fn extend(&mut self, range: SourceRange) {
+        let gap_chars = range.char_start.saturating_sub(self.char_end);
+        self.byte_end = range.byte_end;
+        self.char_end = range.char_end;
+        self.char_len += gap_chars + range.char_len;
+    }
+
+    fn into_part(self, source: &str) -> TranslationTextPart {
+        TranslationTextPart {
+            start: self.char_start,
+            end: self.char_end,
+            text: source[self.byte_start..self.byte_end].trim().to_string(),
+        }
+    }
+}
+
+fn sentence_like_parts(text: &str) -> Vec<SourceRange> {
+    let mut ranges = Vec::new();
+    let mut next_char_start = 0usize;
+
+    for (byte_start, sentence) in text.split_sentence_bound_indices() {
+        let raw_char_len = sentence.chars().count();
+        if let Some(range) = trim_source_range(
+            text,
+            byte_start,
+            byte_start + sentence.len(),
+            next_char_start,
+        ) {
+            ranges.push(range);
+        }
+        next_char_start += raw_char_len;
+    }
+    ranges
+}
+
+fn split_oversized_part(
+    source: &str,
+    range: SourceRange,
+    max_chars: usize,
+) -> Result<Vec<TranslationTextPart>, String> {
+    let mut segments = Vec::<TranslationTextPart>::new();
+    let mut current: Option<PartBuilder> = None;
+
+    for word in word_ranges(source, range) {
+        if word.char_len > max_chars {
+            push_current_part(source, &mut segments, &mut current);
+            segments.extend(split_long_word(source, word, max_chars)?);
             continue;
-        };
-        let byte_start = search_start + relative_start;
-        let byte_end = byte_start + part.len();
-        offset_parts.push(TranslationTextPart {
-            start: text[..byte_start].chars().count(),
-            end: text[..byte_end].chars().count(),
-            text: part,
+        }
+
+        let proposed_len = current
+            .as_ref()
+            .map(|builder| builder.char_len + word.char_len + 1)
+            .unwrap_or(word.char_len);
+        if proposed_len > max_chars {
+            push_current_part(source, &mut segments, &mut current);
+        }
+        append_range(&mut current, word);
+    }
+
+    push_current_part(source, &mut segments, &mut current);
+    Ok(segments)
+}
+
+fn split_long_word(
+    source: &str,
+    range: SourceRange,
+    max_chars: usize,
+) -> Result<Vec<TranslationTextPart>, String> {
+    let mut segments = Vec::new();
+    let mut current_start_byte = range.byte_start;
+    let mut current_start_char = range.char_start;
+    let mut current_chars = 0usize;
+
+    for (relative_byte, ch) in source[range.byte_start..range.byte_end].char_indices() {
+        if current_chars == max_chars {
+            let byte_end = range.byte_start + relative_byte;
+            segments.push(TranslationTextPart {
+                start: current_start_char,
+                end: current_start_char + current_chars,
+                text: source[current_start_byte..byte_end].to_string(),
+            });
+            current_start_byte = byte_end;
+            current_start_char += current_chars;
+            current_chars = 0;
+        }
+        let _ = ch;
+        current_chars += 1;
+    }
+    if current_chars > 0 {
+        segments.push(TranslationTextPart {
+            start: current_start_char,
+            end: current_start_char + current_chars,
+            text: source[current_start_byte..range.byte_end].to_string(),
         });
-        search_start = byte_end;
     }
-    offset_parts
+
+    Ok(segments)
 }
 
-fn sentence_like_parts(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
+fn append_range(current: &mut Option<PartBuilder>, range: SourceRange) {
+    if let Some(builder) = current {
+        builder.extend(range);
+    } else {
+        *current = Some(PartBuilder::from_range(range));
+    }
+}
 
-    for (index, ch) in text.char_indices() {
-        if is_sentence_boundary(ch) {
-            let end = index + ch.len_utf8();
-            let part = text[start..end].trim();
-            if !part.is_empty() {
-                parts.push(part);
+fn push_current_part(
+    source: &str,
+    segments: &mut Vec<TranslationTextPart>,
+    current: &mut Option<PartBuilder>,
+) {
+    if let Some(builder) = current.take() {
+        segments.push(builder.into_part(source));
+    }
+}
+
+fn trim_source_range(
+    text: &str,
+    byte_start: usize,
+    byte_end: usize,
+    char_start: usize,
+) -> Option<SourceRange> {
+    let mut start_byte = byte_start;
+    let mut end_byte = byte_end;
+    let mut start_trim_chars = 0usize;
+    let mut end_trim_chars = 0usize;
+
+    while start_byte < end_byte {
+        let ch = text[start_byte..end_byte].chars().next()?;
+        if !ch.is_whitespace() {
+            break;
+        }
+        start_byte += ch.len_utf8();
+        start_trim_chars += 1;
+    }
+
+    while start_byte < end_byte {
+        let ch = text[start_byte..end_byte].chars().next_back()?;
+        if !ch.is_whitespace() {
+            break;
+        }
+        end_byte -= ch.len_utf8();
+        end_trim_chars += 1;
+    }
+
+    if start_byte >= end_byte {
+        return None;
+    }
+
+    let raw_char_len = text[byte_start..byte_end].chars().count();
+    let char_start = char_start + start_trim_chars;
+    let char_len = raw_char_len
+        .saturating_sub(start_trim_chars)
+        .saturating_sub(end_trim_chars);
+    Some(SourceRange {
+        byte_start: start_byte,
+        byte_end: end_byte,
+        char_start,
+        char_end: char_start + char_len,
+        char_len,
+    })
+}
+
+fn word_ranges(source: &str, range: SourceRange) -> Vec<SourceRange> {
+    let mut char_cursor = range.char_start;
+    source[range.byte_start..range.byte_end]
+        .split_word_bound_indices()
+        .filter_map(|(relative_byte, word)| {
+            let word_char_len = word.chars().count();
+            let char_start = char_cursor;
+            char_cursor += word_char_len;
+            if word.trim().is_empty() {
+                return None;
             }
-            start = end;
-        }
-    }
-
-    let tail = text[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
-    parts
-}
-
-fn is_sentence_boundary(ch: char) -> bool {
-    matches!(
-        ch,
-        '.' | '!' | '?' | '\u{061f}' | '\u{06d4}' | '\u{3002}' | '\u{ff01}' | '\u{ff1f}'
-    )
-}
-
-fn split_oversized_part(text: &str, max_chars: usize) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-
-    for word in text.split_whitespace() {
-        if word.chars().count() > max_chars {
-            push_current(&mut segments, &mut current);
-            segments.extend(split_long_word(word, max_chars));
-            continue;
-        }
-
-        let proposed_len =
-            current.chars().count() + word.chars().count() + usize::from(!current.is_empty());
-        if proposed_len > max_chars {
-            push_current(&mut segments, &mut current);
-        }
-        if !current.is_empty() {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-
-    push_current(&mut segments, &mut current);
-    segments
-}
-
-fn split_long_word(word: &str, max_chars: usize) -> Vec<String> {
-    let mut segments = Vec::new();
-    let mut current = String::new();
-
-    for ch in word.chars() {
-        if current.chars().count() == max_chars {
-            segments.push(current);
-            current = String::new();
-        }
-        current.push(ch);
-    }
-    if !current.is_empty() {
-        segments.push(current);
-    }
-
-    segments
-}
-
-fn push_current(segments: &mut Vec<String>, current: &mut String) {
-    if current.is_empty() {
-        return;
-    }
-    segments.push(std::mem::take(current));
+            let byte_start = range.byte_start + relative_byte;
+            let byte_end = byte_start + word.len();
+            Some(SourceRange {
+                byte_start,
+                byte_end,
+                char_start,
+                char_end: char_start + word_char_len,
+                char_len: word_char_len,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -265,18 +391,63 @@ mod tests {
     }
 
     #[test]
-    fn keeps_long_spanish_paragraph_segments_under_opus_mt_char_cap() {
-        let paragraph = "Últimamente crecen las especulaciones sobre la forma que podría adquirir la segunda fase del alto el fuego cocinado entre Estados Unidos e Israel. ".repeat(18);
-        let segments = segment_text_blocks(
-            [paragraph],
-            crate::translation::config::DEFAULT_MAX_SEGMENT_CHARS,
-        )
-        .expect("segments");
+    fn keeps_long_paragraph_segments_under_opus_mt_char_cap() {
+        let paragraph = "The team reviewed digital catalogs, compared archive notes, and prepared a new guide for readers. ".repeat(18);
+        let max_chars = 900;
+        let segments = segment_text_blocks([paragraph], max_chars).expect("segments");
 
         assert!(segments.len() > 1);
-        assert!(segments.iter().all(|segment| {
-            segment.text.chars().count() <= crate::translation::config::DEFAULT_MAX_SEGMENT_CHARS
-        }));
+        assert!(segments
+            .iter()
+            .all(|segment| { segment.text.chars().count() <= max_chars }));
+    }
+
+    #[test]
+    fn preserves_url_heavy_reference_block_instead_of_dropping_it() {
+        let paragraph = "A reading note cites https://www.example.org/subject/archive/report-2.pdf and continues with a long comment about libraries, revised editions, cross references, and editorial criteria. A second sentence forces the planner to split the block without losing original offsets.";
+        let segments = segment_text_blocks([paragraph], 120).expect("segments");
+
+        assert!(segments.len() > 1);
+        assert!(segments
+            .iter()
+            .all(|segment| segment.source_block_index == 0));
+        assert!(segments
+            .iter()
+            .all(|segment| segment.text.chars().count() <= 120));
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+            paragraph
+        );
+        for segment in &segments {
+            assert_eq!(
+                char_slice(paragraph, segment.source_start, segment.source_end),
+                segment.text
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_later_blocks_aligned_after_url_heavy_reference_block() {
+        let blocks = [
+            "Short intro.",
+            "Technical reference https://www.example.org/a/b/c.final.pdf with enough extra text to force more than one segment inside the same block.",
+            "Short close.",
+        ];
+        let segments = segment_text_blocks(blocks, 80).expect("segments");
+
+        assert!(segments.iter().any(|segment| segment.id.starts_with("b1:")));
+        assert_eq!(
+            segments.last().map(|segment| segment.id.as_str()),
+            Some("b2:s0")
+        );
+        assert_eq!(
+            segments.last().map(|segment| segment.text.as_str()),
+            Some("Short close.")
+        );
     }
 
     #[test]
@@ -284,5 +455,9 @@ mod tests {
         let error = segment_text_blocks(["text"], 0).expect_err("zero limit should fail");
 
         assert!(error.contains("greater than zero"));
+    }
+
+    fn char_slice(text: &str, start: usize, end: usize) -> String {
+        text.chars().skip(start).take(end - start).collect()
     }
 }

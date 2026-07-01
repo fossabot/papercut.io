@@ -402,6 +402,7 @@ Each stage should be easy to review and commit independently.
 - Run the native engine in bounded batches, keep translated text in memory until all batches finish, and emit progress/cancellation events before durable writes begin.
 - Preserve one translated section slot for every source section during assembly; blank outputs should fail validation with the source section ordinal instead of being dropped and reported as generic incomplete coverage.
 - Do not cache empty segment translations; a native empty-output failure must be retried or reported, not reused on every later run.
+- Plan text segments with offset-preserving Unicode sentence/word boundaries instead of splitting strings and searching for them again. This keeps URL-heavy reference blocks, citations, abbreviations, and repeated phrases from silently dropping source blocks before the native engine runs.
 - Persist completed runs as separate derived upload documents:
   - Generate escaped safe HTML from translated sections.
   - Insert derived upload/source/section/FTS rows so the normal reader, Find, search, and future TTS can consume the translated copy through the same contract as imported HTML.

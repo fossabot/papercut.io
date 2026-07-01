@@ -12,6 +12,8 @@ use tauri::Runtime;
 
 use crate::document_uploads::{open_document_uploads_db, read_uploaded_document_source};
 
+use super::inline_markup::source_text_blocks_excluding_nontranslatable_markers;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TranslationSourceDocument {
     pub(crate) document_id: String,
@@ -41,7 +43,26 @@ pub(crate) fn load_translation_source_document<R: Runtime>(
     let db = open_document_uploads_db(app)?;
     let mut source = query_translation_source_document(&db, document_url)?;
     source.view_html = read_uploaded_document_source(app, document_url)?;
+    apply_marker_free_reader_text(&mut source);
     Ok(source)
+}
+
+/// Prefer reader-DOM text when it maps exactly to uploaded sections.
+///
+/// The DB section text is plain extraction from upload time, so footnote labels
+/// embedded in anchors can look like prose (`topic1`) and leak into MT output.
+/// Reader HTML still has marker structure, letting us strip those labels before
+/// translation while keeping persisted ordinals/headings unchanged.
+fn apply_marker_free_reader_text(source: &mut TranslationSourceDocument) {
+    let blocks = source_text_blocks_excluding_nontranslatable_markers(&source.view_html);
+    if blocks.len() != source.blocks.len() {
+        return;
+    }
+    for (block, text) in source.blocks.iter_mut().zip(blocks) {
+        if !text.trim().is_empty() {
+            block.text = text;
+        }
+    }
 }
 
 fn query_translation_source_document(

@@ -27,6 +27,12 @@ pub(crate) struct InlineFormattingSpan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InlinePreservedMarker {
+    pub(crate) source_offset: usize,
+    pub(crate) html: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectedInlineSpan {
     pub(crate) start: usize,
     pub(crate) end: usize,
@@ -56,6 +62,46 @@ pub(crate) fn source_text_and_inline_formatting_spans(
     let mut spans = Vec::new();
     collect_inline_formatting_spans(node, &mut Vec::new(), &mut text, &mut spans);
     (text, coalesce_inline_spans(spans))
+}
+
+/// Extract source block text from reader HTML while skipping reader markers.
+///
+/// Uploaded section text comes from plain DOM text extraction, so inline
+/// footnote anchors can become normal characters such as `topic1`. Translation
+/// should see the prose only; marker placement is handled during rendering.
+pub(crate) fn source_text_blocks_excluding_nontranslatable_markers(view_html: &str) -> Vec<String> {
+    if view_html.trim().is_empty() {
+        return Vec::new();
+    }
+    let document = parse_html_document(view_html.to_string());
+    collect_probe_blocks(&document)
+        .into_iter()
+        .map(|node| source_text_and_inline_formatting_spans(&node).0)
+        .collect()
+}
+
+/// Collect inline markers with offsets in marker-free normalized source text.
+///
+/// The translation engine never sees footnote/backlink labels, but the renderer
+/// still needs to put their anchors back near the translated phrase they came
+/// from. Offsets are measured against the same normalized text contract used by
+/// translation fragments.
+pub(crate) fn source_text_inline_markers(node: &NodeRef) -> Vec<InlinePreservedMarker> {
+    let mut text = String::new();
+    let mut markers = Vec::new();
+    collect_inline_markers(node, &mut text, &mut markers);
+    markers
+}
+
+pub(crate) fn is_nontranslatable_inline_marker(node: &NodeRef) -> bool {
+    let Some(element) = node.as_element() else {
+        return false;
+    };
+    if element.name.local.as_ref() != "a" {
+        return false;
+    }
+    let attrs = element.attributes.borrow();
+    matches!(attrs.get("role"), Some("doc-noteref" | "doc-backlink"))
 }
 
 /// Resolve one translated fragment back to the normalized source text.
@@ -148,7 +194,7 @@ pub(crate) fn projected_translated_spans(
 ///
 /// MT often carries proper nouns, quoted labels, and technical loanwords across
 /// unchanged. Matching those exact phrases beats proportional projection for
-/// terms like `Völkisch`; requiring one bounded match avoids styling the wrong
+/// terms like unique project names; requiring one bounded match avoids styling the wrong
 /// copy when a phrase repeats.
 fn exact_translated_span(
     span: &InlineFormattingSpan,
@@ -204,6 +250,9 @@ fn collect_inline_formatting_spans(
     text: &mut String,
     spans: &mut Vec<InlineFormattingSpan>,
 ) {
+    if is_nontranslatable_inline_marker(node) {
+        return;
+    }
     if let Some(value) = node.as_text() {
         let appended = append_normalized_text(text, &value.borrow());
         if let Some((start, end)) = appended.filter(|_| !active_tags.is_empty()) {
@@ -225,6 +274,29 @@ fn collect_inline_formatting_spans(
     }
     if pushed_tag.is_some() {
         active_tags.pop();
+    }
+}
+
+fn collect_inline_markers(
+    node: &NodeRef,
+    text: &mut String,
+    markers: &mut Vec<InlinePreservedMarker>,
+) {
+    if is_nontranslatable_inline_marker(node) {
+        if let Some(html) = serialize_node(node) {
+            markers.push(InlinePreservedMarker {
+                source_offset: text.chars().count(),
+                html,
+            });
+        }
+        return;
+    }
+    if let Some(value) = node.as_text() {
+        append_normalized_text(text, &value.borrow());
+        return;
+    }
+    for child in node.children() {
+        collect_inline_markers(&child, text, markers);
     }
 }
 
@@ -289,6 +361,12 @@ fn append_normalized_text(output: &mut String, text: &str) -> Option<(usize, usi
         output.push_str(word);
     }
     start.map(|start| (start, output.chars().count()))
+}
+
+fn serialize_node(node: &NodeRef) -> Option<String> {
+    let mut bytes = Vec::new();
+    node.serialize(&mut bytes).ok()?;
+    String::from_utf8(bytes).ok()
 }
 
 fn inline_formatting_tag_name(node: &NodeRef) -> Option<String> {
@@ -464,6 +542,7 @@ mod tests {
     use super::{
         fragment_char_range, inline_phrase_probes_by_block, projected_translated_spans,
         source_text_and_inline_formatting_spans,
+        source_text_blocks_excluding_nontranslatable_markers, source_text_inline_markers,
     };
     use crate::translation::html::parse_html_document;
     use crate::translation::storage::{PersistTranslationFragment, PersistTranslationInlinePhrase};
@@ -471,15 +550,15 @@ mod tests {
     #[test]
     fn collects_normalized_inline_spans() {
         let document = parse_html_document(
-            "<!doctype html><html><body><p>El <em>verso libre</em> es <strong>reaccionario</strong>.</p></body></html>",
+            "<!doctype html><html><body><p>La <em>puerta azul</em> es <strong>importante</strong>.</p></body></html>",
         );
         let node = document.select_first("p").expect("paragraph");
 
         let (text, spans) = source_text_and_inline_formatting_spans(node.as_node());
 
-        assert_eq!(text, "El verso libre es reaccionario.");
+        assert_eq!(text, "La puerta azul es importante.");
         assert_eq!(spans.len(), 2);
-        assert_eq!(&text[3..14], "verso libre");
+        assert_eq!(&text[3..14], "puerta azul");
         assert_eq!(spans[0].start, 3);
         assert_eq!(spans[0].end, 14);
         assert_eq!(spans[0].tags, vec!["em"]);
@@ -489,18 +568,17 @@ mod tests {
     #[test]
     fn prefers_verified_fragment_offsets() {
         let fragment = PersistTranslationFragment {
-            source_start: 20,
-            source_end: 32,
-            source_text: "reactionary.".into(),
-            text: "reactionary.".into(),
+            source_start: 14,
+            source_end: 19,
+            source_text: "again".into(),
+            text: "again".into(),
             inline_phrases: Vec::new(),
         };
 
-        let range =
-            fragment_char_range("repeat reactionary. reactionary.", &fragment, 0).expect("range");
+        let range = fragment_char_range("first example again", &fragment, 0).expect("range");
 
-        assert_eq!(range.0, 20);
-        assert_eq!(range.1, 32);
+        assert_eq!(range.0, 14);
+        assert_eq!(range.1, 19);
     }
 
     #[test]
@@ -576,5 +654,20 @@ mod tests {
         assert_eq!(probes.len(), 1);
         assert_eq!(probes[0][0].text, "puerta azul");
         assert_eq!(probes[0][0].source_start, 3);
+    }
+
+    #[test]
+    fn excludes_footnote_markers_from_translation_source_text() {
+        let html = "<!doctype html><html><body><article><p>Topic<a href=\"#fn1\" role=\"doc-noteref\"><sup>1</sup></a> changes.</p></article></body></html>";
+
+        let blocks = source_text_blocks_excluding_nontranslatable_markers(html);
+        let document = parse_html_document(html);
+        let paragraph = document.select_first("p").expect("paragraph");
+        let markers = source_text_inline_markers(paragraph.as_node());
+
+        assert_eq!(blocks, vec!["Topic changes."]);
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].source_offset, "Topic".chars().count());
+        assert!(markers[0].html.contains("role=\"doc-noteref\""));
     }
 }
