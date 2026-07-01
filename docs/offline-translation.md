@@ -10,6 +10,7 @@ The goal is high-quality offline translation for long-form HTML and EPUB books, 
 - `npm run desktop:no-translation` keeps the desktop build on native TTS only for packaging/debug isolation.
 - Spanish -> English and French -> English OPUS-MT CTranslate2 model manifests are pinned and installable.
 - Translation jobs run through the native engine boundary, emit progress/cancel events, reuse segment cache entries, run first-pass quality gates, and persist successful output as derived uploaded documents.
+- Job progress now distinguishes final validation from storage, so a translation can reach 100% segment completion and still fail with a specific quality issue before any derived document is promoted.
 - OPUS-MT jobs use both a conservative 900-character planner cap and an engine-local tokenizer split before CTranslate2 inference, so long Spanish/French prose can be subdivided below Marian's 512-position limit without changing public cache segment ids.
 - Translated variants are separate durable documents that can be opened, searched, deleted, and later used by the normal TTS flow.
 - HTML/EPUB rendering uses the sanitized reader HTML where possible and preserves links, ids, images, tables, and EPUB-rewritten assets conservatively.
@@ -398,7 +399,9 @@ Each stage should be easy to review and commit independently.
   - Build the future CTranslate2 engine config from the verified model directory.
   - In default builds, still stop with a clear message when the native CTranslate2 feature is not compiled.
   - In `native-translation-ctranslate2` builds, load `ct2rs::Translator` from the installed model directory and run every planned batch through the same engine boundary that stored jobs will use.
-  - Run the native engine in bounded batches, keep translated text in memory until all batches finish, and emit progress/cancellation events before durable writes begin.
+- Run the native engine in bounded batches, keep translated text in memory until all batches finish, and emit progress/cancellation events before durable writes begin.
+- Preserve one translated section slot for every source section during assembly; blank outputs should fail validation with the source section ordinal instead of being dropped and reported as generic incomplete coverage.
+- Do not cache empty segment translations; a native empty-output failure must be retried or reported, not reused on every later run.
 - Persist completed runs as separate derived upload documents:
   - Generate escaped safe HTML from translated sections.
   - Insert derived upload/source/section/FTS rows so the normal reader, Find, search, and future TTS can consume the translated copy through the same contract as imported HTML.
@@ -424,7 +427,7 @@ Each stage should be easy to review and commit independently.
 
 Status:
 
-- Done: CTranslate2 feature flag, adapter, tokenizer-aware OPUS-MT source splitting, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, segment cache, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
+- Done: CTranslate2 feature flag, adapter, tokenizer-aware OPUS-MT source splitting, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, validation-before-storage state, segment cache with empty-output rejection, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
 - Done: `npm run desktop` now includes `native-translation-ctranslate2` by default.
 - Needs proof: real desktop model download, model load through `ct2rs`, short HTML translation, stored translated variant open/search/delete, long-document cache/resume, and packaging artifact verification.
 - Not done: Android translation packaging.
@@ -459,7 +462,7 @@ Status:
 Status:
 
 - Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; exact carry-over emphasized phrases are preserved when one unique target match exists; small emphasized phrases are translated as best-effort repair hints for exact target phrase matching; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
-- Done: first-pass broken internal-link and empty-output validation.
+- Done: first-pass broken internal-link and empty-output validation, including source-section-specific errors when one section returns blank after all segments finish.
 - Still needed: true phrase alignment for reordered translations, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 
 ### Stage 7: Quality Upgrades - Mostly Done
@@ -497,7 +500,7 @@ Status:
 
 Status:
 
-- Done: empty output, length-ratio, repeated-output, broken-link, and glossary-target gates.
+- Done: empty output, per-section empty output, length-ratio, repeated-output, broken-link, and glossary-target gates.
 - Done: exact-match segment cache and exact-memory reuse.
 - Done: glossary request/cache/provenance scaffolding and conflicting glossary rejection.
 - Done: structured quality issue internals and `repairMode` plumbing.

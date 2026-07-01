@@ -195,8 +195,8 @@ pub(super) fn start_translation<R: tauri::Runtime>(
                         app,
                         progress(
                             &job_id,
-                            "storing",
-                            "Storing translated document",
+                            "validating",
+                            "Validating translated document",
                             &plan,
                             plan.total_segments,
                             summary.cached_segments,
@@ -475,8 +475,21 @@ fn run_translation_batches<R: tauri::Runtime>(
                 })?;
             let mut translated_count = 0;
             for (segment, output) in pending_batch.segments.iter().zip(outputs.iter()) {
-                translated_count += 1;
                 let translated_text = output.text.trim().to_string();
+                if translated_text.is_empty() {
+                    return Err(run_failure(
+                        "failed",
+                        format!(
+                            "Native translation returned empty output for source section {}",
+                            segment.source_block_index + 1
+                        ),
+                        completed_segments,
+                        cached_segments,
+                        batch.index,
+                        &preview,
+                    ));
+                }
+                translated_count += 1;
                 append_translated_segment(
                     &mut translated_blocks,
                     &mut translated_fragments,
@@ -585,11 +598,8 @@ fn run_translation_batches<R: tauri::Runtime>(
     let sections = translated_blocks
         .into_iter()
         .enumerate()
-        .filter_map(|(index, text)| {
+        .map(|(index, text)| {
             let text = text.trim().to_string();
-            if text.is_empty() {
-                return None;
-            }
             let source_block = source.blocks.get(index);
             let heading = source_block.and_then(|block| block.heading.clone());
             let is_heading = source_block.is_some_and(|block| {
@@ -601,7 +611,7 @@ fn run_translation_batches<R: tauri::Runtime>(
             if is_heading {
                 current_translated_heading = Some(text.clone());
             }
-            Some(PersistTranslationSection {
+            PersistTranslationSection {
                 heading: current_translated_heading
                     .clone()
                     .or_else(|| heading.clone()),
@@ -610,7 +620,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                 is_heading,
                 text,
                 fragments: translated_fragments.get(index).cloned().unwrap_or_default(),
-            })
+            }
         })
         .collect();
     Ok(TranslationRunSummary {

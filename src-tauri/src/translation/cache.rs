@@ -49,6 +49,9 @@ impl TranslationSegmentCache {
     /// from being reused just because the positional id stayed the same.
     pub(crate) fn translated_text_for(&self, segment: &TranslationTextSegment) -> Option<&str> {
         let cached = self.segments.get(&segment.id)?;
+        if cached.translated_text.trim().is_empty() {
+            return None;
+        }
         if cached.source_hash == hash_segment_text(&segment.text) {
             Some(cached.translated_text.as_str())
         } else {
@@ -76,11 +79,12 @@ impl TranslationSegmentCache {
         segment: &TranslationTextSegment,
         translated_text: String,
     ) {
-        let source_hash = hash_segment_text(&segment.text);
-        if !translated_text.trim().is_empty() {
-            self.memory
-                .insert(source_hash.clone(), translated_text.clone());
+        if translated_text.trim().is_empty() {
+            return;
         }
+        let source_hash = hash_segment_text(&segment.text);
+        self.memory
+            .insert(source_hash.clone(), translated_text.clone());
         self.segments.insert(
             segment.id.clone(),
             CachedTranslationSegment {
@@ -263,6 +267,17 @@ mod tests {
 
         assert_eq!(cache.translated_text_for(&second), None);
         assert_eq!(cache.translated_text_for_source(&second), Some("uno"));
+    }
+
+    #[test]
+    fn empty_translation_is_not_cached() {
+        let plan = plan();
+        let segment = plan.batches[0].segments[0].clone();
+        let mut cache = new_segment_cache(&plan);
+        cache.store_translation(&segment, "   ".into());
+
+        assert_eq!(cache.translated_text_for(&segment), None);
+        assert_eq!(cache.translated_text_for_source(&segment), None);
     }
 
     #[test]

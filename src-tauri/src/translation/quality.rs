@@ -71,6 +71,8 @@ pub(crate) fn validate_translated_output(
 ) -> Result<(), String> {
     validate_non_empty_sections(sections).map_err(format_quality_issue)?;
     validate_section_coverage(source_blocks, sections).map_err(format_quality_issue)?;
+    validate_each_source_section_has_output(source_blocks, sections)
+        .map_err(format_quality_issue)?;
     validate_length_ratios(source_blocks, sections).map_err(format_quality_issue)?;
     validate_repeated_outputs(sections).map_err(format_quality_issue)?;
     validate_glossary_terms(source_blocks, sections, glossary).map_err(format_quality_issue)?;
@@ -123,6 +125,31 @@ fn validate_section_coverage(
             sections.len()
         ),
     ))
+}
+
+/// Reject blank output for a specific source section once coverage is preserved.
+///
+/// Section count alone can pass even when one native segment returns empty text.
+/// Reporting the source ordinal gives the UI/user a concrete failed section
+/// instead of a confusing "100% translated, then incomplete" storage error.
+fn validate_each_source_section_has_output(
+    source_blocks: &[TranslationSourceBlock],
+    sections: &[PersistTranslationSection],
+) -> Result<(), TranslationQualityIssue> {
+    for (index, section) in sections.iter().enumerate() {
+        if !section.text.trim().is_empty() {
+            continue;
+        }
+        let source_ordinal = source_block_for_section(source_blocks, section, index)
+            .map(|source| source.ordinal)
+            .or(Some(section.source_ordinal));
+        return Err(TranslationQualityIssue::new(
+            TranslationQualityIssueKind::EmptyOutput,
+            source_ordinal,
+            "Translation output was empty for this source section",
+        ));
+    }
+    Ok(())
 }
 
 /// Catch source/translation length mismatches that are almost certainly engine failures.
@@ -374,6 +401,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_specific_empty_translated_section() {
+        let error = validate_translated_output(
+            "<article><h1>Title</h1><p></p></article>",
+            &[source_block(0, "Title"), source_block(1, "Body text")],
+            &[
+                section_with_ordinal(0, "Title"),
+                section_with_ordinal(1, "   "),
+            ],
+            &[],
+        )
+        .expect_err("empty translated body");
+
+        assert!(error.contains("source section 2"));
+        assert!(error.contains("empty for this source section"));
+    }
+
+    #[test]
     fn rejects_incomplete_section_coverage() {
         let error = validate_translated_output(
             "<article><h1>Title</h1></article>",
@@ -441,10 +485,14 @@ mod tests {
     }
 
     fn section(text: &str) -> PersistTranslationSection {
+        section_with_ordinal(0, text)
+    }
+
+    fn section_with_ordinal(source_ordinal: usize, text: &str) -> PersistTranslationSection {
         PersistTranslationSection {
             heading: None,
             source_heading: None,
-            source_ordinal: 0,
+            source_ordinal,
             is_heading: false,
             text: text.into(),
             fragments: Vec::new(),
