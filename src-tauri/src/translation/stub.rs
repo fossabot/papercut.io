@@ -3,7 +3,7 @@
 //! This is not a "fake translator"; it only exposes capabilities and stable
 //! command responses while native translation engines are still being evaluated.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Mutex};
 
 use tauri::Emitter;
@@ -18,14 +18,15 @@ use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
     TranslationBatchInput, TranslationEngine, TranslationSegmentContext, TranslationSegmentInput,
 };
+use super::inline_markup::{inline_phrase_probes_by_block, InlinePhraseProbe};
 use super::job::{plan_translation_job, TranslationBatchPlan, TranslationJobPlan};
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
 use super::source::{load_translation_source_document, TranslationSourceDocument};
 use super::state::TranslationState;
 use super::storage::{
-    persist_translated_document, PersistTranslationFragment, PersistTranslationRequest,
-    PersistTranslationSection,
+    persist_translated_document, PersistTranslationFragment, PersistTranslationInlinePhrase,
+    PersistTranslationRequest, PersistTranslationSection,
 };
 use super::types::{
     TranslationCancelRequest, TranslationCapabilities, TranslationGlossaryEntry,
@@ -34,6 +35,7 @@ use super::types::{
 };
 
 const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemented in this build.";
+const MAX_INLINE_PHRASE_PROBES_PER_SEGMENT: usize = 8;
 
 /// Report translation capability shape even when a backend is unavailable.
 ///
@@ -345,6 +347,7 @@ fn run_translation_batches<R: tauri::Runtime>(
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
     let mut translated_fragments =
         vec![Vec::<PersistTranslationFragment>::new(); source.blocks.len()];
+    let inline_phrase_probes = inline_phrase_probes_by_block(&source.view_html);
     let mut cache =
         load_segment_cache(app, plan).map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
     for batch in &plan.batches {
@@ -402,6 +405,8 @@ fn run_translation_batches<R: tauri::Runtime>(
             ));
         }
 
+        let inline_phrase_hints =
+            translate_inline_phrase_hints(engine, plan, batch, &inline_phrase_probes);
         let mut pending_batch = TranslationBatchPlan {
             index: batch.index,
             segments: Vec::new(),
@@ -419,6 +424,10 @@ fn run_translation_batches<R: tauri::Runtime>(
                     segment,
                     segment.source_block_index,
                     &cached_text,
+                    inline_phrase_hints
+                        .get(&segment.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 );
                 if preview.is_empty() && !cached_text.trim().is_empty() {
                     preview = cached_text.trim().to_string();
@@ -436,6 +445,10 @@ fn run_translation_batches<R: tauri::Runtime>(
                     segment,
                     segment.source_block_index,
                     &memory_text,
+                    inline_phrase_hints
+                        .get(&segment.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 );
                 if preview.is_empty() && !memory_text.trim().is_empty() {
                     preview = memory_text.trim().to_string();
@@ -470,6 +483,10 @@ fn run_translation_batches<R: tauri::Runtime>(
                     segment,
                     segment.source_block_index,
                     &translated_text,
+                    inline_phrase_hints
+                        .get(&segment.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 );
                 if preview.is_empty() && !translated_text.is_empty() {
                     preview = translated_text.clone();
@@ -621,12 +638,101 @@ fn run_failure(
     }
 }
 
+/// Translate emphasized source phrases as small repair hints.
+///
+/// Main OPUS-MT output does not expose word alignment. These probes give the
+/// renderer a target phrase to exact-match when bold/italic source text was
+/// translated rather than carried over unchanged. Probe failure is non-fatal:
+/// plain/proportional inline rendering is safer than failing a completed book.
+fn translate_inline_phrase_hints(
+    engine: &mut CTranslate2Engine,
+    plan: &TranslationJobPlan,
+    batch: &TranslationBatchPlan,
+    probes_by_block: &[Vec<InlinePhraseProbe>],
+) -> BTreeMap<String, Vec<PersistTranslationInlinePhrase>> {
+    let mut owners = Vec::new();
+    let mut inputs = Vec::new();
+    for segment in &batch.segments {
+        let probes = inline_phrase_probes_for_segment(segment, probes_by_block);
+        for (index, probe) in probes.into_iter().enumerate() {
+            let id = format!("{}:inline:{index}", segment.id);
+            owners.push((id.clone(), segment.id.clone(), probe.text.clone()));
+            inputs.push(TranslationSegmentInput {
+                id,
+                text: probe.text,
+                context: TranslationSegmentContext {
+                    glossary: glossary_for_segment(&plan.request.glossary, &segment.text),
+                    ..TranslationSegmentContext::default()
+                },
+            });
+        }
+    }
+    if inputs.is_empty() {
+        return BTreeMap::new();
+    }
+
+    let owner_by_probe = owners
+        .into_iter()
+        .map(|(probe_id, owner_id, source_text)| (probe_id, (owner_id, source_text)))
+        .collect::<BTreeMap<_, _>>();
+    let Ok(outputs) = engine.translate_batch(TranslationBatchInput {
+        model_id: plan.request.model_id.clone(),
+        source_language: plan.request.source_language.clone(),
+        target_language: plan.request.target_language.clone(),
+        quality_mode: plan.request.quality_mode.clone(),
+        repair_mode: plan.request.repair_mode.clone(),
+        glossary: plan.request.glossary.clone(),
+        segments: inputs,
+    }) else {
+        return BTreeMap::new();
+    };
+
+    let mut hints = BTreeMap::<String, Vec<PersistTranslationInlinePhrase>>::new();
+    for output in outputs {
+        let Some((owner_id, source_text)) = owner_by_probe.get(&output.id) else {
+            continue;
+        };
+        let translated = output.text.trim();
+        if translated.is_empty() {
+            continue;
+        }
+        hints
+            .entry(owner_id.clone())
+            .or_default()
+            .push(PersistTranslationInlinePhrase {
+                source_text: source_text.clone(),
+                text: translated.to_string(),
+            });
+    }
+    hints
+}
+
+fn inline_phrase_probes_for_segment(
+    segment: &super::segment::TranslationTextSegment,
+    probes_by_block: &[Vec<InlinePhraseProbe>],
+) -> Vec<InlinePhraseProbe> {
+    let Some(probes) = probes_by_block.get(segment.source_block_index) else {
+        return Vec::new();
+    };
+    let mut seen = BTreeSet::new();
+    probes
+        .iter()
+        .filter(|probe| {
+            probe.source_start >= segment.source_start && probe.source_end <= segment.source_end
+        })
+        .filter(|probe| seen.insert(probe.text.to_lowercase()))
+        .take(MAX_INLINE_PHRASE_PROBES_PER_SEGMENT)
+        .cloned()
+        .collect()
+}
+
 fn append_translated_segment(
     blocks: &mut [String],
     fragments: &mut [Vec<PersistTranslationFragment>],
     segment: &super::segment::TranslationTextSegment,
     source_block_index: usize,
     text: &str,
+    inline_phrases: Vec<PersistTranslationInlinePhrase>,
 ) {
     let Some(block_text) = blocks.get_mut(source_block_index) else {
         return;
@@ -645,6 +751,7 @@ fn append_translated_segment(
             source_end: segment.source_end,
             source_text: segment.text.trim().to_string(),
             text: text.to_string(),
+            inline_phrases,
         });
     }
 }

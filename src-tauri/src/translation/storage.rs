@@ -86,6 +86,13 @@ pub(crate) struct PersistTranslationFragment {
     pub(crate) source_end: usize,
     pub(crate) source_text: String,
     pub(crate) text: String,
+    pub(crate) inline_phrases: Vec<PersistTranslationInlinePhrase>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PersistTranslationInlinePhrase {
+    pub(crate) source_text: String,
+    pub(crate) text: String,
 }
 
 /// Store a completed translation as its own reader/search document.

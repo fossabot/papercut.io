@@ -118,7 +118,7 @@ Long documents need bounded, resumable work. Recommended flow:
 
 1. Validate selected source document and target language.
 2. Load source section metadata and stored safe HTML.
-3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges. Current builds now carry translated segment fragments with normalized source offsets into rendering, which gives inline emphasis projection smaller and deterministic source/target windows than whole-paragraph guessing. Inline rendering also keeps exact carry-over emphasis for unique terms that survive translation unchanged, such as proper nouns and technical labels; true cross-language phrase alignment remains future work.
+3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges. Current builds now carry translated segment fragments with normalized source offsets into rendering, which gives inline emphasis projection smaller and deterministic source/target windows than whole-paragraph guessing. Inline rendering also keeps exact carry-over emphasis for unique terms that survive translation unchanged, and the desktop job runner translates small emphasized source phrases as repair hints so rendered output can exact-match translated emphasis when possible. Full cross-language phrase alignment remains future work.
 4. Build a document memory packet:
    - title
    - author, if known
@@ -444,6 +444,7 @@ Status:
   - Preserve whole-block inline emphasis when one safe formatting wrapper owns the entire source block, such as `<strong>...</strong>` or nested `<em><strong>...</strong></em>`.
   - Carry translated segment fragments and normalized source offsets through storage-time rendering so mixed inline emphasis is projected inside sentence/segment windows before falling back to block-level projection.
   - Prefer exact carry-over matches for unique emphasized phrases that survive translation unchanged before using proportional projection.
+  - Translate small emphasized source phrases as best-effort repair probes and store them with their segment fragments, so renderer can match the translated phrase rather than only proportional position.
   - Project safe partial inline emphasis spans onto translated text by relative text position snapped to word boundaries, but only when projected ranges do not overlap.
   - Preserve footnote/noteref anchors and ordered-list endnote structure when replacing translated text.
   - Insert translated fallback text beside blocks that contain media/table content instead of destroying assets or table structure.
@@ -457,7 +458,7 @@ Status:
 
 Status:
 
-- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; exact carry-over emphasized phrases are preserved when one unique target match exists; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; exact carry-over emphasized phrases are preserved when one unique target match exists; small emphasized phrases are translated as best-effort repair hints for exact target phrase matching; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
 - Done: first-pass broken internal-link and empty-output validation.
 - Still needed: true phrase alignment for reordered translations, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 

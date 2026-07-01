@@ -292,14 +292,14 @@ mod tests {
         let mut bad = request();
         bad.glossary
             .push(crate::translation::types::TranslationGlossaryEntry {
-                source: "Lenin".into(),
-                target: "Lenin".into(),
+                source: "chapter title".into(),
+                target: "chapter title".into(),
                 note: None,
             });
         bad.glossary
             .push(crate::translation::types::TranslationGlossaryEntry {
-                source: " lenin ".into(),
-                target: "Lenine".into(),
+                source: " chapter title ".into(),
+                target: "section title".into(),
                 note: None,
             });
 

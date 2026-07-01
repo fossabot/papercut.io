@@ -7,7 +7,17 @@
 
 use kuchikiki::NodeRef;
 
-use super::storage::PersistTranslationFragment;
+use super::html::parse_html_document;
+use super::storage::{PersistTranslationFragment, PersistTranslationInlinePhrase};
+
+const MAX_INLINE_PHRASE_CHARS: usize = 120;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InlinePhraseProbe {
+    pub(crate) source_start: usize,
+    pub(crate) source_end: usize,
+    pub(crate) text: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InlineFormattingSpan {
@@ -101,12 +111,13 @@ pub(crate) fn projected_translated_spans(
     spans: &[InlineFormattingSpan],
     source_text: &str,
     translated_text: &str,
+    translation_hints: &[PersistTranslationInlinePhrase],
 ) -> Option<Vec<ProjectedInlineSpan>> {
     let source_len = source_text.chars().count();
     let mut projected = Vec::new();
     for span in spans {
         let projected_span = if let Some(exact) =
-            exact_translated_span(span, source_text, translated_text)
+            exact_translated_span(span, source_text, translated_text, translation_hints)
         {
             exact
         } else {
@@ -143,18 +154,48 @@ fn exact_translated_span(
     span: &InlineFormattingSpan,
     source_text: &str,
     translated_text: &str,
+    translation_hints: &[PersistTranslationInlinePhrase],
 ) -> Option<ProjectedInlineSpan> {
     let source_phrase = char_slice(source_text, span.start, span.end)?;
     let phrase = source_phrase.trim();
     if !phrase_is_specific_enough(phrase) {
         return None;
     }
-    let (start, end) = find_unique_phrase_byte_range(translated_text, phrase)?;
+    let hinted_phrase = translation_hints
+        .iter()
+        .find(|hint| normalize_fragment_text(&hint.source_text) == normalize_fragment_text(phrase))
+        .map(|hint| hint.text.trim())
+        .filter(|value| !value.is_empty());
+    let (start, end) = hinted_phrase
+        .and_then(|hint| find_unique_phrase_byte_range(translated_text, hint))
+        .or_else(|| find_unique_phrase_byte_range(translated_text, phrase))?;
     Some(ProjectedInlineSpan {
         start,
         end,
         tags: span.tags.clone(),
     })
+}
+
+/// Collect emphasized source phrases per readable block for optional repair.
+///
+/// The job runner can translate these small phrases as probes, then renderer
+/// can exact-match the translated phrase. This is cheaper and less risky than
+/// inferring cross-language word alignment from whole paragraphs.
+pub(crate) fn inline_phrase_probes_by_block(view_html: &str) -> Vec<Vec<InlinePhraseProbe>> {
+    if view_html.trim().is_empty() {
+        return Vec::new();
+    }
+    let document = parse_html_document(view_html.to_string());
+    collect_probe_blocks(&document)
+        .into_iter()
+        .map(|node| {
+            let (source_text, spans) = source_text_and_inline_formatting_spans(&node);
+            spans
+                .into_iter()
+                .filter_map(|span| inline_phrase_probe(&source_text, span))
+                .collect()
+        })
+        .collect()
 }
 
 fn collect_inline_formatting_spans(
@@ -185,6 +226,50 @@ fn collect_inline_formatting_spans(
     if pushed_tag.is_some() {
         active_tags.pop();
     }
+}
+
+fn inline_phrase_probe(source_text: &str, span: InlineFormattingSpan) -> Option<InlinePhraseProbe> {
+    let text = char_slice(source_text, span.start, span.end)?;
+    let text = text.trim();
+    if !phrase_is_specific_enough(text) || text.chars().count() > MAX_INLINE_PHRASE_CHARS {
+        return None;
+    }
+    Some(InlinePhraseProbe {
+        source_start: span.start,
+        source_end: span.end,
+        text: text.to_string(),
+    })
+}
+
+fn collect_probe_blocks(document: &NodeRef) -> Vec<NodeRef> {
+    let root = document
+        .select_first("body")
+        .ok()
+        .map(|body| body.as_node().clone())
+        .unwrap_or_else(|| document.clone());
+    let mut blocks = Vec::new();
+    collect_probe_blocks_from(&root, &mut blocks);
+    blocks
+}
+
+fn collect_probe_blocks_from(node: &NodeRef, blocks: &mut Vec<NodeRef>) {
+    for child in node.children() {
+        if is_probe_block(&child) {
+            blocks.push(child);
+        } else {
+            collect_probe_blocks_from(&child, blocks);
+        }
+    }
+}
+
+fn is_probe_block(node: &NodeRef) -> bool {
+    let Some(element) = node.as_element() else {
+        return false;
+    };
+    matches!(
+        element.name.local.as_ref(),
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" | "li" | "blockquote"
+    )
 }
 
 /// Append text using the same whitespace contract as translation segments.
@@ -377,10 +462,11 @@ fn byte_index_for_char(text: &str, char_index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        fragment_char_range, projected_translated_spans, source_text_and_inline_formatting_spans,
+        fragment_char_range, inline_phrase_probes_by_block, projected_translated_spans,
+        source_text_and_inline_formatting_spans,
     };
     use crate::translation::html::parse_html_document;
-    use crate::translation::storage::PersistTranslationFragment;
+    use crate::translation::storage::{PersistTranslationFragment, PersistTranslationInlinePhrase};
 
     #[test]
     fn collects_normalized_inline_spans() {
@@ -407,6 +493,7 @@ mod tests {
             source_end: 32,
             source_text: "reactionary.".into(),
             text: "reactionary.".into(),
+            inline_phrases: Vec::new(),
         };
 
         let range =
@@ -431,26 +518,63 @@ mod tests {
             },
         ];
 
-        assert!(projected_translated_spans(&spans, "abcdefghij", "abcdefghij").is_none());
+        assert!(projected_translated_spans(&spans, "abcdefghij", "abcdefghij", &[]).is_none());
     }
 
     #[test]
     fn prefers_exact_carryover_for_unique_terms() {
         let spans = vec![super::InlineFormattingSpan {
-            start: 11,
-            end: 19,
+            start: 12,
+            end: 17,
             tags: vec!["em".into(), "strong".into()],
         }];
 
         let projected =
-            projected_translated_spans(&spans, "El regimen Völkisch.", "The Völkisch regime.")
+            projected_translated_spans(&spans, "El proyecto Orion.", "The Orion project.", &[])
                 .expect("projected");
 
         assert_eq!(projected.len(), 1);
         assert_eq!(
-            &"The Völkisch regime."[projected[0].start..projected[0].end],
-            "Völkisch"
+            &"The Orion project."[projected[0].start..projected[0].end],
+            "Orion"
         );
         assert_eq!(projected[0].tags, vec!["em", "strong"]);
+    }
+
+    #[test]
+    fn uses_translated_phrase_hint_for_exact_target_match() {
+        let spans = vec![super::InlineFormattingSpan {
+            start: 3,
+            end: 14,
+            tags: vec!["strong".into()],
+        }];
+        let hints = vec![PersistTranslationInlinePhrase {
+            source_text: "puerta azul".into(),
+            text: "blue door".into(),
+        }];
+
+        let projected = projected_translated_spans(
+            &spans,
+            "La puerta azul abre.",
+            "The blue door opens.",
+            &hints,
+        )
+        .expect("projected");
+
+        assert_eq!(
+            &"The blue door opens."[projected[0].start..projected[0].end],
+            "blue door"
+        );
+    }
+
+    #[test]
+    fn collects_inline_phrase_probes_by_readable_block() {
+        let probes = inline_phrase_probes_by_block(
+            "<!doctype html><html><body><article><p>La <strong>puerta azul</strong> abre.</p></article></body></html>",
+        );
+
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0][0].text, "puerta azul");
+        assert_eq!(probes[0][0].source_start, 3);
     }
 }
