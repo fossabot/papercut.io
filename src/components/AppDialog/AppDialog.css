@@ -89,6 +89,18 @@
   outline: none;
 }
 
+.app-dialog-danger {
+  border: 1px solid var(--danger-border);
+  background: var(--surface);
+  color: var(--danger-accent);
+}
+
+.app-dialog-danger:hover:not(:disabled),
+.app-dialog-danger:focus-visible {
+  background: var(--surface-danger);
+  outline: none;
+}
+
 .app-dialog-actions button:disabled {
   opacity: 0.6;
   cursor: not-allowed;

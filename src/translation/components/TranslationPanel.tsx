@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AppDialog } from '../../components/AppDialog/AppDialog'
 import { Panel } from '../../components/Panel/Panel'
 import './TranslationPanel.css'
 import type {
@@ -74,6 +75,10 @@ export function TranslationPanel({
       : 'Unavailable in this build'
   const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
   const [confirmingDeleteId, setConfirmingDeleteId] = useState('')
+  const confirmingDocument = useMemo(
+    () => translatedDocuments.find((doc) => doc.id === confirmingDeleteId) ?? null,
+    [confirmingDeleteId, translatedDocuments],
+  )
   const [docsOpen, setDocsOpen] = useState(false)
   // Surface newly stored translations even if the list panel was collapsed.
   useEffect(() => {
@@ -414,37 +419,15 @@ export function TranslationPanel({
                     {' · '}{formatQualityLabel(doc.status)}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="translation-document-view-btn"
-                  aria-label={'View ' + doc.title}
-                  onClick={() => { void onOpenTranslatedDocument(doc.documentUrl) }}
-                >
-                  View
-                </button>
-                {confirmingDeleteId === doc.id ? (
-                  <>
-                    <button
-                      type="button"
-                      className="translation-document-delete-btn translation-document-delete-confirm"
-                      aria-label={'Confirm deleting ' + doc.title}
-                      onClick={() => {
-                        setConfirmingDeleteId('')
-                        void onDeleteTranslatedDocument(doc.id)
-                      }}
-                    >
-                      Confirm delete
-                    </button>
-                    <button
-                      type="button"
-                      className="translation-document-view-btn"
-                      aria-label={'Keep ' + doc.title}
-                      onClick={() => setConfirmingDeleteId('')}
-                    >
-                      Keep
-                    </button>
-                  </>
-                ) : (
+                <div className="translation-document-actions">
+                  <button
+                    type="button"
+                    className="translation-document-view-btn"
+                    aria-label={'View ' + doc.title}
+                    onClick={() => { void onOpenTranslatedDocument(doc.documentUrl) }}
+                  >
+                    View
+                  </button>
                   <button
                     type="button"
                     className="translation-document-delete-btn"
@@ -453,7 +436,7 @@ export function TranslationPanel({
                   >
                     Delete
                   </button>
-                )}
+                </div>
               </div>
             ))}
           </div>
@@ -462,6 +445,35 @@ export function TranslationPanel({
         )}
       </Panel>
       </div>
+
+      {confirmingDocument && (
+        <AppDialog
+          title="Delete translated document?"
+          description={'"' + confirmingDocument.title + '" will be removed. The original document is not affected; re-running the translation recreates it.'}
+          onCancel={() => setConfirmingDeleteId('')}
+          actions={
+            <>
+              <button
+                type="button"
+                className="app-dialog-cancel"
+                onClick={() => setConfirmingDeleteId('')}
+              >
+                Keep
+              </button>
+              <button
+                type="button"
+                className="app-dialog-danger"
+                onClick={() => {
+                  setConfirmingDeleteId('')
+                  void onDeleteTranslatedDocument(confirmingDocument.id)
+                }}
+              >
+                Delete
+              </button>
+            </>
+          }
+        />
+      )}
     </Panel>
   )
 }
