@@ -171,13 +171,13 @@ interface NativeTtsChunkResponse {
   backend: string
 }
 
-type NativeTtsInputChunk = Pick<TtsChunk, 'id' | 'text' | 'textHash'>
+type NativeTtsInputChunk = Pick<TtsChunk, 'id' | 'text' | 'textHash' | 'sourceSpan'>
 
-// Keep DOM-only source spans inside React. Native manifests/bundles intentionally
-// retain their existing id/text/hash schema and cache compatibility.
+// Preserve sourceSpan across native save/export so new bundles can restore
+// highlighting without rediscovering DOM positions from text alone.
 function toNativeTtsChunk(chunk: TtsChunk): NativeTtsInputChunk {
   const textHash = typeof chunk.textHash === 'string' ? chunk.textHash : undefined
-  return { id: chunk.id, text: chunk.text, textHash }
+  return { id: chunk.id, text: chunk.text, textHash, sourceSpan: chunk.sourceSpan }
 }
 
 function toNativeTtsChunks(chunks: TtsChunk[]): NativeTtsInputChunk[] {
