@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime};
 
+use super::inline_markup::INLINE_ALIGNMENT_VERSION;
 use super::job::TranslationJobPlan;
 use super::segment::TranslationTextSegment;
 
@@ -31,6 +32,13 @@ pub(crate) struct TranslationSegmentCache {
     segments: BTreeMap<String, CachedTranslationSegment>,
     #[serde(default)]
     memory: BTreeMap<String, String>,
+    /// Inline-alignment strategy version active when this cache was written.
+    ///
+    /// The memory map stores probe phrase translations whose extraction and
+    /// trimming rules live in `inline_markup`; mixing entries produced under a
+    /// different strategy could feed stale hints into rendering.
+    #[serde(default)]
+    inline_alignment_version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +80,25 @@ impl TranslationSegmentCache {
         self.memory
             .get(&hash_segment_text(&segment.text))
             .map(String::as_str)
+    }
+
+    /// Return a remembered translation for one emphasized phrase probe.
+    ///
+    /// Probes share the exact-match translation memory with whole segments, so
+    /// repeated jobs and repeated emphasized phrases skip native inference.
+    pub(crate) fn translated_probe_text(&self, source_text: &str) -> Option<&str> {
+        self.memory
+            .get(&hash_segment_text(source_text))
+            .map(String::as_str)
+            .filter(|text| !text.trim().is_empty())
+    }
+
+    pub(crate) fn store_probe_translation(&mut self, source_text: &str, translated_text: String) {
+        if translated_text.trim().is_empty() {
+            return;
+        }
+        self.memory
+            .insert(hash_segment_text(source_text), translated_text);
     }
 
     pub(crate) fn store_translation(
@@ -161,6 +188,7 @@ fn new_segment_cache(plan: &TranslationJobPlan) -> TranslationSegmentCache {
         batch_segment_limit: plan.batch_segment_limit,
         segments: BTreeMap::new(),
         memory: BTreeMap::new(),
+        inline_alignment_version: INLINE_ALIGNMENT_VERSION,
     }
 }
 
@@ -173,6 +201,7 @@ fn cache_is_compatible(cache: &TranslationSegmentCache, plan: &TranslationJobPla
         && cache.quality_mode == plan.request.quality_mode
         && cache.max_segment_chars == plan.max_segment_chars
         && cache.batch_segment_limit == plan.batch_segment_limit
+        && cache.inline_alignment_version == INLINE_ALIGNMENT_VERSION
 }
 
 fn segment_cache_path<R: Runtime>(
@@ -287,6 +316,32 @@ mod tests {
 
         assert!(cache_is_compatible(&cache, &plan));
         plan.request.quality_mode = "quality".into();
+        assert!(!cache_is_compatible(&cache, &plan));
+    }
+
+    #[test]
+    fn probe_translations_reuse_shared_memory() {
+        let plan = plan();
+        let mut cache = new_segment_cache(&plan);
+
+        assert_eq!(cache.translated_probe_text("frase corta"), None);
+        cache.store_probe_translation("frase corta", "short phrase".into());
+        assert_eq!(
+            cache.translated_probe_text("frase corta"),
+            Some("short phrase")
+        );
+
+        cache.store_probe_translation("otra frase", "   ".into());
+        assert_eq!(cache.translated_probe_text("otra frase"), None);
+    }
+
+    #[test]
+    fn stale_inline_alignment_version_invalidates_cache() {
+        let plan = plan();
+        let mut cache = new_segment_cache(&plan);
+
+        assert!(cache_is_compatible(&cache, &plan));
+        cache.inline_alignment_version = 0;
         assert!(!cache_is_compatible(&cache, &plan));
     }
 

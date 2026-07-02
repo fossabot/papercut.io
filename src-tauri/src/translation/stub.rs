@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Emitter;
 
-use super::cache::{load_segment_cache, save_segment_cache};
+use super::cache::{load_segment_cache, save_segment_cache, TranslationSegmentCache};
 use super::config::{
     DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
     TRANSLATION_BACKEND_CTRANSLATE2, TRANSLATION_BACKEND_UNAVAILABLE,
@@ -347,7 +347,17 @@ fn run_translation_batches<R: tauri::Runtime>(
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
     let mut translated_fragments =
         vec![Vec::<PersistTranslationFragment>::new(); source.blocks.len()];
-    let inline_phrase_probes = inline_phrase_probes_by_block(&source.view_html);
+    let inline_phrase_probes = {
+        let probes = inline_phrase_probes_by_block(&source.view_html);
+        // Probe offsets are only meaningful when reader-DOM blocks line up
+        // one-to-one with planned source blocks; on mismatch, skipping hints
+        // beats attaching them to the wrong segments.
+        if probes.len() == source.blocks.len() {
+            probes
+        } else {
+            Vec::new()
+        }
+    };
     let mut cache =
         load_segment_cache(app, plan).map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
     for batch in &plan.batches {
@@ -405,8 +415,8 @@ fn run_translation_batches<R: tauri::Runtime>(
             ));
         }
 
-        let inline_phrase_hints =
-            translate_inline_phrase_hints(engine, plan, batch, &inline_phrase_probes);
+        let (inline_phrase_hints, stored_probe_translations) =
+            translate_inline_phrase_hints(engine, plan, batch, &inline_phrase_probes, &mut cache);
         let mut pending_batch = TranslationBatchPlan {
             index: batch.index,
             segments: Vec::new(),
@@ -517,7 +527,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                     &preview,
                 )
             })?;
-        } else if materialized_memory_reuse {
+        } else if materialized_memory_reuse || stored_probe_translations {
             save_segment_cache(app, plan, &cache).map_err(|err| {
                 run_failure(
                     "failed",
@@ -654,17 +664,34 @@ fn run_failure(
 /// renderer a target phrase to exact-match when bold/italic source text was
 /// translated rather than carried over unchanged. Probe failure is non-fatal:
 /// plain/proportional inline rendering is safer than failing a completed book.
+///
+/// Probe phrases go through the shared translation memory first, so resumed or
+/// repeated jobs do not re-run the engine for every emphasized phrase. Returns
+/// the hints keyed by owning segment id, plus whether new probe translations
+/// entered the cache and need a save.
 fn translate_inline_phrase_hints(
     engine: &mut CTranslate2Engine,
     plan: &TranslationJobPlan,
     batch: &TranslationBatchPlan,
     probes_by_block: &[Vec<InlinePhraseProbe>],
-) -> BTreeMap<String, Vec<PersistTranslationInlinePhrase>> {
+    cache: &mut TranslationSegmentCache,
+) -> (BTreeMap<String, Vec<PersistTranslationInlinePhrase>>, bool) {
+    let mut hints = BTreeMap::<String, Vec<PersistTranslationInlinePhrase>>::new();
     let mut owners = Vec::new();
     let mut inputs = Vec::new();
     for segment in &batch.segments {
         let probes = inline_phrase_probes_for_segment(segment, probes_by_block);
         for (index, probe) in probes.into_iter().enumerate() {
+            if let Some(remembered) = cache.translated_probe_text(&probe.text) {
+                hints
+                    .entry(segment.id.clone())
+                    .or_default()
+                    .push(PersistTranslationInlinePhrase {
+                        source_text: probe.text.clone(),
+                        text: remembered.to_string(),
+                    });
+                continue;
+            }
             let id = format!("{}:inline:{index}", segment.id);
             owners.push((id.clone(), segment.id.clone(), probe.text.clone()));
             inputs.push(TranslationSegmentInput {
@@ -678,7 +705,7 @@ fn translate_inline_phrase_hints(
         }
     }
     if inputs.is_empty() {
-        return BTreeMap::new();
+        return (hints, false);
     }
 
     let owner_by_probe = owners
@@ -694,10 +721,10 @@ fn translate_inline_phrase_hints(
         glossary: plan.request.glossary.clone(),
         segments: inputs,
     }) else {
-        return BTreeMap::new();
+        return (hints, false);
     };
 
-    let mut hints = BTreeMap::<String, Vec<PersistTranslationInlinePhrase>>::new();
+    let mut stored_new_translation = false;
     for output in outputs {
         let Some((owner_id, source_text)) = owner_by_probe.get(&output.id) else {
             continue;
@@ -706,6 +733,8 @@ fn translate_inline_phrase_hints(
         if translated.is_empty() {
             continue;
         }
+        cache.store_probe_translation(source_text, translated.to_string());
+        stored_new_translation = true;
         hints
             .entry(owner_id.clone())
             .or_default()
@@ -714,7 +743,7 @@ fn translate_inline_phrase_hints(
                 text: translated.to_string(),
             });
     }
-    hints
+    (hints, stored_new_translation)
 }
 
 fn inline_phrase_probes_for_segment(
