@@ -5,8 +5,6 @@
 //! module owns the middle step so performance limits are testable before any
 //! native model runtime is linked.
 
-#![allow(dead_code)]
-
 use super::hash::StableHasher;
 use super::segment::{segment_text_blocks, TranslationTextSegment};
 use super::types::TranslationStartRequest;
@@ -19,7 +17,6 @@ pub(crate) struct TranslationJobPlan {
     pub(crate) request: TranslationStartRequest,
     pub(crate) batches: Vec<TranslationBatchPlan>,
     pub(crate) total_segments: usize,
-    pub(crate) total_source_chars: usize,
     pub(crate) max_segment_chars: usize,
     pub(crate) batch_segment_limit: usize,
 }
@@ -55,10 +52,6 @@ where
         return Err("Document has no translatable text".into());
     }
 
-    let total_source_chars = segments
-        .iter()
-        .map(|segment| segment.text.chars().count())
-        .sum();
     let batches = segments
         .chunks(batch_segment_limit)
         .enumerate()
@@ -72,7 +65,6 @@ where
         cache_key: build_translation_cache_key(&request),
         request,
         total_segments: segments.len(),
-        total_source_chars,
         max_segment_chars,
         batch_segment_limit,
         batches,

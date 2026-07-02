@@ -18,6 +18,8 @@ pub(crate) struct TranslationModelManifest {
     pub(crate) directory_name: &'static str,
     pub(crate) source_label: &'static str,
     pub(crate) source_url: &'static str,
+    /// Read only by the feature-gated downloader when building resolve URLs.
+    #[cfg_attr(not(feature = "native-translation"), allow(dead_code))]
     pub(crate) revision: &'static str,
     pub(crate) files: &'static [TranslationModelFile],
     pub(crate) installable: bool,
@@ -27,6 +29,8 @@ pub(crate) struct TranslationModelManifest {
 pub(crate) struct TranslationModelFile {
     pub(crate) path: &'static str,
     pub(crate) bytes: u64,
+    /// Verified only by the feature-gated downloader.
+    #[cfg_attr(not(feature = "native-translation"), allow(dead_code))]
     pub(crate) sha256: &'static str,
 }
 

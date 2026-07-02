@@ -6,6 +6,9 @@
 //! model directory and can translate bounded batches. That lets us smoke-test
 //! OPUS-MT before committing to full document rewrite/storage semantics.
 
+// Several config fields and helpers are only read when the native feature is
+// compiled in; the blanket allow keeps the non-native build warning-free
+// without scattering cfg_attr over every conditional item.
 #![allow(dead_code)]
 
 use std::path::PathBuf;
@@ -152,11 +155,9 @@ impl TranslationEngine for CTranslate2Engine {
             options.max_batch_size = sources.len().max(1);
             options.replace_unknowns = true;
 
-            let started = std::time::Instant::now();
             let translated = translator
                 .translate_batch(&sources, &options, None)
                 .map_err(|err| format!("CTranslate2 batch translation failed: {err}"))?;
-            let engine_elapsed = started.elapsed();
             if translated.len() != expanded_sources.len() {
                 return Err(format!(
                     "CTranslate2 returned {} outputs for {} token-bounded source pieces",
@@ -177,7 +178,6 @@ impl TranslationEngine for CTranslate2Engine {
                 .map(|(index, segment)| TranslationSegmentOutput {
                     id: segment.id,
                     text: joined_outputs[index].clone(),
-                    engine_elapsed,
                 })
                 .collect())
         }

@@ -8,6 +8,7 @@
 //! before any native translation engine is chosen.
 
 mod cache;
+mod capabilities;
 pub(crate) mod commands;
 mod config;
 mod ctranslate2;
@@ -21,11 +22,11 @@ mod model_store;
 mod models;
 mod quality;
 mod render;
+mod runner;
 mod segment;
 mod source;
 mod state;
 mod storage;
-mod stub;
 mod types;
 
 pub use state::TranslationState;

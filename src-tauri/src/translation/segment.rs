@@ -4,8 +4,6 @@
 //! still needs bounded text payloads so native engines can batch work without
 //! overflowing context windows or freezing the UI on very large books.
 
-#![allow(dead_code)]
-
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

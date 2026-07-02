@@ -5,8 +5,6 @@
 //! batching/search text, while reader HTML lets rendered translations preserve
 //! document structure where possible.
 
-#![allow(dead_code)]
-
 use rusqlite::{params, OptionalExtension};
 use tauri::Runtime;
 

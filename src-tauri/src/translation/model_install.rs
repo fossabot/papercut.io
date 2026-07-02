@@ -249,6 +249,9 @@ fn download_and_verify_file<R: Runtime>(
     Err("Offline translation model downloads are not compiled in this build".into())
 }
 
+// Only the feature-gated downloader builds URLs; keep the helper compiled in
+// all builds so it stays reviewed alongside the manifest shape.
+#[cfg_attr(not(feature = "native-translation"), allow(dead_code))]
 fn model_file_url(manifest: TranslationModelManifest, file: &TranslationModelFile) -> String {
     format!(
         "https://huggingface.co/{}/resolve/{}/{}",

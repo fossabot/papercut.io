@@ -1,12 +1,8 @@
 //! Native translation engine boundary.
 //!
-//! This module intentionally does not depend on CTranslate2 yet. The next
-//! implementation step can wire these contracts to `ct2rs`, `ctranslate2`, or
-//! another runtime without changing command DTOs or storage semantics.
-
-#![allow(dead_code)]
-
-use std::time::Duration;
+//! This module intentionally does not depend on CTranslate2 directly. Engine
+//! adapters implement these contracts so command DTOs and storage semantics
+//! stay stable while runtimes change.
 
 use super::types::{TranslationGlossaryEntry, TranslationRepairMode};
 
@@ -28,12 +24,13 @@ pub(crate) struct TranslationSegmentInput {
     pub(crate) context: TranslationSegmentContext,
 }
 
+/// Quality hints attached to one segment.
+///
+/// Only glossary hints exist today. The roadmap's document memory packet
+/// (title, heading hierarchy, neighboring text) should be added here when an
+/// engine that can consume it lands; OPUS-MT ignores free-form context.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TranslationSegmentContext {
-    pub(crate) title: Option<String>,
-    pub(crate) heading: Option<String>,
-    pub(crate) previous_text: Option<String>,
-    pub(crate) next_text: Option<String>,
     pub(crate) glossary: Vec<TranslationGlossaryEntry>,
 }
 
@@ -41,7 +38,6 @@ pub(crate) struct TranslationSegmentContext {
 pub(crate) struct TranslationSegmentOutput {
     pub(crate) id: String,
     pub(crate) text: String,
-    pub(crate) engine_elapsed: Duration,
 }
 
 pub(crate) trait TranslationEngine {

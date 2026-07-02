@@ -4,17 +4,19 @@
 //! translated-document storage live behind backend modules so the Tauri command
 //! surface stays stable as engines and packaging evolve.
 
+use super::capabilities::{
+    translation_capabilities as translation_capabilities_backend,
+    translation_model_status as translation_model_status_backend,
+};
 use super::model_install::install_translation_model as install_translation_model_backend;
+use super::runner::{
+    cancel_translation as cancel_translation_backend,
+    start_translation as start_translation_backend,
+};
 use super::state::TranslationState;
 use super::storage::{
     delete_translated_document as delete_translated_document_storage,
     list_translated_documents as list_translated_documents_storage,
-};
-use super::stub::{
-    cancel_translation as cancel_translation_backend,
-    start_translation as start_translation_backend,
-    translation_capabilities as translation_capabilities_backend,
-    translation_model_status as translation_model_status_backend,
 };
 use super::types::{
     TranslatedDocumentInfo, TranslationCancelRequest, TranslationCapabilities,

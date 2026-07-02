@@ -136,6 +136,10 @@ pub(crate) struct TranslationJobProgress {
     pub(crate) job_id: String,
     pub(crate) status: String,
     pub(crate) message: String,
+    pub(crate) model_id: String,
+    pub(crate) elapsed_ms: u64,
+    /// Source heading of the section currently being translated, when known.
+    pub(crate) current_heading: Option<String>,
     pub(crate) completed_segments: usize,
     pub(crate) total_segments: usize,
     pub(crate) cached_segments: usize,

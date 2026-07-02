@@ -80,6 +80,9 @@ export interface TranslationJobProgress {
   jobId: string
   status: 'starting' | 'translating' | 'completed' | 'cancelled' | string
   message: string
+  modelId: string
+  elapsedMs: number
+  currentHeading: string | null
   completedSegments: number
   totalSegments: number
   cachedSegments: number

@@ -65,17 +65,25 @@ Add translation as a separate native feature area, parallel to native TTS:
 
 ```text
 src-tauri/src/translation/
+  cache.rs          # resume-safe segment cache and translation memory
+  capabilities.rs   # capability/model-status reporting for the UI
   commands.rs       # Tauri command edge and event subscription plumbing
   config.rs         # size limits, chunk limits, feature constants
-  engine.rs         # shared engine trait and dispatch
-  job.rs            # long-running translate/save job orchestration
+  ctranslate2.rs    # CTranslate2/OPUS-MT engine adapter
+  engine.rs         # shared engine trait and batch/segment contracts
+  hash.rs           # stable non-cryptographic hashing for cache identity
+  html.rs           # shared HTML parser boundary for DOM-preserving transforms
+  inline_markup.rs  # marker-aware inline models and span projection
+  job.rs            # request validation, segmentation batching, cache keys
   model_install.rs  # download, verify, extract, install
   model_store.rs    # model manifests, install paths, model status helpers
   models.rs         # catalog metadata and language-pair support
-  html.rs           # shared HTML parser boundary for DOM-preserving transforms
-  segment.rs        # document/chapter/paragraph/sentence segmentation
-  storage.rs        # translated variant paths and cache keys
   quality.rs        # output checks and repair hooks
+  render.rs         # DOM-preserving translated document rendering
+  runner.rs         # long-running translate/persist job orchestration
+  segment.rs        # document/chapter/paragraph/sentence segmentation
+  source.rs         # source-document reads from upload storage
+  storage.rs        # translated variant persistence and provenance
   types.rs          # serde DTOs crossing the Tauri boundary
 ```
 

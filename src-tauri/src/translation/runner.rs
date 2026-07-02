@@ -1,18 +1,19 @@
-//! Stub backend for offline translation.
+//! Translation job runner.
 //!
-//! This is not a "fake translator"; it only exposes capabilities and stable
-//! command responses while native translation engines are still being evaluated.
+//! Owns the long-running translate/persist path: preflight, cache reuse,
+//! native CTranslate2 batches, inline phrase probes, progress/cancellation
+//! events, and handoff to durable storage. Capability/status reporting lives
+//! in `capabilities`; batch planning lives in `job`.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tauri::Emitter;
 
 use super::cache::{load_segment_cache, save_segment_cache, TranslationSegmentCache};
 use super::config::{
-    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, DEFAULT_TRANSLATION_QUALITY_MODE,
-    TRANSLATION_BACKEND_CTRANSLATE2, TRANSLATION_BACKEND_UNAVAILABLE,
-    TRANSLATION_JOB_PROGRESS_EVENT,
+    DEFAULT_BATCH_SEGMENT_LIMIT, DEFAULT_MAX_SEGMENT_CHARS, TRANSLATION_JOB_PROGRESS_EVENT,
 };
 use super::ctranslate2::CTranslate2Engine;
 use super::engine::{
@@ -20,8 +21,8 @@ use super::engine::{
 };
 use super::inline_markup::{inline_phrase_probes_by_block, InlinePhraseProbe};
 use super::job::{plan_translation_job, TranslationBatchPlan, TranslationJobPlan};
-use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
-use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
+use super::model_store::{manifest_for, resolve_translation_model_dir};
+use super::models::{find_planned_model, TranslationModelDefinition};
 use super::quality::lowered_contains_word_bounded;
 use super::source::{load_translation_source_document, TranslationSourceDocument};
 use super::state::TranslationState;
@@ -30,120 +31,13 @@ use super::storage::{
     PersistTranslationRequest, PersistTranslationSection,
 };
 use super::types::{
-    TranslationCancelRequest, TranslationCapabilities, TranslationGlossaryEntry,
-    TranslationJobProgress, TranslationModelStatus, TranslationModelStatusRequest,
+    TranslationCancelRequest, TranslationGlossaryEntry, TranslationJobProgress,
     TranslationStartRequest, TranslationStartResponse,
 };
 
-const NOT_IMPLEMENTED: &str = "Offline translation is planned but not implemented in this build.";
 const MAX_INLINE_PHRASE_PROBES_PER_SEGMENT: usize = 8;
 
-/// Report translation capability shape even when a backend is unavailable.
-///
-/// The UI uses this stable payload to render model choices and feature gates
-/// before every platform has native inference support.
-pub(super) fn translation_capabilities() -> TranslationCapabilities {
-    let available = cfg!(feature = "native-translation-ctranslate2");
-    TranslationCapabilities {
-        available,
-        backend: if available {
-            TRANSLATION_BACKEND_CTRANSLATE2
-        } else {
-            TRANSLATION_BACKEND_UNAVAILABLE
-        }
-        .into(),
-        reason: translation_capability_reason(available),
-        platform: std::env::consts::OS.into(),
-        default_quality_mode: DEFAULT_TRANSLATION_QUALITY_MODE.into(),
-        models: planned_models(),
-    }
-}
-
-/// Return install status for one catalog model.
-///
-/// This bridges planning and runtime: non-downloadable catalog entries explain
-/// why they cannot run yet, while pinned manifests can report real disk state.
-pub(super) fn translation_model_status<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    state: &tauri::State<'_, TranslationState>,
-    request: TranslationModelStatusRequest,
-) -> TranslationModelStatus {
-    let Some(model) = find_planned_model(&request.model_id) else {
-        return TranslationModelStatus {
-            model_id: request.model_id,
-            installed: false,
-            installing: false,
-            model_dir: None,
-            source_url: String::new(),
-            source_label: "Unknown offline translation model".into(),
-            archive_bytes: 0,
-            installed_bytes: 0,
-            sha256: String::new(),
-            message: "Translation model is not in the planned catalog.".into(),
-        };
-    };
-
-    let manifest = manifest_for(model);
-    let installing = state
-        .model_installing
-        .lock()
-        .map(|guard| guard.contains(manifest.directory_name))
-        .unwrap_or(false);
-    match resolve_translation_model_dir(app, manifest) {
-        Ok(model_dir) => TranslationModelStatus {
-            model_id: manifest.model_id.into(),
-            installed: true,
-            installing,
-            model_dir: Some(model_dir.display().to_string()),
-            source_url: manifest.source_url.into(),
-            source_label: manifest.source_label.into(),
-            archive_bytes: manifest.total_bytes(),
-            installed_bytes: directory_size(&model_dir).unwrap_or(0),
-            sha256: String::new(),
-            message: "Offline translation model installed".into(),
-        },
-        Err(_) => TranslationModelStatus {
-            model_id: manifest.model_id.into(),
-            installed: false,
-            installing,
-            model_dir: None,
-            source_url: manifest.source_url.into(),
-            source_label: format!("{} ({})", model.name, model.manifest_state),
-            archive_bytes: manifest.total_bytes(),
-            installed_bytes: 0,
-            sha256: String::new(),
-            message: if manifest.files.is_empty() {
-                format!(
-                    "{NOT_IMPLEMENTED} This candidate is not downloadable until source URL, checksum, license, required files, and platform gates are reviewed."
-                )
-            } else if cfg!(feature = "native-translation-ctranslate2") {
-                "Translation model is installable. Install it before starting a translation job."
-                    .into()
-            } else {
-                format!(
-                    "{NOT_IMPLEMENTED} The file manifest is pinned and installable, but native CTranslate2 inference is not wired yet."
-                )
-            },
-        },
-    }
-}
-
-fn translation_capability_reason(available: bool) -> String {
-    let limits = format!(
-        "max {DEFAULT_MAX_SEGMENT_CHARS} chars/segment, {DEFAULT_BATCH_SEGMENT_LIMIT} segments/batch"
-    );
-    if available {
-        format!("CTranslate2 offline translation is available for pinned OPUS-MT models; {limits}.")
-    } else {
-        format!("{NOT_IMPLEMENTED} Planned defaults: {limits}.")
-    }
-}
-
 /// Start a translation job and persist the completed output as a derived upload.
-///
-/// Despite the module name, this path now performs real preflight, cache reuse,
-/// optional native CTranslate2 execution, and durable storage when the selected
-/// model is installable and the native backend is compiled in.
 pub(super) fn start_translation<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &TranslationState,
@@ -177,107 +71,108 @@ pub(super) fn start_translation<R: tauri::Runtime>(
         source_blocks,
         DEFAULT_MAX_SEGMENT_CHARS,
         DEFAULT_BATCH_SEGMENT_LIMIT,
-    );
-    match plan {
-        Ok(plan) => {
-            let job_id = plan
-                .request
-                .job_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or(&plan.cache_key)
-                .to_string();
-            clear_cancelled(&state.cancelled_jobs, &job_id)?;
-            let mut engine =
-                CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir)?;
-            match run_translation_batches(app, state, &mut engine, &plan, &source, &job_id) {
-                Ok(summary) => {
-                    emit_translation_progress(
-                        app,
-                        progress(
-                            &job_id,
-                            "validating",
-                            "Validating translated document",
-                            &plan,
-                            plan.total_segments,
-                            summary.cached_segments,
-                            0,
-                            plan.batches.len(),
-                            &summary.preview,
-                        ),
-                    )?;
-                    let stored = persist_translated_document(
-                        app,
-                        PersistTranslationRequest {
-                            source: source.clone(),
-                            source_language: plan.request.source_language.clone(),
-                            target_language: plan.request.target_language.clone(),
-                            model_id: plan.request.model_id.clone(),
-                            quality_mode: plan.request.quality_mode.clone(),
-                            repair_mode: plan.request.repair_mode.clone(),
-                            job_id: job_id.clone(),
-                            glossary: plan.request.glossary.clone(),
-                            translated_sections: summary.sections,
-                        },
-                    )?;
-                    emit_translation_progress(
-                        app,
-                        progress(
-                            &job_id,
-                            "stored",
-                            "Translated document stored",
-                            &plan,
-                            plan.total_segments,
-                            summary.cached_segments,
-                            0,
-                            plan.batches.len(),
-                            &summary.preview,
-                        ),
-                    )?;
-                    Ok(TranslationStartResponse {
-                        job_id,
-                        status: "stored".into(),
-                        message: format!(
-                            "Stored translated document '{}': {} segment(s), {} batch(es), preview: {}",
-                            stored.title,
-                            plan.total_segments,
-                            plan.batches.len(),
-                            summary.preview
-                        ),
-                    })
-                }
-                Err(err) => {
-                    let _ = clear_cancelled(&state.cancelled_jobs, &job_id);
-                    if err.status != "cancelled" {
-                        let _ = emit_translation_progress(
-                            app,
-                            progress(
-                                &job_id,
-                                err.status,
-                                &err.message,
-                                &plan,
-                                err.completed_segments,
-                                err.cached_segments,
-                                0,
-                                err.completed_batches,
-                                &err.preview,
-                            ),
-                        );
-                    }
-                    let message = format!(
-                        "Translation did not complete. Planned {} translatable segments in {} batches for '{}', using installed model {} at {}. {}",
-                        plan.total_segments,
-                        plan.batches.len(),
-                        source.title,
-                        engine.config().model_id,
-                        engine.config().model_dir.display(),
-                        err.message
-                    );
-                    Err(message)
-                }
-            }
+    )?;
+    let job_id = plan
+        .request
+        .job_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(&plan.cache_key)
+        .to_string();
+    clear_cancelled(&state.cancelled_jobs, &job_id)?;
+    let started = Instant::now();
+    let mut engine =
+        CTranslate2Engine::for_installed_model(plan.request.model_id.clone(), model_dir)?;
+    match run_translation_batches(app, state, &mut engine, &plan, &source, &job_id, started) {
+        Ok(summary) => {
+            emit_translation_progress(
+                app,
+                progress(
+                    &job_id,
+                    "validating",
+                    "Validating translated document",
+                    &plan,
+                    started,
+                    None,
+                    plan.total_segments,
+                    summary.cached_segments,
+                    0,
+                    plan.batches.len(),
+                    &summary.preview,
+                ),
+            )?;
+            let stored = persist_translated_document(
+                app,
+                PersistTranslationRequest {
+                    source: source.clone(),
+                    source_language: plan.request.source_language.clone(),
+                    target_language: plan.request.target_language.clone(),
+                    model_id: plan.request.model_id.clone(),
+                    quality_mode: plan.request.quality_mode.clone(),
+                    repair_mode: plan.request.repair_mode.clone(),
+                    job_id: job_id.clone(),
+                    glossary: plan.request.glossary.clone(),
+                    translated_sections: summary.sections,
+                },
+            )?;
+            emit_translation_progress(
+                app,
+                progress(
+                    &job_id,
+                    "stored",
+                    "Translated document stored",
+                    &plan,
+                    started,
+                    None,
+                    plan.total_segments,
+                    summary.cached_segments,
+                    0,
+                    plan.batches.len(),
+                    &summary.preview,
+                ),
+            )?;
+            Ok(TranslationStartResponse {
+                job_id,
+                status: "stored".into(),
+                message: format!(
+                    "Stored translated document '{}': {} segment(s), {} batch(es), preview: {}",
+                    stored.title,
+                    plan.total_segments,
+                    plan.batches.len(),
+                    summary.preview
+                ),
+            })
         }
-        Err(err) => Err(err),
+        Err(err) => {
+            let _ = clear_cancelled(&state.cancelled_jobs, &job_id);
+            if err.status != "cancelled" {
+                let _ = emit_translation_progress(
+                    app,
+                    progress(
+                        &job_id,
+                        err.status,
+                        &err.message,
+                        &plan,
+                        started,
+                        None,
+                        err.completed_segments,
+                        err.cached_segments,
+                        0,
+                        err.completed_batches,
+                        &err.preview,
+                    ),
+                );
+            }
+            Err(format!(
+                "Translation did not complete. Planned {} translatable segments in {} batches for '{}', using installed model {} at {}. {}",
+                plan.total_segments,
+                plan.batches.len(),
+                source.title,
+                engine.config().model_id,
+                engine.config().model_dir.display(),
+                err.message
+            ))
+        }
     }
 }
 
@@ -313,11 +208,68 @@ struct TranslationRunFailure {
     preview: String,
 }
 
+/// Mutable run counters shared by every progress event and failure report.
+///
+/// Centralizing these keeps the batch loop's many error paths from carrying
+/// six positional arguments each; the values always reflect the loop's current
+/// position, so a failure snapshot is just a read of this struct.
+struct BatchRunState<'a> {
+    job_id: &'a str,
+    plan: &'a TranslationJobPlan,
+    started: Instant,
+    completed_segments: usize,
+    cached_segments: usize,
+    completed_batches: usize,
+    current_heading: Option<String>,
+    preview: String,
+}
+
+impl BatchRunState<'_> {
+    fn failure(&self, status: &'static str, message: impl Into<String>) -> TranslationRunFailure {
+        TranslationRunFailure {
+            status,
+            message: message.into(),
+            completed_segments: self.completed_segments,
+            cached_segments: self.cached_segments,
+            completed_batches: self.completed_batches,
+            preview: truncate_preview(self.preview.trim(), 180),
+        }
+    }
+
+    fn progress(
+        &self,
+        status: &str,
+        message: &str,
+        reused_segments_in_batch: usize,
+    ) -> TranslationJobProgress {
+        progress(
+            self.job_id,
+            status,
+            message,
+            self.plan,
+            self.started,
+            self.current_heading.clone(),
+            self.completed_segments,
+            self.cached_segments,
+            reused_segments_in_batch,
+            self.completed_batches,
+            &self.preview,
+        )
+    }
+
+    fn note_preview(&mut self, text: &str) {
+        if self.preview.is_empty() && !text.trim().is_empty() {
+            self.preview = text.trim().to_string();
+        }
+    }
+}
+
 /// Translate every planned batch and keep source-block order intact.
 ///
 /// Segments are batched for engine throughput, but storage needs section-sized
 /// text again. The source block index lets us stitch translated segments back
 /// into their original document sections before the durable variant is written.
+#[allow(clippy::too_many_arguments)]
 fn run_translation_batches<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     state: &TranslationState,
@@ -325,26 +277,24 @@ fn run_translation_batches<R: tauri::Runtime>(
     plan: &TranslationJobPlan,
     source: &TranslationSourceDocument,
     job_id: &str,
+    started: Instant,
 ) -> Result<TranslationRunSummary, TranslationRunFailure> {
+    let mut run = BatchRunState {
+        job_id,
+        plan,
+        started,
+        completed_segments: 0,
+        cached_segments: 0,
+        completed_batches: 0,
+        current_heading: None,
+        preview: String::new(),
+    };
     emit_translation_progress(
         app,
-        progress(
-            job_id,
-            "starting",
-            "Preparing translation batches",
-            plan,
-            0,
-            0,
-            0,
-            0,
-            "",
-        ),
+        run.progress("starting", "Preparing translation batches", 0),
     )
-    .map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
+    .map_err(|err| run.failure("failed", err))?;
 
-    let mut completed_segments = 0;
-    let mut cached_segments = 0;
-    let mut preview = String::new();
     let mut translated_blocks = vec![String::new(); source.blocks.len()];
     let mut translated_fragments =
         vec![Vec::<PersistTranslationFragment>::new(); source.blocks.len()];
@@ -365,61 +315,20 @@ fn run_translation_batches<R: tauri::Runtime>(
             Vec::new()
         }
     };
-    let mut cache =
-        load_segment_cache(app, plan).map_err(|err| run_failure("failed", err, 0, 0, 0, ""))?;
+    let mut cache = load_segment_cache(app, plan).map_err(|err| run.failure("failed", err))?;
     for batch in &plan.batches {
-        if is_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
-            run_failure(
-                "failed",
-                err,
-                completed_segments,
-                cached_segments,
-                batch.index,
-                &preview,
-            )
-        })? {
-            emit_translation_progress(
-                app,
-                progress(
-                    job_id,
-                    "cancelled",
-                    "Translation cancelled",
-                    plan,
-                    completed_segments,
-                    cached_segments,
-                    0,
-                    batch.index,
-                    &preview,
-                ),
-            )
-            .map_err(|err| {
-                run_failure(
-                    "failed",
-                    err,
-                    completed_segments,
-                    cached_segments,
-                    batch.index,
-                    &preview,
-                )
-            })?;
-            clear_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
-                run_failure(
-                    "failed",
-                    err,
-                    completed_segments,
-                    cached_segments,
-                    batch.index,
-                    &preview,
-                )
-            })?;
-            return Err(run_failure(
-                "cancelled",
-                "Translation cancelled",
-                completed_segments,
-                cached_segments,
-                batch.index,
-                &preview,
-            ));
+        run.completed_batches = batch.index;
+        run.current_heading = batch
+            .segments
+            .first()
+            .and_then(|segment| source.blocks.get(segment.source_block_index))
+            .and_then(|block| block.heading.clone());
+        if is_cancelled(&state.cancelled_jobs, job_id).map_err(|err| run.failure("failed", err))? {
+            emit_translation_progress(app, run.progress("cancelled", "Translation cancelled", 0))
+                .map_err(|err| run.failure("failed", err))?;
+            clear_cancelled(&state.cancelled_jobs, job_id)
+                .map_err(|err| run.failure("failed", err))?;
+            return Err(run.failure("cancelled", "Translation cancelled"));
         }
 
         let (inline_phrase_hints, stored_probe_translations) =
@@ -432,8 +341,8 @@ fn run_translation_batches<R: tauri::Runtime>(
         let mut materialized_memory_reuse = false;
         for segment in &batch.segments {
             if let Some(cached_text) = cache.translated_text_for(segment).map(str::to_owned) {
-                completed_segments += 1;
-                cached_segments += 1;
+                run.completed_segments += 1;
+                run.cached_segments += 1;
                 reused_segments_in_batch += 1;
                 append_translated_segment(
                     &mut translated_blocks,
@@ -446,14 +355,12 @@ fn run_translation_batches<R: tauri::Runtime>(
                         .cloned()
                         .unwrap_or_default(),
                 );
-                if preview.is_empty() && !cached_text.trim().is_empty() {
-                    preview = cached_text.trim().to_string();
-                }
+                run.note_preview(&cached_text);
             } else if let Some(memory_text) =
                 cache.translated_text_for_source(segment).map(str::to_owned)
             {
-                completed_segments += 1;
-                cached_segments += 1;
+                run.completed_segments += 1;
+                run.cached_segments += 1;
                 reused_segments_in_batch += 1;
                 materialized_memory_reuse = true;
                 append_translated_segment(
@@ -467,9 +374,7 @@ fn run_translation_batches<R: tauri::Runtime>(
                         .cloned()
                         .unwrap_or_default(),
                 );
-                if preview.is_empty() && !memory_text.trim().is_empty() {
-                    preview = memory_text.trim().to_string();
-                }
+                run.note_preview(&memory_text);
                 cache.store_translation(segment, memory_text);
             } else {
                 pending_batch.segments.push(segment.clone());
@@ -481,29 +386,21 @@ fn run_translation_batches<R: tauri::Runtime>(
             let outputs = engine
                 .translate_batch(batch_input(plan, &pending_batch))
                 .map_err(|err| {
-                    run_failure(
+                    run.failure(
                         "failed",
                         format!("Native in-memory translation did not complete: {err}"),
-                        completed_segments,
-                        cached_segments,
-                        batch.index,
-                        &preview,
                     )
                 })?;
             let mut translated_count = 0;
             for (segment, output) in pending_batch.segments.iter().zip(outputs.iter()) {
                 let translated_text = output.text.trim().to_string();
                 if translated_text.is_empty() {
-                    return Err(run_failure(
+                    return Err(run.failure(
                         "failed",
                         format!(
                             "Native translation returned empty output for source section {}",
                             segment.source_block_index + 1
                         ),
-                        completed_segments,
-                        cached_segments,
-                        batch.index,
-                        &preview,
                     ));
                 }
                 translated_count += 1;
@@ -518,99 +415,37 @@ fn run_translation_batches<R: tauri::Runtime>(
                         .cloned()
                         .unwrap_or_default(),
                 );
-                if preview.is_empty() && !translated_text.is_empty() {
-                    preview = translated_text.clone();
-                }
+                run.note_preview(&translated_text);
                 cache.store_translation(segment, translated_text);
             }
-            completed_segments += translated_count;
-            save_segment_cache(app, plan, &cache).map_err(|err| {
-                run_failure(
-                    "failed",
-                    err,
-                    completed_segments,
-                    cached_segments,
-                    batch.index,
-                    &preview,
-                )
-            })?;
+            run.completed_segments += translated_count;
+            save_segment_cache(app, plan, &cache).map_err(|err| run.failure("failed", err))?;
         } else if materialized_memory_reuse || stored_probe_translations {
-            save_segment_cache(app, plan, &cache).map_err(|err| {
-                run_failure(
-                    "failed",
-                    err,
-                    completed_segments,
-                    cached_segments,
-                    batch.index,
-                    &preview,
-                )
-            })?;
+            save_segment_cache(app, plan, &cache).map_err(|err| run.failure("failed", err))?;
         }
 
+        run.completed_batches = batch.index + 1;
         emit_translation_progress(
             app,
-            progress(
-                job_id,
+            run.progress(
                 "translating",
                 if reused_only {
                     "Reused cached batch"
                 } else {
                     "Translated batch"
                 },
-                plan,
-                completed_segments,
-                cached_segments,
                 reused_segments_in_batch,
-                batch.index + 1,
-                &preview,
             ),
         )
-        .map_err(|err| {
-            run_failure(
-                "failed",
-                err,
-                completed_segments,
-                cached_segments,
-                batch.index + 1,
-                &preview,
-            )
-        })?;
+        .map_err(|err| run.failure("failed", err))?;
     }
 
     emit_translation_progress(
         app,
-        progress(
-            job_id,
-            "completed",
-            "Translation completed in memory",
-            plan,
-            completed_segments,
-            cached_segments,
-            0,
-            plan.batches.len(),
-            &preview,
-        ),
+        run.progress("completed", "Translation completed in memory", 0),
     )
-    .map_err(|err| {
-        run_failure(
-            "failed",
-            err,
-            completed_segments,
-            cached_segments,
-            plan.batches.len(),
-            &preview,
-        )
-    })?;
-    clear_cancelled(&state.cancelled_jobs, job_id).map_err(|err| {
-        run_failure(
-            "failed",
-            err,
-            completed_segments,
-            cached_segments,
-            plan.batches.len(),
-            &preview,
-        )
-    })?;
+    .map_err(|err| run.failure("failed", err))?;
+    clear_cancelled(&state.cancelled_jobs, job_id).map_err(|err| run.failure("failed", err))?;
     let mut current_translated_heading: Option<String> = None;
     let sections = translated_blocks
         .into_iter()
@@ -641,28 +476,10 @@ fn run_translation_batches<R: tauri::Runtime>(
         })
         .collect();
     Ok(TranslationRunSummary {
-        preview: truncate_preview(preview.trim(), 240),
-        cached_segments,
+        preview: truncate_preview(run.preview.trim(), 240),
+        cached_segments: run.cached_segments,
         sections,
     })
-}
-
-fn run_failure(
-    status: &'static str,
-    message: impl Into<String>,
-    completed_segments: usize,
-    cached_segments: usize,
-    completed_batches: usize,
-    preview: &str,
-) -> TranslationRunFailure {
-    TranslationRunFailure {
-        status,
-        message: message.into(),
-        completed_segments,
-        cached_segments,
-        completed_batches,
-        preview: truncate_preview(preview.trim(), 180),
-    }
 }
 
 /// Translate emphasized source phrases as small repair hints.
@@ -706,7 +523,6 @@ fn translate_inline_phrase_hints(
                 text: probe.text,
                 context: TranslationSegmentContext {
                     glossary: glossary_for_segment(&plan.request.glossary, &segment.text),
-                    ..TranslationSegmentContext::default()
                 },
             });
         }
@@ -812,10 +628,7 @@ fn append_translated_segment(
 ///
 /// Keeping this small boundary lets future engines add context/glossary fields
 /// without changing the planner or storage code.
-fn batch_input(
-    plan: &TranslationJobPlan,
-    batch: &super::job::TranslationBatchPlan,
-) -> TranslationBatchInput {
+fn batch_input(plan: &TranslationJobPlan, batch: &TranslationBatchPlan) -> TranslationBatchInput {
     TranslationBatchInput {
         model_id: plan.request.model_id.clone(),
         source_language: plan.request.source_language.clone(),
@@ -831,7 +644,6 @@ fn batch_input(
                 text: segment.text.clone(),
                 context: TranslationSegmentContext {
                     glossary: glossary_for_segment(&plan.request.glossary, &segment.text),
-                    ..TranslationSegmentContext::default()
                 },
             })
             .collect(),
@@ -862,11 +674,14 @@ fn glossary_for_segment(
 ///
 /// `cached_segments` and `reused_segments_in_batch` are separate so the UI can
 /// distinguish overall resume wins from a single batch that was fully reused.
+#[allow(clippy::too_many_arguments)]
 fn progress(
     job_id: &str,
     status: &str,
     message: &str,
     plan: &TranslationJobPlan,
+    started: Instant,
+    current_heading: Option<String>,
     completed_segments: usize,
     cached_segments: usize,
     reused_segments_in_batch: usize,
@@ -882,6 +697,9 @@ fn progress(
         job_id: job_id.into(),
         status: status.into(),
         message: message.into(),
+        model_id: plan.request.model_id.clone(),
+        elapsed_ms: started.elapsed().as_millis() as u64,
+        current_heading,
         completed_segments,
         total_segments: plan.total_segments,
         cached_segments,
