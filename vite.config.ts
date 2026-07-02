@@ -4,6 +4,14 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    watch: {
+      // The Rust workspace (especially target/ with vendored CTranslate2
+      // sources) has enough files to exhaust inotify watchers; tauri dev
+      // handles Rust rebuilds itself.
+      ignored: ['**/src-tauri/**'],
+    },
+  },
   build: {
     rollupOptions: {
       input: {
