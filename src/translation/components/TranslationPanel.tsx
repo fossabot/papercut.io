@@ -69,6 +69,10 @@ export function TranslationPanel({
   const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
   const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
   const [modelsOpen, setModelsOpen] = useState(false)
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState('')
+  // Local-only dismissal of finished status messages; a new message (different
+  // key) reappears without needing hook state changes.
+  const [dismissedStatusKeys, setDismissedStatusKeys] = useState<string[]>([])
   const [modelId, setModelId] = useState('')
   const [sourceLanguage, setSourceLanguage] = useState('auto')
   const [targetLanguage, setTargetLanguage] = useState('en')
@@ -116,6 +120,18 @@ export function TranslationPanel({
     modelStatuses,
     modelInstallState.progress,
   )
+  const jobStatusKey = 'job:' + startState.message
+  const installStatusKey = 'install:' + modelInstallState.message
+  const deleteStatusKey = deleteState ? 'delete:' + deleteState.id + ':' + deleteState.message : ''
+  const dismissStatus = (key: string) => {
+    setDismissedStatusKeys((previous) => (previous.includes(key) ? previous : [...previous, key]))
+  }
+  const showJobStatus =
+    Boolean(startState.message) && !(startState.result && dismissedStatusKeys.includes(jobStatusKey))
+  const showInstallStatus =
+    Boolean(modelInstallState.message) &&
+    !(modelInstallState.result && dismissedStatusKeys.includes(installStatusKey))
+  const showDeleteStatus = Boolean(deleteState) && !dismissedStatusKeys.includes(deleteStatusKey)
 
   return (
     <section className="translation-panel" aria-label="Offline translation">
@@ -138,16 +154,74 @@ export function TranslationPanel({
         </div>
       </div>
 
-      {error && (
-        <div className="translation-alert translation-alert-error" role="alert">
-          {error}
-        </div>
-      )}
+      {(error || (capabilities && !capabilities.available) || showJobStatus || showInstallStatus) && (
+        <div className="translation-status-stack">
+          {error && (
+            <div className="translation-alert translation-alert-error" role="alert">
+              {error}
+            </div>
+          )}
 
-      {capabilities && !capabilities.available && (
-        <div className="translation-alert">
-          <strong>Translation backend unavailable.</strong>
-          <span>{capabilities.reason}</span>
+          {capabilities && !capabilities.available && (
+            <div className="translation-alert">
+              <strong>Translation backend unavailable.</strong>
+              <span>{capabilities.reason}</span>
+            </div>
+          )}
+
+          {showJobStatus && (
+            <div
+              className={'translation-alert' + (startState.result ? '' : ' translation-alert-neutral')}
+              role="status"
+            >
+              <strong>{startState.result ? 'Translation complete' : 'Translation in progress'}</strong>
+              {startState.result && (
+                <button
+                  type="button"
+                  className="translation-alert-dismiss"
+                  aria-label="Dismiss translation status"
+                  onClick={() => dismissStatus(jobStatusKey)}
+                >
+                  ×
+                </button>
+              )}
+              {(startState.result || !startState.progress) && (
+                <span className="translation-alert-message" title={startState.message}>
+                  {startState.message}
+                </span>
+              )}
+              {startState.progress && (
+                <TranslationProgressMeter progress={startState.progress} />
+              )}
+            </div>
+          )}
+
+          {showInstallStatus && (
+            <div
+              className={'translation-alert' + (modelInstallState.result ? '' : ' translation-alert-neutral')}
+              role="status"
+            >
+              <strong>{modelInstallState.result ? 'Model installed' : 'Model install'}</strong>
+              {modelInstallState.result && (
+                <button
+                  type="button"
+                  className="translation-alert-dismiss"
+                  aria-label="Dismiss model install status"
+                  onClick={() => dismissStatus(installStatusKey)}
+                >
+                  ×
+                </button>
+              )}
+              <span className="translation-alert-message" title={modelInstallState.message}>
+                {modelInstallState.message}
+              </span>
+              {modelInstallState.progress && modelInstallState.progress.status !== 'installed' && (
+                <div className="translation-progress-meter" aria-label={'Translation model download ' + modelInstallState.progress.percent + '% complete'}>
+                  <span style={{ width: modelInstallState.progress.percent + '%' }} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -259,34 +333,6 @@ export function TranslationPanel({
         </div>
       )}
 
-      {startState.message && (
-        <div
-          className={'translation-alert' + (startState.result ? '' : ' translation-alert-neutral')}
-          role="status"
-        >
-          <strong>{startState.result ? 'Translation complete' : 'Translation in progress'}</strong>
-          {(startState.result || !startState.progress) && <span>{startState.message}</span>}
-          {startState.progress && (
-            <TranslationProgressMeter progress={startState.progress} />
-          )}
-        </div>
-      )}
-
-      {modelInstallState.message && (
-        <div
-          className={'translation-alert' + (modelInstallState.result ? '' : ' translation-alert-neutral')}
-          role="status"
-        >
-          <strong>{modelInstallState.result ? 'Model installed' : 'Model install'}</strong>
-          <span>{modelInstallState.message}</span>
-          {modelInstallState.progress && modelInstallState.progress.status !== 'installed' && (
-            <div className="translation-progress-meter" aria-label={'Translation model download ' + modelInstallState.progress.percent + '% complete'}>
-              <span style={{ width: modelInstallState.progress.percent + '%' }} />
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="translation-section">
         <button
           type="button"
@@ -348,9 +394,17 @@ export function TranslationPanel({
           <h3>Translated Documents</h3>
           <span>{translatedDocuments.length} saved</span>
         </div>
-        {deleteState && (
+        {deleteState && showDeleteStatus && (
           <div className={'translation-alert' + (deleteState.deleted ? '' : ' translation-alert-error')} role="status">
-            {deleteState.message}
+            <button
+              type="button"
+              className="translation-alert-dismiss"
+              aria-label="Dismiss delete status"
+              onClick={() => dismissStatus(deleteStatusKey)}
+            >
+              ×
+            </button>
+            <span className="translation-alert-message">{deleteState.message}</span>
           </div>
         )}
         {translatedDocuments.length > 0 ? (
@@ -373,14 +427,38 @@ export function TranslationPanel({
                 >
                   View
                 </button>
-                <button
-                  type="button"
-                  className="translation-document-delete-btn"
-                  aria-label={'Delete ' + doc.title}
-                  onClick={() => { void onDeleteTranslatedDocument(doc.id) }}
-                >
-                  Delete
-                </button>
+                {confirmingDeleteId === doc.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="translation-document-delete-btn translation-document-delete-confirm"
+                      aria-label={'Confirm deleting ' + doc.title}
+                      onClick={() => {
+                        setConfirmingDeleteId('')
+                        void onDeleteTranslatedDocument(doc.id)
+                      }}
+                    >
+                      Confirm delete
+                    </button>
+                    <button
+                      type="button"
+                      className="translation-document-view-btn"
+                      aria-label={'Keep ' + doc.title}
+                      onClick={() => setConfirmingDeleteId('')}
+                    >
+                      Keep
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="translation-document-delete-btn"
+                    aria-label={'Delete ' + doc.title}
+                    onClick={() => setConfirmingDeleteId(doc.id)}
+                  >
+                    Delete
+                  </button>
+                )}
               </article>
             ))}
           </div>
