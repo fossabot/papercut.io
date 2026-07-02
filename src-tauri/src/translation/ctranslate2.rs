@@ -13,6 +13,8 @@
 
 use std::path::PathBuf;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 #[cfg(feature = "native-translation-ctranslate2")]
 use super::engine::TranslationSegmentInput;
 use super::engine::{TranslationBatchInput, TranslationEngine, TranslationSegmentOutput};
@@ -390,33 +392,17 @@ where
     Ok(parts)
 }
 
+/// Split into sentence-sized parts with the same Unicode rules as the planner.
+///
+/// The previous hand-rolled terminal-character list split inside abbreviations
+/// ("U.S." became two parts) and disagreed with `segment.rs`, which already
+/// uses UAX #29 sentence boundaries. One boundary definition across both
+/// layers keeps token-budget subdivision aligned with planned segments.
 fn sentence_like_parts(text: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-
-    for (index, ch) in text.char_indices() {
-        if is_sentence_boundary(ch) {
-            let end = index + ch.len_utf8();
-            let part = text[start..end].trim();
-            if !part.is_empty() {
-                parts.push(part);
-            }
-            start = end;
-        }
-    }
-
-    let tail = text[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
-    parts
-}
-
-fn is_sentence_boundary(ch: char) -> bool {
-    matches!(
-        ch,
-        '.' | '!' | '?' | '\u{061f}' | '\u{06d4}' | '\u{3002}' | '\u{ff01}' | '\u{ff1f}'
-    )
+    text.split_sentence_bounds()
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect()
 }
 
 fn join_parts(left: &str, right: &str) -> String {
@@ -505,6 +491,18 @@ mod tests {
         assert_eq!(
             parts,
             vec!["uno dos tres", "cuatro cinco seis", "siete ocho"]
+        );
+    }
+
+    #[test]
+    fn sentence_parts_keep_lowercase_abbreviations_together() {
+        // The old terminal-character splitter broke after every period,
+        // separating abbreviations from their sentence before token budgeting.
+        let parts = super::sentence_like_parts("El caso p. ej. sigue abierto. Fin del texto.");
+
+        assert_eq!(
+            parts,
+            vec!["El caso p. ej. sigue abierto.", "Fin del texto."]
         );
     }
 

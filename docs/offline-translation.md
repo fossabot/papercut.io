@@ -427,7 +427,7 @@ Each stage should be easy to review and commit independently.
 - Add tokenizer-aware source splitting inside the CTranslate2 adapter:
   - Load the same auto tokenizer family as the translator from the verified model directory.
   - Enforce a 448-source-token budget for OPUS-MT/Marian before calling CTranslate2.
-  - Split oversized segments by sentence, then word, then character only as a last resort.
+  - Split oversized segments by sentence, then word, then character only as a last resort. Sentence boundaries use the same Unicode (UAX #29) rules as the planner, so abbreviation-heavy prose is not chopped mid-abbreviation before inference.
   - Rejoin translated subsegments under the original segment id so existing cache/progress/storage contracts do not change.
 - Add staged writes/cleanup for translated-document persistence:
   - Write generated safe HTML through a staging directory before promoting it into upload storage.
@@ -460,7 +460,7 @@ Status:
   - Carry translated segment fragments and normalized source offsets through storage-time rendering so mixed inline emphasis is projected inside sentence/segment windows before falling back to block-level projection.
   - Prefer exact carry-over matches for unique emphasized phrases that survive translation unchanged before using proportional projection.
   - Translate small emphasized source phrases as best-effort repair probes and store them with their segment fragments, so renderer can match the translated phrase rather than only proportional position. Probe translations are reused through the segment cache's translation memory, and probe hints are only attached when reader-DOM blocks align one-to-one with planned source blocks.
-  - Match hint/carry-over phrases exactly first, then with case/accent folding and wrapping-punctuation trimming, always requiring a unique word-bounded occurrence in the translated text.
+  - Match hint/carry-over phrases exactly first, then with case/accent folding and wrapping-punctuation trimming, always requiring a unique word-bounded occurrence in the translated text. Accent folding uses Unicode canonical decomposition, so all combining-mark Latin diacritics fold consistently across language pairs.
   - Project safe partial inline emphasis spans onto translated text by relative text position snapped to word boundaries (mid-word starts snap to the nearest word edge), retaining safe non-overlapping spans independently instead of dropping a whole fragment when one span cannot be trusted; overlapping projections are dropped, never merged.
   - Fragment hints also feed block-level projection when fragment-to-source pairing fails, so probe work is not lost with the fragment path.
   - Preserve footnote/noteref anchors and ordered-list endnote structure when replacing translated text; marker labels are stripped from MT input and reinserted near their translated anchor word, with word-boundary fallback to avoid markers landing inside words. Block-final markers (such as endnote backlinks) are placed after the whole translated text, including MT-added trailing punctuation.

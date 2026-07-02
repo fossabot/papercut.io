@@ -451,23 +451,26 @@ fn phrase_is_specific_enough(phrase: &str) -> bool {
     phrase.chars().filter(|ch| ch.is_alphanumeric()).count() >= 4
 }
 
-/// Fold case and common Latin accents for tolerant phrase comparison.
+/// Fold case and Latin diacritics for tolerant phrase comparison.
 ///
 /// MT probe output routinely differs from in-context phrasing only by sentence
 /// casing or accent normalization; byte-exact matching alone would discard
 /// those hints and fall back to positional projection, styling wrong words.
+///
+/// Canonical (NFD) decomposition covers every combining-mark diacritic - the
+/// previous hand-rolled table stopped at Spanish/French letters and missed
+/// pairs like ř/r and ș/s. Letters without a canonical decomposition (such as
+/// ł or ø) intentionally stay themselves rather than being approximated.
 pub(crate) fn fold_phrase_char(ch: char) -> char {
-    let folded = match ch {
-        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' => 'a',
-        'é' | 'è' | 'ê' | 'ë' | 'É' | 'È' | 'Ê' | 'Ë' => 'e',
-        'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => 'i',
-        'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Õ' => 'o',
-        'ú' | 'ù' | 'û' | 'ü' | 'Ú' | 'Ù' | 'Û' | 'Ü' => 'u',
-        'ñ' | 'Ñ' => 'n',
-        'ç' | 'Ç' => 'c',
-        _ => ch,
-    };
-    folded.to_lowercase().next().unwrap_or(folded)
+    let mut base = ch;
+    let mut seen_base = false;
+    unicode_normalization::char::decompose_canonical(ch, |part| {
+        if !seen_base && !unicode_normalization::char::is_combining_mark(part) {
+            base = part;
+            seen_base = true;
+        }
+    });
+    base.to_lowercase().next().unwrap_or(base)
 }
 
 /// Whitespace-normalized, case/accent-folded key for hint source lookup.
@@ -812,6 +815,18 @@ mod tests {
             "practical method"
         );
         assert_eq!(projected[0].tags, vec!["strong"]);
+    }
+
+    #[test]
+    fn folds_extended_latin_diacritics_beyond_spanish_french() {
+        assert_eq!(super::fold_phrase_char('É'), 'e');
+        assert_eq!(super::fold_phrase_char('ñ'), 'n');
+        assert_eq!(super::fold_phrase_char('Ř'), 'r');
+        assert_eq!(super::fold_phrase_char('ș'), 's');
+        assert_eq!(super::fold_phrase_char('ą'), 'a');
+        // No canonical decomposition: must stay itself, never approximated.
+        assert_eq!(super::fold_phrase_char('ł'), 'ł');
+        assert_eq!(super::fold_phrase_char('x'), 'x');
     }
 
     #[test]
