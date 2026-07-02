@@ -24,26 +24,47 @@
 }
 
 .translation-panel-header p,
-.translation-empty-state p,
-.translation-roadmap-grid p {
+.translation-empty-state p {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.45;
 }
 
-.translation-status-pill {
+.translation-header-actions {
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.translation-status-pill {
   padding: 0.25rem 0.55rem;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  color: var(--text-body);
+  color: var(--text-muted);
   background: var(--surface);
   font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.translation-refresh-btn {
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
 }
 
-.translation-status-pill:disabled {
+.translation-refresh-btn:hover:not(:disabled),
+.translation-refresh-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.translation-refresh-btn:disabled {
   cursor: wait;
   opacity: 0.7;
 }
@@ -107,8 +128,7 @@
 }
 
 .translation-selected-document strong,
-.translation-empty-state h3,
-.translation-roadmap-grid h3 {
+.translation-empty-state h3 {
   color: var(--text-heading);
 }
 
@@ -208,27 +228,6 @@
 
 .translation-job-progress small {
   color: var(--text-muted);
-}
-
-.translation-roadmap-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  padding: 0 1.35rem 1.35rem;
-}
-
-.translation-roadmap-grid article {
-  display: grid;
-  gap: 0.35rem;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
-}
-
-.translation-roadmap-grid h3 {
-  margin: 0;
-  font-size: 0.95rem;
 }
 
 .translation-section {
@@ -384,7 +383,6 @@
     grid-template-columns: 1fr;
   }
 
-  .translation-roadmap-grid,
   .translation-section {
     grid-template-columns: 1fr;
     padding: 0 1rem 1rem;

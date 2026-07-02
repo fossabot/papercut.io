@@ -105,15 +105,18 @@ export function TranslationPanel({
           <h2>Offline Translation</h2>
           <p>Translate long-form HTML and EPUB documents into durable document copies.</p>
         </div>
-        <button
-          type="button"
-          className="translation-status-pill"
-          onClick={() => { void refresh() }}
-          disabled={loading}
-          title="Refresh translation capabilities"
-        >
-          {statusLabel}
-        </button>
+        <div className="translation-header-actions">
+          <span className="translation-status-pill">{statusLabel}</span>
+          <button
+            type="button"
+            className="translation-refresh-btn"
+            onClick={() => { void refresh() }}
+            disabled={loading}
+            aria-label="Refresh translation status"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -242,8 +245,8 @@ export function TranslationPanel({
           className={'translation-alert' + (startState.result ? '' : ' translation-alert-neutral')}
           role="status"
         >
-          <strong>{startState.result ? 'Translation job response' : 'Translation preflight'}</strong>
-          <span>{startState.message}</span>
+          <strong>{startState.result ? 'Translation complete' : 'Translation in progress'}</strong>
+          {(startState.result || !startState.progress) && <span>{startState.message}</span>}
           {startState.progress && (
             <TranslationProgressMeter progress={startState.progress} />
           )}
@@ -264,21 +267,6 @@ export function TranslationPanel({
           )}
         </div>
       )}
-
-      <div className="translation-roadmap-grid">
-        <article>
-          <h3>Target Architecture</h3>
-          <p>Translation will create a separate document variant so original imports, search rows, and audiobook caches stay unchanged.</p>
-        </article>
-        <article>
-          <h3>Job Model</h3>
-          <p>Long books should translate chapter and section batches with progress, cancel/resume, quality checks, and cached segment output.</p>
-        </article>
-        <article>
-          <h3>Model Catalog</h3>
-          <p>Model choices should mirror TTS: verified downloads, platform-aware catalogs, and explicit speed/quality tradeoffs.</p>
-        </article>
-      </div>
 
       <section className="translation-section" aria-label="Candidate translation models">
         <div className="translation-section-header">
@@ -304,7 +292,7 @@ export function TranslationPanel({
                 </div>
                 <p>{model.notes}</p>
                 <small>
-                  {model.sourceLanguages.join(', ')} to {model.targetLanguages.join(', ')}
+                  {model.sourceLanguages.map(formatLanguageLabel).join(', ')} → {model.targetLanguages.map(formatLanguageLabel).join(', ')}
                 </small>
                 {modelStatuses[model.id] && (
                   <small>{formatModelStatus(modelStatuses[model.id])}</small>
@@ -335,11 +323,12 @@ export function TranslationPanel({
               <article key={doc.id} className="translation-document-item">
                 <div>
                   <strong>{doc.title}</strong>
-                  <span>{doc.sourceLanguage} to {doc.targetLanguage} · {doc.modelId} · {doc.status}</span>
+                  <span>{formatLanguageLabel(doc.sourceLanguage)} → {formatLanguageLabel(doc.targetLanguage)} · {doc.modelId} · {doc.status}</span>
                 </div>
                 <button
                   type="button"
                   className="translation-document-view-btn"
+                  aria-label={'View ' + doc.title}
                   onClick={() => { void onOpenTranslatedDocument(doc.documentUrl) }}
                 >
                   View
@@ -347,6 +336,7 @@ export function TranslationPanel({
                 <button
                   type="button"
                   className="translation-document-delete-btn"
+                  aria-label={'Delete ' + doc.title}
                   onClick={() => { void onDeleteTranslatedDocument(doc.id) }}
                 >
                   Delete
@@ -430,8 +420,16 @@ function formatDocumentFormat(format?: string): string {
   return format.toUpperCase()
 }
 
+// Language names beat raw ISO codes for recognition; fall back to the code
+// when the runtime cannot resolve a display name.
 function formatLanguageLabel(language: string): string {
   if (language === 'auto') return 'Auto detect'
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(language)
+    if (name && name !== language) return name
+  } catch {
+    // Unknown/invalid code: fall through to the uppercase code.
+  }
   return language.toUpperCase()
 }
 
