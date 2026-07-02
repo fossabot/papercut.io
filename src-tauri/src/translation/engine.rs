@@ -6,7 +6,15 @@
 
 use super::types::{TranslationGlossaryEntry, TranslationRepairMode};
 
+/// One bounded batch for an engine, with the job settings that produced it.
+///
+/// The current CTranslate2/OPUS-MT adapter reads only `segments`: pair models
+/// encode the language direction, and Marian cannot consume glossary, quality,
+/// or repair instructions. The remaining fields are the stable engine contract
+/// that prompt-driven engines (TranslateGemma/Qwen) will read, so they stay on
+/// the boundary instead of being reintroduced with a breaking change later.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub(crate) struct TranslationBatchInput {
     pub(crate) model_id: String,
     pub(crate) source_language: String,
@@ -21,15 +29,19 @@ pub(crate) struct TranslationBatchInput {
 pub(crate) struct TranslationSegmentInput {
     pub(crate) id: String,
     pub(crate) text: String,
+    /// Unread by the OPUS-MT adapter; see `TranslationSegmentContext`.
+    #[allow(dead_code)]
     pub(crate) context: TranslationSegmentContext,
 }
 
 /// Quality hints attached to one segment.
 ///
-/// Only glossary hints exist today. The roadmap's document memory packet
-/// (title, heading hierarchy, neighboring text) should be added here when an
-/// engine that can consume it lands; OPUS-MT ignores free-form context.
+/// Only glossary hints exist today, and only future prompt-driven engines can
+/// consume them; OPUS-MT ignores free-form context. The roadmap's document
+/// memory packet (title, heading hierarchy, neighboring text) belongs here
+/// when such an engine lands.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub(crate) struct TranslationSegmentContext {
     pub(crate) glossary: Vec<TranslationGlossaryEntry>,
 }
