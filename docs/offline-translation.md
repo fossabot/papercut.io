@@ -284,6 +284,8 @@ translation_segments
 
 Translated variants reuse the existing uploaded-document section storage once promoted. The translation metadata table records provenance and the generated document URL; the upload/search tables own reader HTML, section text, and FTS rows.
 
+Variant identity is deterministic from source document id plus translation settings (languages, model, quality mode, repair mode, glossary). Re-running the same document with identical settings replaces the stored variant in place - same id, same document URL - instead of accumulating duplicates. Changing any setting produces a separate variant.
+
 ## UI/UX Requirements
 
 First release should be plain and reliable:
@@ -436,7 +438,7 @@ Each stage should be easy to review and commit independently.
 
 Status:
 
-- Done: CTranslate2 feature flag, adapter, tokenizer-aware OPUS-MT source splitting, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, validation-before-storage state, segment cache with empty-output rejection, exact translation memory, staged writes, derived upload persistence, document-list refresh, and visible cached/reused progress.
+- Done: CTranslate2 feature flag, adapter, tokenizer-aware OPUS-MT source splitting, capabilities reporting, installed-model preflight, pinned manifests, model installer, install UI, source loading, bounded batches, cooperative cancellation, progress events, validation-before-storage state, segment cache with empty-output rejection, exact translation memory, staged writes, derived upload persistence, replace-on-rerun variant identity, document-list refresh, and visible cached/reused progress.
 - Done: `npm run desktop` now includes `native-translation-ctranslate2` by default.
 - Needs proof: real desktop model download, model load through `ct2rs`, short HTML translation, stored translated variant open/search/delete, long-document cache/resume, and packaging artifact verification.
 - Not done: Android translation packaging.

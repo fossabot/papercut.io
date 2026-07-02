@@ -109,7 +109,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
     }
 
     let now = now_ms()?;
-    let id = translated_document_id(&request, now);
+    let id = translated_document_id(&request);
     let document_url = format!("/uploads/{id}.html");
     let title = format!(
         "{} ({})",
@@ -123,6 +123,18 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         &request.translated_sections,
         &request.glossary,
     )?;
+    // Identity is deterministic per document+settings, so re-running the same
+    // translation replaces the previous variant instead of accumulating
+    // near-identical documents. The delete happens only after the new output
+    // passed validation - a failed re-run must never destroy the previous
+    // good variant - and is required because derived document directories
+    // cannot be overwritten in place.
+    let replaced = delete_translated_document(app, &id)?;
+    if replaced.deleted {
+        log::info!(
+            "translation: replacing existing translated variant {id} for identical document and settings"
+        );
+    }
     let bytes = view_html.as_bytes().len() as u64;
     let sections = request
         .translated_sections
@@ -318,7 +330,13 @@ fn ensure_translation_schema(db: &rusqlite::Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> String {
+/// Deterministic variant identity from source document plus translation settings.
+///
+/// Deliberately excludes job id and timestamps: re-running the same document
+/// with the same settings must produce the same id so the stored variant is
+/// replaced rather than duplicated. Changing any setting (languages, model,
+/// quality, repair mode, glossary) yields a separate variant.
+fn translated_document_id(request: &PersistTranslationRequest) -> String {
     let mut hasher = StableHasher::new();
     hasher.write_str(&request.source.document_id);
     hasher.write_str(&request.source_language);
@@ -327,8 +345,6 @@ fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> Str
     hasher.write_str(&request.quality_mode);
     hasher.write_str(request.repair_mode.label());
     hash_glossary_entries(&request.glossary, &mut hasher);
-    hasher.write_str(&request.job_id);
-    hasher.write_str(&now.to_string());
     hasher.finish_hex()
 }
 
@@ -409,6 +425,45 @@ mod tests {
             )
             .expect("version");
         assert_eq!(version, "1");
+    }
+
+    #[test]
+    fn translated_document_id_is_stable_per_document_and_settings() {
+        let first = persist_request("job-a");
+        let second = persist_request("job-b");
+        assert_eq!(
+            super::translated_document_id(&first),
+            super::translated_document_id(&second),
+            "same document and settings must map to the same variant id"
+        );
+
+        let mut different_target = persist_request("job-a");
+        different_target.target_language = "de".into();
+        assert_ne!(
+            super::translated_document_id(&first),
+            super::translated_document_id(&different_target)
+        );
+    }
+
+    fn persist_request(job_id: &str) -> PersistTranslationRequest {
+        PersistTranslationRequest {
+            source: TranslationSourceDocument {
+                document_id: "source1".into(),
+                document_url: "/uploads/source1.html".into(),
+                title: "Livre".into(),
+                format: "html".into(),
+                view_html: String::new(),
+                blocks: Vec::new(),
+            },
+            source_language: "fr".into(),
+            target_language: "en".into(),
+            model_id: "opus-mt-fr-en-ctranslate2".into(),
+            quality_mode: "balanced".into(),
+            repair_mode: Default::default(),
+            job_id: job_id.into(),
+            glossary: Vec::new(),
+            translated_sections: Vec::new(),
+        }
     }
 
     #[test]
