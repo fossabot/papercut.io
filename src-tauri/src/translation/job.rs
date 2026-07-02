@@ -189,6 +189,7 @@ mod tests {
 
     fn request() -> TranslationStartRequest {
         TranslationStartRequest {
+            job_id: None,
             document_url: "app://document/example".into(),
             source_language: "ar".into(),
             target_language: "en".into(),
