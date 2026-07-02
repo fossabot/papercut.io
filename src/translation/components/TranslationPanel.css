@@ -129,15 +129,14 @@
   background: var(--surface-subtle);
 }
 
+.translation-empty-state {
+  padding: 0.6rem 0.8rem;
+}
+
 .translation-empty-state p {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.45;
-}
-
-.translation-empty-state h3 {
-  margin: 0;
-  font-size: 0.95rem;
 }
 
 .translation-kicker {
@@ -148,8 +147,7 @@
   letter-spacing: 0.04em;
 }
 
-.translation-selected-document strong,
-.translation-empty-state h3 {
+.translation-selected-document strong {
   color: var(--text-heading);
 }
 

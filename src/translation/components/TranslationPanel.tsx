@@ -141,6 +141,7 @@ export function TranslationPanel({
     Boolean(modelInstallState.message) &&
     !(modelInstallState.result && dismissedStatusKeys.includes(installStatusKey))
   const showDeleteStatus = Boolean(deleteState) && !dismissedStatusKeys.includes(deleteStatusKey)
+  const backendUnavailable = Boolean(capabilities && !capabilities.available)
 
   return (
     <Panel
@@ -151,7 +152,7 @@ export function TranslationPanel({
       defaultOpen
     >
       <div className="translation-body">
-      {(error || (capabilities && !capabilities.available) || showJobStatus || showInstallStatus) && (
+      {(error || backendUnavailable || showJobStatus || showInstallStatus) && (
         <div className="translation-status-stack">
           {error && (
             <div className="translation-alert translation-alert-error" role="alert">
@@ -167,9 +168,8 @@ export function TranslationPanel({
             </div>
           )}
 
-          {capabilities && !capabilities.available && (
+          {backendUnavailable && capabilities && (
             <div className="translation-alert">
-              <strong>Translation backend unavailable.</strong>
               <span title={capabilities.reason}>{firstSentence(capabilities.reason)}</span>
             </div>
           )}
@@ -230,7 +230,9 @@ export function TranslationPanel({
         </div>
       )}
 
-      {selectedDocument ? (
+      {/* Without a working backend the translate workbench is a dead end;
+          models can still be pre-installed and stored variants stay usable. */}
+      {backendUnavailable ? null : selectedDocument ? (
         <div className="translation-selected-document">
           <span className="translation-kicker">Selected Document</span>
           <strong>{selectedDocument.title}</strong>
@@ -333,8 +335,7 @@ export function TranslationPanel({
         </div>
       ) : (
         <div className="translation-empty-state">
-          <h3>No document selected</h3>
-          <p>Open a document and choose Translate from the document actions menu.</p>
+          <p>No document selected — open a document and choose Translate from its actions menu.</p>
         </div>
       )}
 
