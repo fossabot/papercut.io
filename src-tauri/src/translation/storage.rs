@@ -122,6 +122,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
         &request.source.blocks,
         &request.translated_sections,
         &request.glossary,
+        &request.target_language,
     )?;
     // Identity is deterministic per document+settings, so re-running the same
     // translation replaces the previous variant instead of accumulating

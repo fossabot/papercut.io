@@ -16,6 +16,8 @@ use super::storage::PersistTranslationSection;
 use super::types::TranslationGlossaryEntry;
 
 const MIN_RATIO_SOURCE_CHARS: usize = 120;
+const MIN_LANGUAGE_DETECT_CHARS: usize = 120;
+const MIN_WRONG_LANGUAGE_SECTIONS: usize = 3;
 const MIN_TRANSLATED_REPEAT_CHARS: usize = 24;
 const MAX_REPEAT_COUNT: usize = 5;
 const MIN_LENGTH_RATIO: f32 = 0.05;
@@ -34,6 +36,7 @@ pub(crate) enum TranslationQualityIssueKind {
     SectionCoverage,
     LengthRatio,
     RepeatedOutput,
+    WrongLanguage,
     GlossaryTarget,
     BrokenInternalLink,
 }
@@ -69,6 +72,7 @@ pub(crate) fn validate_translated_output(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
     glossary: &[TranslationGlossaryEntry],
+    target_language: &str,
 ) -> Result<(), String> {
     validate_non_empty_sections(sections).map_err(format_quality_issue)?;
     validate_section_coverage(source_blocks, sections).map_err(format_quality_issue)?;
@@ -76,6 +80,7 @@ pub(crate) fn validate_translated_output(
         .map_err(format_quality_issue)?;
     validate_length_ratios(source_blocks, sections).map_err(format_quality_issue)?;
     validate_repeated_outputs(sections).map_err(format_quality_issue)?;
+    validate_target_language(sections, target_language).map_err(format_quality_issue)?;
     validate_glossary_terms(source_blocks, sections, glossary).map_err(format_quality_issue)?;
     let document = parse_html_document(html);
     validate_internal_links(&document).map_err(format_quality_issue)?;
@@ -219,6 +224,91 @@ fn validate_repeated_outputs(
         }
     }
     Ok(())
+}
+
+/// Reject output whose dominant language is not the requested target.
+///
+/// A common local-engine failure is echoing source text (or emitting another
+/// language) while reporting success. Detection is statistical, so this gate
+/// is deliberately conservative: only long sections count, only reliable
+/// detections count, and rejection needs either a wrong-language majority
+/// across several sections or a unanimously wrong multi-section document.
+/// Foreign quotations inside an otherwise correct translation must never fail
+/// a job, and unmapped target codes skip the gate entirely.
+fn validate_target_language(
+    sections: &[PersistTranslationSection],
+    target_language: &str,
+) -> Result<(), TranslationQualityIssue> {
+    let Some(expected) = whatlang_target(target_language) else {
+        return Ok(());
+    };
+    let mut checked = 0usize;
+    let mut wrong = 0usize;
+    let mut first_wrong_ordinal = None;
+    let mut detected_example: Option<whatlang::Lang> = None;
+    for section in sections {
+        let text = section.text.trim();
+        if text.chars().count() < MIN_LANGUAGE_DETECT_CHARS {
+            continue;
+        }
+        let Some(info) = whatlang::detect(text) else {
+            continue;
+        };
+        if !info.is_reliable() {
+            continue;
+        }
+        checked += 1;
+        if info.lang() != expected {
+            wrong += 1;
+            if first_wrong_ordinal.is_none() {
+                first_wrong_ordinal = Some(section.source_ordinal);
+                detected_example = Some(info.lang());
+            }
+        }
+    }
+
+    let majority_wrong = wrong >= MIN_WRONG_LANGUAGE_SECTIONS && wrong * 2 > checked;
+    let unanimous_wrong = checked >= 2 && wrong == checked;
+    if majority_wrong || unanimous_wrong {
+        return Err(TranslationQualityIssue::new(
+            TranslationQualityIssueKind::WrongLanguage,
+            first_wrong_ordinal,
+            format!(
+                "Translation output looks like {} instead of the requested target language {:?} in {wrong} of {checked} checked section(s)",
+                detected_example
+                    .map(|lang| lang.eng_name())
+                    .unwrap_or("another language"),
+                target_language
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Map the request's ISO 639-1 target code onto whatlang's 639-3 languages.
+///
+/// Unknown codes return None so the gate skips instead of misfiring on
+/// language pairs whatlang cannot judge.
+fn whatlang_target(code: &str) -> Option<whatlang::Lang> {
+    let code = code.trim().to_ascii_lowercase();
+    let iso639_3 = match code.as_str() {
+        "en" => "eng",
+        "es" => "spa",
+        "fr" => "fra",
+        "de" => "deu",
+        "ru" => "rus",
+        "zh" => "cmn",
+        "ar" => "ara",
+        "pt" => "por",
+        "it" => "ita",
+        "nl" => "nld",
+        "pl" => "pol",
+        "tr" => "tur",
+        "ja" => "jpn",
+        "ko" => "kor",
+        other => other,
+    };
+    whatlang::Lang::from_code(iso639_3)
 }
 
 /// Ensure protected glossary terms survive in translated output.
@@ -424,6 +514,7 @@ mod tests {
             &[source_block(0, "Source text")],
             &[section("Translated text")],
             &[],
+            "en",
         )
         .expect("valid links");
     }
@@ -435,6 +526,7 @@ mod tests {
             &[source_block(0, "Source text")],
             &[section("Translated text")],
             &[],
+            "en",
         )
         .expect_err("broken target");
 
@@ -448,6 +540,7 @@ mod tests {
             &[source_block(0, "Source text")],
             &[section("   ")],
             &[],
+            "en",
         )
         .expect_err("empty translation");
 
@@ -464,6 +557,7 @@ mod tests {
                 section_with_ordinal(1, "   "),
             ],
             &[],
+            "en",
         )
         .expect_err("empty translated body");
 
@@ -478,6 +572,7 @@ mod tests {
             &[source_block(0, "Title"), source_block(1, "Body text")],
             &[section("Title")],
             &[],
+            "en",
         )
         .expect_err("missing translated body");
 
@@ -493,6 +588,7 @@ mod tests {
             &[source_block(0, &source)],
             &[section("tiny")],
             &[],
+            "en",
         )
         .expect_err("unsafe length");
 
@@ -507,10 +603,78 @@ mod tests {
             .collect::<Vec<_>>();
         let sections = (0..5).map(|_| section(repeated)).collect::<Vec<_>>();
 
-        let error = validate_translated_output("<article></article>", &sources, &sections, &[])
-            .expect_err("repeated output");
+        let error =
+            validate_translated_output("<article></article>", &sources, &sections, &[], "en")
+                .expect_err("repeated output");
 
         assert!(error.contains("repeats"));
+    }
+
+    #[test]
+    fn rejects_output_in_wrong_target_language() {
+        // Long, clearly Spanish sections while English was requested - the
+        // signature of an engine echoing its source instead of translating.
+        let spanish = [
+            "La puerta azul se abre lentamente cada mañana mientras los vecinos del barrio conversan sobre el clima y esperan la llegada del mercado semanal con sus frutas frescas.",
+            "El bibliotecario ordena los estantes durante toda la tarde y explica a los estudiantes cómo encontrar los manuales de historia entre las colecciones antiguas del archivo.",
+            "Los trenes regionales salen temprano desde la estación central y cruzan los campos de trigo antes de llegar a los pueblos pequeños donde terminan su recorrido diario.",
+        ];
+        let sources = (0..3)
+            .map(|index| source_block(index, spanish[index]))
+            .collect::<Vec<_>>();
+        let sections = spanish
+            .iter()
+            .enumerate()
+            .map(|(index, text)| section_with_ordinal(index, text))
+            .collect::<Vec<_>>();
+
+        let error =
+            validate_translated_output("<article></article>", &sources, &sections, &[], "en")
+                .expect_err("wrong language output");
+
+        assert!(error.contains("target language"));
+    }
+
+    #[test]
+    fn accepts_foreign_quotes_inside_correct_target_language() {
+        let english = [
+            "The blue door opens slowly every morning while the neighbours discuss the weather and wait for the weekly market to arrive with its fresh fruit and vegetables.",
+            "The librarian arranges the shelves all afternoon and shows the students how to find the history manuals among the oldest collections of the archive downstairs.",
+            "The regional trains leave early from the central station and cross the wheat fields before reaching the small towns where they finish their daily route.",
+        ];
+        let quoted_spanish = "La puerta azul se abre lentamente cada mañana mientras los vecinos del barrio conversan sobre el clima y esperan la llegada del mercado semanal con sus frutas.";
+        let mut texts = english.to_vec();
+        texts.push(quoted_spanish);
+        let sources = (0..texts.len())
+            .map(|index| {
+                source_block(
+                    index,
+                    "Source paragraph with plenty of length for ratio checks and coverage.",
+                )
+            })
+            .collect::<Vec<_>>();
+        let sections = texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| section_with_ordinal(index, text))
+            .collect::<Vec<_>>();
+
+        validate_translated_output("<article></article>", &sources, &sections, &[], "en")
+            .expect("one foreign-quote section must not fail the job");
+    }
+
+    #[test]
+    fn unmapped_target_language_skips_detection_gate() {
+        let spanish = "La puerta azul se abre lentamente cada mañana mientras los vecinos del barrio conversan sobre el clima y esperan la llegada del mercado semanal con sus frutas.";
+        let sources = (0..2)
+            .map(|index| source_block(index, spanish))
+            .collect::<Vec<_>>();
+        let sections = (0..2)
+            .map(|index| section_with_ordinal(index, spanish))
+            .collect::<Vec<_>>();
+
+        validate_translated_output("<article></article>", &sources, &sections, &[], "xx")
+            .expect("unknown target codes must skip language detection");
     }
 
     #[test]
@@ -520,6 +684,7 @@ mod tests {
             &[source_block(0, "Estado y revolucion")],
             &[section("State and Revolution")],
             &[glossary("Estado", "State")],
+            "en",
         )
         .expect("glossary target present");
     }
@@ -533,6 +698,7 @@ mod tests {
             &[source_block(0, "La marca crece.")],
             &[section("The brand grows.")],
             &[glossary("mar", "sea")],
+            "en",
         )
         .expect("substring must not trigger glossary gate");
     }
@@ -557,6 +723,7 @@ mod tests {
             &[source_block(0, "Estado y revolucion")],
             &[section("Government and Revolution")],
             &[glossary("Estado", "State")],
+            "en",
         )
         .expect_err("missing glossary target");
 

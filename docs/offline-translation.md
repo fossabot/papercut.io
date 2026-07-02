@@ -518,10 +518,11 @@ Status:
 Status:
 
 - Done: empty output, per-section empty output, length-ratio, repeated-output, broken-link, and glossary-target gates.
+- Done: wrong-target-language detection via `whatlang` (statistical, deliberately conservative: long sections only, reliable detections only, and rejection requires a wrong-language majority across several sections or a unanimously wrong multi-section document, so foreign quotations never fail a job; unmapped target codes skip the gate).
 - Done: exact-match segment cache and exact-memory reuse.
 - Done: glossary request/cache/provenance scaffolding and conflicting glossary rejection.
 - Done: structured quality issue internals and `repairMode` plumbing.
-- Not done: automatic multilingual NER, section regeneration loop, actual chapter repair pass, wrong-target-language detection.
+- Not done: automatic multilingual NER, section regeneration loop, actual chapter repair pass.
 
 ### Stage 8: Quality Model Spikes - Not Started
 
