@@ -119,7 +119,7 @@ Long documents need bounded, resumable work. Recommended flow:
 
 1. Validate selected source document and target language.
 2. Load source section metadata and stored safe HTML.
-3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges. Current builds now carry translated segment fragments with normalized source offsets into rendering, which gives inline emphasis projection smaller and deterministic source/target windows than whole-paragraph guessing. Inline rendering also keeps exact carry-over emphasis for unique terms that survive translation unchanged, and the desktop job runner translates small emphasized source phrases as repair hints so rendered output can exact-match translated emphasis when possible. Full cross-language phrase alignment remains future work.
+3. Segment by chapter, heading, paragraph, sentence, and protected inline ranges. Current builds now carry translated segment fragments with normalized source offsets into rendering, and each readable block is extracted into a marker-aware inline model: prose text goes to MT, formatting spans stay as side data, and footnote/backlink markers are preserved as non-translatable inline codes. Inline rendering keeps exact carry-over emphasis for unique terms that survive translation unchanged and uses translated emphasized-phrase hints where available; hint matching is tolerant of MT probe noise (sentence casing, accent folding, wrapping quotes/punctuation) but still requires one unambiguous word-bounded target occurrence. Each projected span is treated independently so one unsafe range does not drop all nearby formatting, and distinct source spans that project onto overlapping target ranges are dropped rather than merged into fabricated combined emphasis. Full cross-language phrase alignment remains future work.
 4. Build a document memory packet:
    - title
    - author, if known
@@ -443,14 +443,18 @@ Status:
   - Use the sanitized reader `view_html` as the source of truth.
   - Use the existing HTML parser stack (`kuchikiki`) to replace mapped readable text in place.
   - Keep inline emphasis span collection/projection in `translation::inline_markup` so future phrase alignment or placeholder repair can replace the projection strategy without rewriting DOM rendering.
+  - Extract readable blocks into a marker-aware inline model before translation: text is translated, footnote/backlink markers are preserved as inline codes, and formatting spans are carried as side data.
   - Collect render blocks with the same descendant-skipping behavior as the importer so nested endnote `<li><p>...</p></li>` structures do not shift section mapping.
   - Preserve simple block attributes, existing ids, links, images, tables, and EPUB-rewritten assets from the cloned safe DOM.
   - Preserve whole-block inline emphasis when one safe formatting wrapper owns the entire source block, such as `<strong>...</strong>` or nested `<em><strong>...</strong></em>`.
   - Carry translated segment fragments and normalized source offsets through storage-time rendering so mixed inline emphasis is projected inside sentence/segment windows before falling back to block-level projection.
   - Prefer exact carry-over matches for unique emphasized phrases that survive translation unchanged before using proportional projection.
-  - Translate small emphasized source phrases as best-effort repair probes and store them with their segment fragments, so renderer can match the translated phrase rather than only proportional position.
-  - Project safe partial inline emphasis spans onto translated text by relative text position snapped to word boundaries, but only when projected ranges do not overlap.
-  - Preserve footnote/noteref anchors and ordered-list endnote structure when replacing translated text.
+  - Translate small emphasized source phrases as best-effort repair probes and store them with their segment fragments, so renderer can match the translated phrase rather than only proportional position. Probe translations are reused through the segment cache's translation memory, and probe hints are only attached when reader-DOM blocks align one-to-one with planned source blocks.
+  - Match hint/carry-over phrases exactly first, then with case/accent folding and wrapping-punctuation trimming, always requiring a unique word-bounded occurrence in the translated text.
+  - Project safe partial inline emphasis spans onto translated text by relative text position snapped to word boundaries (mid-word starts snap to the nearest word edge), retaining safe non-overlapping spans independently instead of dropping a whole fragment when one span cannot be trusted; overlapping projections are dropped, never merged.
+  - Fragment hints also feed block-level projection when fragment-to-source pairing fails, so probe work is not lost with the fragment path.
+  - Preserve footnote/noteref anchors and ordered-list endnote structure when replacing translated text; marker labels are stripped from MT input and reinserted near their translated anchor word, with word-boundary fallback to avoid markers landing inside words. Block-final markers (such as endnote backlinks) are placed after the whole translated text, including MT-added trailing punctuation.
+  - Keep inline text extraction free of invented whitespace: punctuation text nodes directly after a formatting element stay attached to the preceding word so MT input and fragment matching see natural prose.
   - Insert translated fallback text beside blocks that contain media/table content instead of destroying assets or table structure.
 - Next preservation work requires a stronger section locator layer:
   - Add phrase/word alignment for translated phrases that reorder substantially across languages.
@@ -462,7 +466,7 @@ Status:
 
 Status:
 
-- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; exact carry-over emphasized phrases are preserved when one unique target match exists; small emphasized phrases are translated as best-effort repair hints for exact target phrase matching; footnote anchors and ordered endnote list items survive replacement; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
+- Done: DOM-preserving render path uses sanitized `view_html`; parser details are centralized in `translation::html`; inline markup collection/projection is isolated in `translation::inline_markup`; render block collection now matches importer block units; simple block text is replaced in place; real translation jobs carry source/target segment fragments plus normalized source offsets into translated sections; readable blocks are extracted into marker-aware inline models; whole-block inline emphasis is preserved when structurally unambiguous; mixed inline emphasis spans are projected inside segment windows before block-level fallback; exact carry-over emphasized phrases are preserved when one unique target match exists; small emphasized phrases are translated as best-effort repair hints for exact target phrase matching; safe non-overlapping inline spans survive even when nearby spans cannot be placed; footnote anchors and ordered endnote list items survive replacement without entering MT prose; media/table-heavy blocks keep source markup and insert translated fallback text nearby; generated output carries source ordinals and stable translated-section anchors.
 - Done: first-pass broken internal-link and empty-output validation, including source-section-specific errors when one section returns blank after all segments finish.
 - Still needed: true phrase alignment for reordered translations, broader fixtures, table-specific behavior, and richer tag/anchor validation.
 
@@ -476,6 +480,8 @@ Status:
 - Add exact-match translation memory through the existing segment cache:
   - Store translated text by source-text hash as well as segment id.
   - Reuse exact repeated source text across later batches and retries before calling the native engine.
+  - Reuse inline phrase-probe translations through the same memory so repeated/resumed jobs do not re-translate every emphasized phrase.
+  - Stamp caches with the inline-alignment strategy version so alignment-rule changes invalidate stale probe memory instead of mixing strategies.
   - Materialize reused translations back into positional segment entries so retries remain stable.
   - Keep this in the existing `serde_json` cache manifest; no new library is needed for exact-match memory.
   - Later optimize duplicate segments inside the same batch if benchmarks show repeated paragraphs are common enough to matter.
