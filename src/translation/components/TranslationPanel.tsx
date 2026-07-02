@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Panel } from '../../components/Panel/Panel'
 import './TranslationPanel.css'
 import type {
   TranslatedDocumentInfo,
@@ -68,7 +69,6 @@ export function TranslationPanel({
 }: TranslationPanelProps) {
   const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
   const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
-  const [modelsOpen, setModelsOpen] = useState(false)
   const [confirmingDeleteId, setConfirmingDeleteId] = useState('')
   // Local-only dismissal of finished status messages; a new message (different
   // key) reappears without needing hook state changes.
@@ -134,31 +134,27 @@ export function TranslationPanel({
   const showDeleteStatus = Boolean(deleteState) && !dismissedStatusKeys.includes(deleteStatusKey)
 
   return (
-    <section className="translation-panel" aria-label="Offline translation">
-      <div className="translation-panel-header">
-        <div>
-          <h2>Offline Translation</h2>
-          <p>Translate long-form HTML and EPUB documents into durable document copies.</p>
-        </div>
-        <div className="translation-header-actions">
-          <span className="translation-status-pill">{statusLabel}</span>
-          <button
-            type="button"
-            className="translation-refresh-btn"
-            onClick={() => { void refresh() }}
-            disabled={loading}
-            aria-label="Refresh translation status"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
+    <Panel
+      className="translation-panel"
+      ariaLabel="Offline translation"
+      title="Offline Translation"
+      meta={statusLabel + (translatedDocuments.length ? ' · ' + translatedDocuments.length + ' translated' : '')}
+      defaultOpen
+    >
+      <div className="translation-body">
       {(error || (capabilities && !capabilities.available) || showJobStatus || showInstallStatus) && (
         <div className="translation-status-stack">
           {error && (
             <div className="translation-alert translation-alert-error" role="alert">
-              {error}
+              <span className="translation-alert-message">{error}</span>
+              <button
+                type="button"
+                className="translation-retry-btn"
+                disabled={loading}
+                onClick={() => { void refresh() }}
+              >
+                Retry
+              </button>
             </div>
           )}
 
@@ -333,24 +329,13 @@ export function TranslationPanel({
         </div>
       )}
 
-      <div className="translation-section">
-        <button
-          type="button"
-          className={'translation-models-disclosure' + (modelsOpen ? ' translation-models-disclosure-open' : '')}
-          aria-expanded={modelsOpen}
-          aria-controls="translation-models-panel"
-          onClick={() => setModelsOpen((value) => !value)}
-        >
-          <span className="translation-models-disclosure-icon" aria-hidden="true">⚙</span>
-          <span className="translation-models-disclosure-main">
-            <span className="translation-models-disclosure-title">Translation Models</span>
-            <span className="translation-models-disclosure-summary">{modelsSummary}</span>
-          </span>
-          <span className="translation-models-disclosure-chevron" aria-hidden="true">{modelsOpen ? '▲' : '▼'}</span>
-        </button>
-
-        {modelsOpen && (
-          <div id="translation-models-panel" className="translation-model-list" aria-label="Translation models">
+      <Panel
+        className="translation-subpanel"
+        ariaLabel="Translation models"
+        title="Translation Models"
+        meta={modelsSummary}
+      >
+        <div className="translation-model-list">
             {installableModels.map((model) => (
               <article key={model.id} className="translation-model-item">
                 <div className="translation-model-item-header">
@@ -385,15 +370,16 @@ export function TranslationPanel({
             {!modelOptions.length && (
               <p className="translation-section-empty">No model metadata available in this runtime.</p>
             )}
-          </div>
-        )}
-      </div>
-
-      <section className="translation-section" aria-label="Translated documents">
-        <div className="translation-section-header">
-          <h3>Translated Documents</h3>
-          <span>{translatedDocuments.length} saved</span>
         </div>
+      </Panel>
+
+      <Panel
+        className="translation-subpanel"
+        ariaLabel="Translated documents"
+        title="Translated Documents"
+        meta={translatedDocuments.length + ' saved'}
+        defaultOpen
+      >
         {deleteState && showDeleteStatus && (
           <div className={'translation-alert' + (deleteState.deleted ? '' : ' translation-alert-error')} role="status">
             <button
@@ -465,8 +451,9 @@ export function TranslationPanel({
         ) : (
           <p className="translation-section-empty">No translated documents yet.</p>
         )}
-      </section>
-    </section>
+      </Panel>
+      </div>
+    </Panel>
   )
 }
 
