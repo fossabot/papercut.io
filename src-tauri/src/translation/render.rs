@@ -10,12 +10,14 @@ use kuchikiki::NodeRef;
 
 use super::html::parse_html_document;
 use super::inline_markup::{
-    fragment_char_range, is_inline_formatting_element, is_nontranslatable_inline_marker,
-    local_spans_for_fragment, projected_translated_spans, source_text_and_inline_formatting_spans,
-    source_text_inline_markers, InlinePreservedMarker, ProjectedInlineSpan,
+    byte_index_for_char, fold_phrase_char, fragment_char_range, is_inline_formatting_element,
+    is_nontranslatable_inline_marker, is_word_char, local_spans_for_fragment,
+    projected_translated_spans_best_effort, serialize_node, source_inline_model,
+    InlinePreservedMarker, ProjectedInlineSpan,
 };
 use super::storage::{
-    PersistTranslationFragment, PersistTranslationRequest, PersistTranslationSection,
+    PersistTranslationFragment, PersistTranslationInlinePhrase, PersistTranslationRequest,
+    PersistTranslationSection,
 };
 
 const MEDIA_DESCENDANT_SELECTOR: &str = "img,table,figure,audio,video";
@@ -67,7 +69,11 @@ fn render_translated_dom(title: &str, request: &PersistTranslationRequest) -> Op
             // projecting formatting across a whole translated paragraph.
         } else if replace_text_preserving_full_inline_formatting(&node, section.text.trim()) {
             // The helper already replaced the deepest safe inline wrapper text.
-        } else if replace_text_projecting_inline_formatting(&node, section.text.trim()) {
+        } else if replace_text_projecting_inline_formatting(
+            &node,
+            section.text.trim(),
+            &section_inline_phrase_hints(section),
+        ) {
             // The helper projected safe source emphasis spans onto translated text.
         } else {
             replace_children_with_text(&node, section.text.trim());
@@ -325,34 +331,45 @@ fn subtree_is_inline_formatting_only(node: &NodeRef) -> bool {
 /// snapped to translated word boundaries. If projected spans overlap or cannot
 /// land cleanly, we keep the plain-text fallback rather than drawing misleading
 /// emphasis.
-fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &str) -> bool {
-    let (source_text, spans) = source_text_and_inline_formatting_spans(node);
-    let preserved_markers = source_text_inline_markers(node);
+fn replace_text_projecting_inline_formatting(
+    node: &NodeRef,
+    translated_text: &str,
+    translation_hints: &[PersistTranslationInlinePhrase],
+) -> bool {
+    let source_model = source_inline_model(node);
     let preserved_anchors = serialized_anchor_nodes(node);
-    if source_text.is_empty()
+    if source_model.text.is_empty()
         || translated_text.trim().is_empty()
-        || (spans.is_empty() && preserved_markers.is_empty() && preserved_anchors.is_empty())
+        || (source_model.spans.is_empty()
+            && source_model.markers.is_empty()
+            && preserved_anchors.is_empty())
     {
         return false;
     }
 
-    let source_len = source_text.chars().count();
+    let source_len = source_model.text.chars().count();
     if source_len == 0 {
         return false;
     }
 
-    let projected_spans = if spans.is_empty() {
+    let projected_spans = if source_model.spans.is_empty() {
         Vec::new()
-    } else if spans
+    } else if source_model
+        .spans
         .iter()
         .any(|span| span.start == 0 && span.end >= source_len)
     {
         Vec::new()
     } else {
-        projected_translated_spans(&spans, &source_text, translated_text, &[]).unwrap_or_default()
+        projected_translated_spans_best_effort(
+            &source_model.spans,
+            &source_model.text,
+            translated_text,
+            translation_hints,
+        )
     };
     let projected_markers =
-        project_inline_markers(&preserved_markers, 0, source_len, translated_text);
+        project_inline_markers(&source_model.markers, 0, source_len, translated_text);
 
     replace_children_with_projected_formatting(
         node,
@@ -362,6 +379,22 @@ fn replace_text_projecting_inline_formatting(node: &NodeRef, translated_text: &s
     );
     append_preserved_anchor_nodes(node, &preserved_anchors);
     true
+}
+
+/// All phrase hints from a section's fragments, for block-level projection.
+///
+/// When fragment-to-source pairing fails, the probe-translated emphasized
+/// phrases are still valid for the whole section; passing them along keeps
+/// exact phrase placement available instead of losing every hint with the
+/// fragment path.
+fn section_inline_phrase_hints(
+    section: &PersistTranslationSection,
+) -> Vec<PersistTranslationInlinePhrase> {
+    section
+        .fragments
+        .iter()
+        .flat_map(|fragment| fragment.inline_phrases.iter().cloned())
+        .collect()
 }
 
 /// Render translated segment fragments while preserving source inline marks.
@@ -382,40 +415,39 @@ fn replace_text_with_fragment_formatting(
         return false;
     }
 
-    let (source_text, source_spans) = source_text_and_inline_formatting_spans(node);
-    if source_text.is_empty() {
+    let source_model = source_inline_model(node);
+    if source_model.text.is_empty() {
         return false;
     }
-    let preserved_markers = source_text_inline_markers(node);
 
     let mut search_start = 0usize;
     let mut rendered_fragments = Vec::new();
     for fragment in fragments {
         let Some((source_start, source_end, next_search_start)) =
-            fragment_char_range(&source_text, fragment, search_start)
+            fragment_char_range(&source_model.text, fragment, search_start)
         else {
             return false;
         };
         search_start = next_search_start;
-        let local_source_text = source_text
+        let local_source_text = source_model
+            .text
             .chars()
             .skip(source_start)
             .take(source_end.saturating_sub(source_start))
             .collect::<String>();
-        let local_spans = local_spans_for_fragment(&source_spans, source_start, source_end);
+        let local_spans = local_spans_for_fragment(&source_model.spans, source_start, source_end);
         let projected_spans = if local_spans.is_empty() || local_source_text.is_empty() {
             Vec::new()
         } else {
-            projected_translated_spans(
+            projected_translated_spans_best_effort(
                 &local_spans,
                 &local_source_text,
                 fragment.text.trim(),
                 &fragment.inline_phrases,
             )
-            .unwrap_or_default()
         };
         let projected_markers = project_inline_markers(
-            &preserved_markers,
+            &source_model.markers,
             source_start,
             source_end,
             fragment.text.trim(),
@@ -553,14 +585,46 @@ fn project_inline_markers(
         .iter()
         .filter(|marker| marker.source_offset >= source_start && marker.source_offset <= source_end)
         .map(|marker| ProjectedInlineMarker {
-            byte_offset: projected_marker_byte_offset(
-                marker.source_offset.saturating_sub(source_start),
-                source_len,
-                translated_text,
-            ),
+            byte_offset: {
+                let local_offset = marker.source_offset.saturating_sub(source_start);
+                // A marker after the last source word belongs after the whole
+                // translated text (including any punctuation MT added there);
+                // anchor-word lookup would drag it back before that punctuation.
+                if local_offset >= source_len {
+                    translated_text.len()
+                } else {
+                    let fallback =
+                        projected_marker_byte_offset(local_offset, source_len, translated_text);
+                    marker
+                        .source_anchor_text
+                        .as_deref()
+                        .and_then(|anchor| {
+                            marker_anchor_byte_offset(translated_text, anchor, fallback)
+                        })
+                        .unwrap_or(fallback)
+                }
+            },
             html: marker.html.clone(),
         })
         .collect()
+}
+
+fn marker_anchor_byte_offset(
+    translated_text: &str,
+    source_anchor: &str,
+    projected_offset: usize,
+) -> Option<usize> {
+    let normalized_anchor = normalize_marker_lookup_word(source_anchor);
+    if normalized_anchor.is_empty() {
+        return None;
+    }
+    translated_word_ranges(translated_text)
+        .into_iter()
+        .filter(|range| {
+            normalize_marker_lookup_word(&translated_text[range.0..range.1]) == normalized_anchor
+        })
+        .min_by_key(|range| range.1.abs_diff(projected_offset))
+        .map(|range| range.1)
 }
 
 fn projected_marker_byte_offset(
@@ -573,14 +637,47 @@ fn projected_marker_byte_offset(
         return translated_text.len();
     }
     let char_offset = local_source_offset.saturating_mul(translated_len) / local_source_len;
-    byte_index_for_char(translated_text, char_offset.min(translated_len))
+    snap_marker_byte_offset(
+        translated_text,
+        byte_index_for_char(translated_text, char_offset.min(translated_len)),
+    )
 }
 
-fn byte_index_for_char(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map(|(index, _)| index)
-        .unwrap_or(text.len())
+fn snap_marker_byte_offset(text: &str, offset: usize) -> usize {
+    for (start, end) in translated_word_ranges(text) {
+        if offset > start && offset < end {
+            return end;
+        }
+    }
+    offset.min(text.len())
+}
+
+fn translated_word_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = None;
+    for (index, ch) in text.char_indices() {
+        if is_word_char(ch) {
+            if start.is_none() {
+                start = Some(index);
+            }
+        } else if let Some(word_start) = start.take() {
+            ranges.push((word_start, index));
+        }
+    }
+    if let Some(word_start) = start {
+        ranges.push((word_start, text.len()));
+    }
+    ranges
+}
+
+fn normalize_marker_lookup_word(value: &str) -> String {
+    value
+        .chars()
+        .filter_map(|ch| {
+            let folded = fold_phrase_char(ch);
+            is_word_char(folded).then_some(folded)
+        })
+        .collect()
 }
 
 fn serialized_anchor_nodes(node: &NodeRef) -> Vec<String> {
@@ -637,12 +734,6 @@ fn parsed_first_element_from_document(document: &NodeRef, selector: &str) -> Opt
         .select_first(selector)
         .ok()
         .map(|node| node.as_node().clone())
-}
-
-fn serialize_node(node: &NodeRef) -> Option<String> {
-    let mut bytes = Vec::new();
-    node.serialize(&mut bytes).ok()?;
-    String::from_utf8(bytes).ok()
 }
 
 /// Replace all child nodes with one text node.
@@ -797,6 +888,34 @@ mod tests {
     }
 
     #[test]
+    fn block_projection_still_uses_phrase_hints_when_fragment_pairing_fails() {
+        // Fragment source text does not exist in the DOM block, so the
+        // fragment path bails; the block-level path must still exact-place
+        // emphasis using the fragment's translated phrase hint.
+        let mut fragment = fragment("Texto que no aparece.", "The blue door opens.");
+        fragment.inline_phrases.push(
+            crate::translation::storage::PersistTranslationInlinePhrase {
+                source_text: "puerta azul".into(),
+                text: "Blue door.".into(),
+            },
+        );
+        let request = request(
+            "<!doctype html><html><body><article><p>La <strong>puerta azul</strong> abre bien.</p></article></body></html>",
+            vec![section_with_fragments(
+                0,
+                false,
+                "The blue door opens well.",
+                vec![fragment],
+            )],
+        );
+
+        let html = render_translated_html("Translated", &request);
+
+        assert!(html.contains("<strong>blue door</strong>"));
+        assert!(!html.contains("puerta azul"));
+    }
+
+    #[test]
     fn preserves_ordered_footnote_items_and_backlinks() {
         let request = request(
             "<!doctype html><html><body><article><p>Texto<a href=\"#sdfootnote1sym\" id=\"sdfootnote1anc\" role=\"doc-noteref\"><sup>1</sup></a>.</p><section role=\"doc-endnotes\"><ol><li id=\"sdfootnote1sym\"><p>Nota uno<a href=\"#sdfootnote1anc\" role=\"doc-backlink\">↩︎</a></p></li><li id=\"sdfootnote2sym\"><p>Nota dos<a href=\"#sdfootnote2anc\" role=\"doc-backlink\">↩︎</a></p></li></ol></section></article></body></html>",
@@ -822,13 +941,13 @@ mod tests {
     #[test]
     fn renders_footnote_marker_without_translating_marker_label_as_text() {
         let request = request(
-            "<!doctype html><html><body><article><p>Topic<a href=\"#fn1\" id=\"ref1\" role=\"doc-noteref\"><sup>1</sup></a> changes.</p><p id=\"fn1\">Note body<a href=\"#ref1\" role=\"doc-backlink\">↩︎</a></p></article></body></html>",
+            "<!doctype html><html><body><article><p>Tópico<a href=\"#fn1\" id=\"ref1\" role=\"doc-noteref\"><sup>1</sup></a> cambia.</p><p id=\"fn1\">Note body<a href=\"#ref1\" role=\"doc-backlink\">↩︎</a></p></article></body></html>",
             vec![
                 section_with_fragments(
                     0,
                     false,
-                    "Topic changes.",
-                    vec![fragment("Topic changes.", "Topic changes.")],
+                    "The topic changes.",
+                    vec![fragment("Tópico cambia.", "The topic changes.")],
                 ),
                 section(1, false, "Translated note body."),
             ],
@@ -836,7 +955,9 @@ mod tests {
 
         let html = render_translated_html("Translated", &request);
 
-        assert!(html.contains("Topic"));
+        assert!(html.contains(
+            "The topic<a href=\"#fn1\" id=\"ref1\" role=\"doc-noteref\"><sup>1</sup></a> changes."
+        ));
         assert!(html.contains("changes."));
         assert!(html.contains("href=\"#fn1\""));
         assert!(html.contains("id=\"ref1\""));
@@ -844,7 +965,7 @@ mod tests {
         assert!(html.contains("<sup>1</sup>"));
         assert!(html.contains("Translated note body."));
         assert!(html.contains("role=\"doc-backlink\""));
-        assert!(!html.contains("Topic 1"));
+        assert!(!html.contains("topic 1"));
     }
 
     #[test]

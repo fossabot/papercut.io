@@ -12,6 +12,12 @@ use super::storage::{PersistTranslationFragment, PersistTranslationInlinePhrase}
 
 const MAX_INLINE_PHRASE_CHARS: usize = 120;
 
+/// Version of the inline-alignment strategy (probes, folding, projection).
+///
+/// Bump this when matching/projection semantics change so resume caches that
+/// start persisting alignment-derived data cannot silently mix strategies.
+pub(crate) const INLINE_ALIGNMENT_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InlinePhraseProbe {
     pub(crate) source_start: usize,
@@ -30,6 +36,7 @@ pub(crate) struct InlineFormattingSpan {
 pub(crate) struct InlinePreservedMarker {
     pub(crate) source_offset: usize,
     pub(crate) html: String,
+    pub(crate) source_anchor_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +44,13 @@ pub(crate) struct ProjectedInlineSpan {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InlineSourceModel {
+    pub(crate) text: String,
+    pub(crate) spans: Vec<InlineFormattingSpan>,
+    pub(crate) markers: Vec<InlinePreservedMarker>,
 }
 
 pub(crate) fn is_inline_formatting_element(node: &NodeRef) -> bool {
@@ -58,10 +72,32 @@ pub(crate) fn is_inline_formatting_element(node: &NodeRef) -> bool {
 pub(crate) fn source_text_and_inline_formatting_spans(
     node: &NodeRef,
 ) -> (String, Vec<InlineFormattingSpan>) {
+    let model = source_inline_model(node);
+    (model.text, model.spans)
+}
+
+/// Extract one marker-aware inline model from a readable source block.
+///
+/// This is the document-translation equivalent of XLIFF inline-code
+/// extraction: prose text goes to MT, formatting spans and note/backlink markers
+/// stay outside the model and are merged back during render.
+pub(crate) fn source_inline_model(node: &NodeRef) -> InlineSourceModel {
     let mut text = String::new();
     let mut spans = Vec::new();
-    collect_inline_formatting_spans(node, &mut Vec::new(), &mut text, &mut spans);
-    (text, coalesce_inline_spans(spans))
+    let mut markers = Vec::new();
+    collect_inline_model(
+        node,
+        &mut Vec::new(),
+        &mut text,
+        &mut spans,
+        &mut markers,
+        &mut false,
+    );
+    InlineSourceModel {
+        text,
+        spans: coalesce_inline_spans(spans),
+        markers,
+    }
 }
 
 /// Extract source block text from reader HTML while skipping reader markers.
@@ -78,19 +114,6 @@ pub(crate) fn source_text_blocks_excluding_nontranslatable_markers(view_html: &s
         .into_iter()
         .map(|node| source_text_and_inline_formatting_spans(&node).0)
         .collect()
-}
-
-/// Collect inline markers with offsets in marker-free normalized source text.
-///
-/// The translation engine never sees footnote/backlink labels, but the renderer
-/// still needs to put their anchors back near the translated phrase they came
-/// from. Offsets are measured against the same normalized text contract used by
-/// translation fragments.
-pub(crate) fn source_text_inline_markers(node: &NodeRef) -> Vec<InlinePreservedMarker> {
-    let mut text = String::new();
-    let mut markers = Vec::new();
-    collect_inline_markers(node, &mut text, &mut markers);
-    markers
 }
 
 pub(crate) fn is_nontranslatable_inline_marker(node: &NodeRef) -> bool {
@@ -147,47 +170,50 @@ pub(crate) fn local_spans_for_fragment(
         .collect()
 }
 
-/// Project source formatting ranges onto one translated text window.
+/// Project spans independently and keep every safe non-overlapping result.
 ///
-/// This is a conservative bridge until true phrase alignment exists. It first
-/// keeps exact carry-over phrases such as names/titles, then maps remaining
-/// ranges by relative position snapped to word boundaries. Overlap rejection is
-/// intentional: wrong emphasis is worse than plain translated text.
-pub(crate) fn projected_translated_spans(
+/// Strict projection is useful for tests and simple paragraphs, but real books
+/// often contain dense nested emphasis. One bad projected range should not drop
+/// all other formatting in the same fragment, so rendering uses this tolerant
+/// path and lets unsafe spans fall back to plain text.
+pub(crate) fn projected_translated_spans_best_effort(
     spans: &[InlineFormattingSpan],
     source_text: &str,
     translated_text: &str,
     translation_hints: &[PersistTranslationInlinePhrase],
-) -> Option<Vec<ProjectedInlineSpan>> {
+) -> Vec<ProjectedInlineSpan> {
     let source_len = source_text.chars().count();
-    let mut projected = Vec::new();
-    for span in spans {
-        let projected_span = if let Some(exact) =
-            exact_translated_span(span, source_text, translated_text, translation_hints)
-        {
-            exact
-        } else {
-            let (start, end) = projected_translated_byte_range(span, source_len, translated_text)?;
-            ProjectedInlineSpan {
-                start,
-                end,
-                tags: span.tags.clone(),
-            }
-        };
-        if projected_span.start >= projected_span.end {
-            return None;
-        }
-        projected.push(projected_span);
-    }
-
+    let mut projected = spans
+        .iter()
+        .filter_map(|span| {
+            let span = exact_translated_span(span, source_text, translated_text, translation_hints)
+                .or_else(|| {
+                    let (start, end) =
+                        projected_translated_byte_range(span, source_len, translated_text)?;
+                    Some(ProjectedInlineSpan {
+                        start,
+                        end,
+                        tags: span.tags.clone(),
+                    })
+                })?;
+            (span.start < span.end).then_some(span)
+        })
+        .collect::<Vec<_>>();
     projected.sort_by_key(|span| (span.start, span.end));
-    for pair in projected.windows(2) {
-        if pair[0].end > pair[1].start {
-            return None;
-        }
-    }
 
-    Some(projected)
+    // Distinct source spans that project onto overlapping target ranges are
+    // alignment failures, not nesting: keep the first and drop the rest so
+    // fabricated combined emphasis never lands on translated words.
+    let mut accepted: Vec<ProjectedInlineSpan> = Vec::new();
+    for span in projected {
+        if let Some(previous) = accepted.last() {
+            if previous.end > span.start {
+                continue;
+            }
+        }
+        accepted.push(span);
+    }
+    accepted
 }
 
 /// Place formatting on an unchanged target phrase when that is unambiguous.
@@ -209,12 +235,16 @@ fn exact_translated_span(
     }
     let hinted_phrase = translation_hints
         .iter()
-        .find(|hint| normalize_fragment_text(&hint.source_text) == normalize_fragment_text(phrase))
-        .map(|hint| hint.text.trim())
+        .find(|hint| folded_phrase_key(&hint.source_text) == folded_phrase_key(phrase))
+        .map(|hint| trim_phrase_noise(hint.text.trim()))
         .filter(|value| !value.is_empty());
     let (start, end) = hinted_phrase
-        .and_then(|hint| find_unique_phrase_byte_range(translated_text, hint))
-        .or_else(|| find_unique_phrase_byte_range(translated_text, phrase))?;
+        .and_then(|hint| {
+            find_unique_phrase_byte_range(translated_text, hint)
+                .or_else(|| find_unique_phrase_byte_range_folded(translated_text, hint))
+        })
+        .or_else(|| find_unique_phrase_byte_range(translated_text, phrase))
+        .or_else(|| find_unique_phrase_byte_range_folded(translated_text, phrase))?;
     Some(ProjectedInlineSpan {
         start,
         end,
@@ -244,17 +274,26 @@ pub(crate) fn inline_phrase_probes_by_block(view_html: &str) -> Vec<Vec<InlinePh
         .collect()
 }
 
-fn collect_inline_formatting_spans(
+fn collect_inline_model(
     node: &NodeRef,
     active_tags: &mut Vec<String>,
     text: &mut String,
     spans: &mut Vec<InlineFormattingSpan>,
+    markers: &mut Vec<InlinePreservedMarker>,
+    pending_space: &mut bool,
 ) {
     if is_nontranslatable_inline_marker(node) {
+        if let Some(html) = serialize_node(node) {
+            markers.push(InlinePreservedMarker {
+                source_offset: text.chars().count(),
+                html,
+                source_anchor_text: last_word_for_marker(text),
+            });
+        }
         return;
     }
     if let Some(value) = node.as_text() {
-        let appended = append_normalized_text(text, &value.borrow());
+        let appended = append_normalized_text(text, &value.borrow(), pending_space);
         if let Some((start, end)) = appended.filter(|_| !active_tags.is_empty()) {
             spans.push(InlineFormattingSpan {
                 start,
@@ -270,33 +309,10 @@ fn collect_inline_formatting_spans(
         active_tags.push(tag);
     }
     for child in node.children() {
-        collect_inline_formatting_spans(&child, active_tags, text, spans);
+        collect_inline_model(&child, active_tags, text, spans, markers, pending_space);
     }
     if pushed_tag.is_some() {
         active_tags.pop();
-    }
-}
-
-fn collect_inline_markers(
-    node: &NodeRef,
-    text: &mut String,
-    markers: &mut Vec<InlinePreservedMarker>,
-) {
-    if is_nontranslatable_inline_marker(node) {
-        if let Some(html) = serialize_node(node) {
-            markers.push(InlinePreservedMarker {
-                source_offset: text.chars().count(),
-                html,
-            });
-        }
-        return;
-    }
-    if let Some(value) = node.as_text() {
-        append_normalized_text(text, &value.borrow());
-        return;
-    }
-    for child in node.children() {
-        collect_inline_markers(&child, text, markers);
     }
 }
 
@@ -349,10 +365,21 @@ fn is_probe_block(node: &NodeRef) -> bool {
 /// The returned range excludes any spacer inserted before the first word. That
 /// detail matters when a text node is inside `<em>` after unstyled text: the
 /// inserted normalizing space should not become emphasized.
-fn append_normalized_text(output: &mut String, text: &str) -> Option<(usize, usize)> {
+///
+/// `pending_space` carries whitespace state across sibling text nodes so
+/// punctuation directly after a formatting element (`<strong>x</strong>.`)
+/// stays attached instead of becoming a stray ` .` token in MT input.
+fn append_normalized_text(
+    output: &mut String,
+    text: &str,
+    pending_space: &mut bool,
+) -> Option<(usize, usize)> {
+    if text.chars().next().is_some_and(char::is_whitespace) {
+        *pending_space = true;
+    }
     let mut start = None;
     for word in text.split_whitespace() {
-        if !output.is_empty() {
+        if !output.is_empty() && (*pending_space || start.is_some()) {
             output.push(' ');
         }
         if start.is_none() {
@@ -360,10 +387,13 @@ fn append_normalized_text(output: &mut String, text: &str) -> Option<(usize, usi
         }
         output.push_str(word);
     }
+    if start.is_some() {
+        *pending_space = text.chars().next_back().is_some_and(char::is_whitespace);
+    }
     start.map(|start| (start, output.chars().count()))
 }
 
-fn serialize_node(node: &NodeRef) -> Option<String> {
+pub(crate) fn serialize_node(node: &NodeRef) -> Option<String> {
     let mut bytes = Vec::new();
     node.serialize(&mut bytes).ok()?;
     String::from_utf8(bytes).ok()
@@ -421,6 +451,42 @@ fn phrase_is_specific_enough(phrase: &str) -> bool {
     phrase.chars().filter(|ch| ch.is_alphanumeric()).count() >= 4
 }
 
+/// Fold case and common Latin accents for tolerant phrase comparison.
+///
+/// MT probe output routinely differs from in-context phrasing only by sentence
+/// casing or accent normalization; byte-exact matching alone would discard
+/// those hints and fall back to positional projection, styling wrong words.
+pub(crate) fn fold_phrase_char(ch: char) -> char {
+    let folded = match ch {
+        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' => 'a',
+        'é' | 'è' | 'ê' | 'ë' | 'É' | 'È' | 'Ê' | 'Ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => 'i',
+        'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Õ' => 'o',
+        'ú' | 'ù' | 'û' | 'ü' | 'Ú' | 'Ù' | 'Û' | 'Ü' => 'u',
+        'ñ' | 'Ñ' => 'n',
+        'ç' | 'Ç' => 'c',
+        _ => ch,
+    };
+    folded.to_lowercase().next().unwrap_or(folded)
+}
+
+/// Whitespace-normalized, case/accent-folded key for hint source lookup.
+fn folded_phrase_key(text: &str) -> String {
+    normalize_fragment_text(text)
+        .chars()
+        .map(fold_phrase_char)
+        .collect()
+}
+
+/// Strip wrapping quotes/punctuation an MT engine adds to a standalone phrase.
+///
+/// Probes are translated as isolated inputs, so the engine may sentence-close
+/// them ("Scientific socialism.") or quote them. The prose occurrence carries
+/// its own punctuation; matching should only cover the phrase words.
+fn trim_phrase_noise(phrase: &str) -> &str {
+    phrase.trim_matches(|ch: char| !ch.is_alphanumeric())
+}
+
 fn find_unique_phrase_byte_range(text: &str, phrase: &str) -> Option<(usize, usize)> {
     let mut search_start = 0usize;
     let mut found = None;
@@ -437,6 +503,46 @@ fn find_unique_phrase_byte_range(text: &str, phrase: &str) -> Option<(usize, usi
             found = Some((start, end));
         }
         search_start = end;
+    }
+    found
+}
+
+/// Case/accent-insensitive variant of `find_unique_phrase_byte_range`.
+///
+/// Runs only after the exact search misses, and keeps the same uniqueness and
+/// word-boundary requirements so tolerance never styles an ambiguous copy.
+fn find_unique_phrase_byte_range_folded(text: &str, phrase: &str) -> Option<(usize, usize)> {
+    let needle = phrase.chars().map(fold_phrase_char).collect::<Vec<_>>();
+    if needle.is_empty() {
+        return None;
+    }
+    let haystack = text
+        .char_indices()
+        .map(|(index, ch)| (index, fold_phrase_char(ch)))
+        .collect::<Vec<_>>();
+    let mut found = None;
+    let mut index = 0usize;
+    while index + needle.len() <= haystack.len() {
+        let matches = haystack[index..index + needle.len()]
+            .iter()
+            .zip(&needle)
+            .all(|((_, hay_ch), needle_ch)| hay_ch == needle_ch);
+        if !matches {
+            index += 1;
+            continue;
+        }
+        let start = haystack[index].0;
+        let end = haystack
+            .get(index + needle.len())
+            .map(|(byte, _)| *byte)
+            .unwrap_or(text.len());
+        if phrase_has_word_boundaries(text, start, end) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some((start, end));
+        }
+        index += needle.len();
     }
     found
 }
@@ -474,10 +580,25 @@ fn translated_word_byte_range(
         end = (start + 1).min(len);
     }
 
-    while start > 0 && is_word_char(chars[start - 1].1) && is_word_char(chars[start].1) {
-        start -= 1;
+    // A start that lands mid-word snaps to the closer word edge. Always
+    // extending backward drags the span across the preceding word whenever
+    // translation shifts a phrase slightly right, styling one word too many.
+    if start > 0 && is_word_char(chars[start].1) && is_word_char(chars[start - 1].1) {
+        let mut word_start = start;
+        while word_start > 0 && is_word_char(chars[word_start - 1].1) {
+            word_start -= 1;
+        }
+        let mut word_end = start;
+        while word_end < len && is_word_char(chars[word_end].1) {
+            word_end += 1;
+        }
+        start = if start - word_start <= word_end - start {
+            word_start
+        } else {
+            word_end
+        };
     }
-    while end < len && is_word_char(chars[end - 1].1) && is_word_char(chars[end].1) {
+    while end < len && end > start && is_word_char(chars[end - 1].1) && is_word_char(chars[end].1) {
         end += 1;
     }
 
@@ -496,8 +617,15 @@ fn translated_word_byte_range(
     Some((byte_start, byte_end))
 }
 
-fn is_word_char(ch: char) -> bool {
+pub(crate) fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '\'' || ch == '\u{2019}' || ch == '-'
+}
+
+fn last_word_for_marker(text: &str) -> Option<String> {
+    text.split(|ch: char| !is_word_char(ch))
+        .filter(|word| !word.trim().is_empty())
+        .next_back()
+        .map(str::to_string)
 }
 
 fn find_fragment_char_range(
@@ -530,7 +658,7 @@ fn char_slice(text: &str, start: usize, end: usize) -> Option<String> {
     Some(text.chars().skip(start).take(end - start).collect())
 }
 
-fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+pub(crate) fn byte_index_for_char(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
         .map(|(index, _)| index)
@@ -540,9 +668,9 @@ fn byte_index_for_char(text: &str, char_index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        fragment_char_range, inline_phrase_probes_by_block, projected_translated_spans,
-        source_text_and_inline_formatting_spans,
-        source_text_blocks_excluding_nontranslatable_markers, source_text_inline_markers,
+        fragment_char_range, inline_phrase_probes_by_block, projected_translated_spans_best_effort,
+        source_inline_model, source_text_and_inline_formatting_spans,
+        source_text_blocks_excluding_nontranslatable_markers,
     };
     use crate::translation::html::parse_html_document;
     use crate::translation::storage::{PersistTranslationFragment, PersistTranslationInlinePhrase};
@@ -582,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_overlapping_projected_spans() {
+    fn best_effort_projection_keeps_safe_spans_when_one_overlaps() {
         let spans = vec![
             super::InlineFormattingSpan {
                 start: 0,
@@ -596,7 +724,11 @@ mod tests {
             },
         ];
 
-        assert!(projected_translated_spans(&spans, "abcdefghij", "abcdefghij", &[]).is_none());
+        let projected =
+            projected_translated_spans_best_effort(&spans, "abcdefghij", "abcdefghij", &[]);
+
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].tags, vec!["strong"]);
     }
 
     #[test]
@@ -607,9 +739,12 @@ mod tests {
             tags: vec!["em".into(), "strong".into()],
         }];
 
-        let projected =
-            projected_translated_spans(&spans, "El proyecto Orion.", "The Orion project.", &[])
-                .expect("projected");
+        let projected = projected_translated_spans_best_effort(
+            &spans,
+            "El proyecto Orion.",
+            "The Orion project.",
+            &[],
+        );
 
         assert_eq!(projected.len(), 1);
         assert_eq!(
@@ -631,18 +766,76 @@ mod tests {
             text: "blue door".into(),
         }];
 
-        let projected = projected_translated_spans(
+        let projected = projected_translated_spans_best_effort(
             &spans,
             "La puerta azul abre.",
             "The blue door opens.",
             &hints,
-        )
-        .expect("projected");
+        );
 
+        assert_eq!(projected.len(), 1);
         assert_eq!(
             &"The blue door opens."[projected[0].start..projected[0].end],
             "blue door"
         );
+    }
+
+    #[test]
+    fn uses_phrase_hint_despite_probe_casing_and_punctuation() {
+        // "método práctico" is emphasized; the standalone probe translation
+        // came back sentence-cased with a closing period, and the target prose
+        // wraps the phrase in typographic quotes.
+        let source_text = "Requiere del método práctico para avanzar.";
+        let start = source_text
+            .chars()
+            .collect::<Vec<_>>()
+            .windows("método práctico".chars().count())
+            .position(|window| window.iter().collect::<String>() == "método práctico")
+            .expect("phrase start");
+        let spans = vec![super::InlineFormattingSpan {
+            start,
+            end: start + "método práctico".chars().count(),
+            tags: vec!["strong".into()],
+        }];
+        let hints = vec![PersistTranslationInlinePhrase {
+            source_text: "método práctico".into(),
+            text: "Practical method.".into(),
+        }];
+        let translated_text = "It requires the “practical method” to advance.";
+
+        let projected =
+            projected_translated_spans_best_effort(&spans, source_text, translated_text, &hints);
+
+        assert_eq!(projected.len(), 1);
+        assert_eq!(
+            &translated_text[projected[0].start..projected[0].end],
+            "practical method"
+        );
+        assert_eq!(projected[0].tags, vec!["strong"]);
+    }
+
+    #[test]
+    fn folded_match_still_requires_unique_occurrence() {
+        let spans = vec![super::InlineFormattingSpan {
+            start: 0,
+            end: 6,
+            tags: vec!["em".into()],
+        }];
+        let hints = vec![PersistTranslationInlinePhrase {
+            source_text: "método".into(),
+            text: "Method".into(),
+        }];
+
+        // "method" appears twice in the target; tolerant matching must refuse
+        // to pick one, and proportional fallback takes over instead.
+        let projected = super::exact_translated_span(
+            &spans[0],
+            "método claro",
+            "One method or another method works.",
+            &hints,
+        );
+
+        assert!(projected.is_none());
     }
 
     #[test]
@@ -663,11 +856,12 @@ mod tests {
         let blocks = source_text_blocks_excluding_nontranslatable_markers(html);
         let document = parse_html_document(html);
         let paragraph = document.select_first("p").expect("paragraph");
-        let markers = source_text_inline_markers(paragraph.as_node());
+        let markers = source_inline_model(paragraph.as_node()).markers;
 
         assert_eq!(blocks, vec!["Topic changes."]);
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].source_offset, "Topic".chars().count());
+        assert_eq!(markers[0].source_anchor_text.as_deref(), Some("Topic"));
         assert!(markers[0].html.contains("role=\"doc-noteref\""));
     }
 }
