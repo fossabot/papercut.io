@@ -56,6 +56,14 @@ pub(crate) fn load_translation_source_document<R: Runtime>(
 fn apply_marker_free_reader_text(source: &mut TranslationSourceDocument) {
     let blocks = source_text_blocks_excluding_nontranslatable_markers(&source.view_html);
     if blocks.len() != source.blocks.len() {
+        // MT input falls back to DB section text, so footnote labels may leak
+        // into translated prose for this document; keep that traceable.
+        log::warn!(
+            "translation: reader DOM has {} blocks but uploaded sections have {} for '{}'; marker labels may leak into MT input",
+            blocks.len(),
+            source.blocks.len(),
+            source.title
+        );
         return;
     }
     for (block, text) in source.blocks.iter_mut().zip(blocks) {

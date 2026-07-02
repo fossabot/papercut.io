@@ -12,6 +12,7 @@ pub(crate) mod commands;
 mod config;
 mod ctranslate2;
 mod engine;
+mod hash;
 mod html;
 mod inline_markup;
 mod job;

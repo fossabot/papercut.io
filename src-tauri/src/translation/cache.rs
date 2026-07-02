@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime};
 
+use super::hash::stable_text_hash;
 use super::inline_markup::INLINE_ALIGNMENT_VERSION;
 use super::job::TranslationJobPlan;
 use super::segment::TranslationTextSegment;
@@ -135,11 +136,19 @@ pub(crate) fn load_segment_cache<R: Runtime>(
         return Ok(new_segment_cache(plan));
     };
     let Ok(cache) = serde_json::from_slice::<TranslationSegmentCache>(&bytes) else {
+        log::warn!(
+            "translation: ignoring unreadable segment cache {}; starting fresh",
+            path.display()
+        );
         return Ok(new_segment_cache(plan));
     };
     if cache_is_compatible(&cache, plan) {
         Ok(cache)
     } else {
+        log::warn!(
+            "translation: segment cache {} does not match current job settings; starting fresh",
+            path.display()
+        );
         Ok(new_segment_cache(plan))
     }
 }
@@ -165,7 +174,9 @@ pub(crate) fn save_segment_cache<R: Runtime>(
         )
     })?;
     let temp_path = path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec_pretty(cache)
+    // Compact JSON: the whole manifest is rewritten after every batch, and
+    // pretty-printing only inflates that repeated I/O for a machine-read file.
+    let bytes = serde_json::to_vec(cache)
         .map_err(|err| format!("Failed to serialize translation segment cache: {err}"))?;
     fs::write(&temp_path, bytes).map_err(|err| {
         format!(
@@ -253,12 +264,7 @@ fn promote_cache_file(temp_path: &std::path::Path, path: &std::path::Path) -> Re
 }
 
 fn hash_segment_text(text: &str) -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
-    for byte in text.len().to_le_bytes().into_iter().chain(text.bytes()) {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
+    stable_text_hash(text)
 }
 
 #[cfg(test)]

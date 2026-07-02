@@ -5,11 +5,12 @@
 //! such as empty translations or generated HTML with internal links that no
 //! longer resolve.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use kuchikiki::NodeRef;
 
 use super::html::parse_html_document;
+use super::inline_markup::is_word_char;
 use super::source::TranslationSourceBlock;
 use super::storage::PersistTranslationSection;
 use super::types::TranslationGlossaryEntry;
@@ -136,11 +137,12 @@ fn validate_each_source_section_has_output(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
 ) -> Result<(), TranslationQualityIssue> {
+    let by_ordinal = source_blocks_by_ordinal(source_blocks);
     for (index, section) in sections.iter().enumerate() {
         if !section.text.trim().is_empty() {
             continue;
         }
-        let source_ordinal = source_block_for_section(source_blocks, section, index)
+        let source_ordinal = source_block_for_section(&by_ordinal, source_blocks, section, index)
             .map(|source| source.ordinal)
             .or(Some(section.source_ordinal));
         return Err(TranslationQualityIssue::new(
@@ -161,8 +163,10 @@ fn validate_length_ratios(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
 ) -> Result<(), TranslationQualityIssue> {
+    let by_ordinal = source_blocks_by_ordinal(source_blocks);
     for (index, section) in sections.iter().enumerate() {
-        let Some(source) = source_block_for_section(source_blocks, section, index) else {
+        let Some(source) = source_block_for_section(&by_ordinal, source_blocks, section, index)
+        else {
             continue;
         };
         let source_chars = source.text.trim().chars().count();
@@ -223,6 +227,11 @@ fn validate_repeated_outputs(
 /// contains the source term and the translated section does not contain the
 /// requested target term, storing the variant would make the glossary look
 /// successful while silently ignoring it.
+///
+/// Source-term detection requires word boundaries: substring hits such as
+/// "cat" inside "category" must not demand the target term in sections that
+/// never used the real word. Target detection stays substring-tolerant because
+/// inflection can legitimately extend the requested target form.
 fn validate_glossary_terms(
     source_blocks: &[TranslationSourceBlock],
     sections: &[PersistTranslationSection],
@@ -231,13 +240,28 @@ fn validate_glossary_terms(
     if glossary.is_empty() {
         return Ok(());
     }
+    let lowered_entries = glossary
+        .iter()
+        .map(|entry| {
+            (
+                entry.source.trim().to_lowercase(),
+                entry.target.trim().to_lowercase(),
+                entry,
+            )
+        })
+        .filter(|(source, target, _)| !source.is_empty() && !target.is_empty())
+        .collect::<Vec<_>>();
+    let by_ordinal = source_blocks_by_ordinal(source_blocks);
     for (index, section) in sections.iter().enumerate() {
-        let Some(source) = source_block_for_section(source_blocks, section, index) else {
+        let Some(source) = source_block_for_section(&by_ordinal, source_blocks, section, index)
+        else {
             continue;
         };
-        for entry in glossary {
-            if contains_case_insensitive(&source.text, &entry.source)
-                && !contains_case_insensitive(&section.text, &entry.target)
+        let source_lower = source.text.to_lowercase();
+        let section_lower = section.text.to_lowercase();
+        for (source_term, target_term, entry) in &lowered_entries {
+            if lowered_contains_word_bounded(&source_lower, source_term)
+                && !section_lower.contains(target_term.as_str())
             {
                 return Err(TranslationQualityIssue::new(
                     TranslationQualityIssueKind::GlossaryTarget,
@@ -252,6 +276,32 @@ fn validate_glossary_terms(
         }
     }
     Ok(())
+}
+
+/// Word-bounded term search over already-lowercased text.
+///
+/// A boundary is only demanded on term edges that are themselves word
+/// characters, so punctuation-edged terms ("C++") still match naturally.
+pub(crate) fn lowered_contains_word_bounded(text: &str, term: &str) -> bool {
+    if term.is_empty() {
+        return false;
+    }
+    let mut search_start = 0usize;
+    while let Some(relative) = text[search_start..].find(term) {
+        let start = search_start + relative;
+        let end = start + term.len();
+        let first = term.chars().next();
+        let last = term.chars().next_back();
+        let before = text[..start].chars().next_back();
+        let after = text[end..].chars().next();
+        let left_ok = !first.is_some_and(is_word_char) || !before.is_some_and(is_word_char);
+        let right_ok = !last.is_some_and(is_word_char) || !after.is_some_and(is_word_char);
+        if left_ok && right_ok {
+            return true;
+        }
+        search_start = end;
+    }
+    false
 }
 
 /// Ensure local `#anchor` links still point at an id in generated HTML.
@@ -323,27 +373,31 @@ fn format_quality_issue(issue: TranslationQualityIssue) -> String {
     issue.to_user_message()
 }
 
+/// Index source blocks by ordinal once so per-section lookups stay cheap on
+/// book-sized documents instead of re-scanning the block list per section.
+fn source_blocks_by_ordinal(
+    source_blocks: &[TranslationSourceBlock],
+) -> BTreeMap<usize, &TranslationSourceBlock> {
+    source_blocks
+        .iter()
+        .map(|block| (block.ordinal, block))
+        .collect()
+}
+
 fn source_block_for_section<'a>(
+    by_ordinal: &BTreeMap<usize, &'a TranslationSourceBlock>,
     source_blocks: &'a [TranslationSourceBlock],
     section: &PersistTranslationSection,
     fallback_index: usize,
 ) -> Option<&'a TranslationSourceBlock> {
-    source_blocks
-        .iter()
-        .find(|block| block.ordinal == section.source_ordinal)
+    by_ordinal
+        .get(&section.source_ordinal)
+        .copied()
         .or_else(|| source_blocks.get(fallback_index))
 }
 
 fn normalize_quality_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn contains_case_insensitive(text: &str, needle: &str) -> bool {
-    let needle = needle.trim();
-    if needle.is_empty() {
-        return false;
-    }
-    text.to_lowercase().contains(&needle.to_lowercase())
 }
 
 fn truncate_quality_preview(text: &str, max_chars: usize) -> String {
@@ -468,6 +522,32 @@ mod tests {
             &[glossary("Estado", "State")],
         )
         .expect("glossary target present");
+    }
+
+    #[test]
+    fn substring_source_term_does_not_demand_glossary_target() {
+        // "mar" appears only inside "marca"; the glossary term was never used
+        // as a word, so the missing target must not fail the job.
+        validate_translated_output(
+            "<article><p>The brand grows.</p></article>",
+            &[source_block(0, "La marca crece.")],
+            &[section("The brand grows.")],
+            &[glossary("mar", "sea")],
+        )
+        .expect("substring must not trigger glossary gate");
+    }
+
+    #[test]
+    fn word_bounded_lookup_matches_only_whole_words() {
+        assert!(super::lowered_contains_word_bounded(
+            "la marca del mar crece",
+            "mar"
+        ));
+        assert!(!super::lowered_contains_word_bounded(
+            "la marca crece",
+            "mar"
+        ));
+        assert!(super::lowered_contains_word_bounded("usa c++ hoy", "c++"));
     }
 
     #[test]

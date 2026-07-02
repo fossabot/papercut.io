@@ -5,8 +5,6 @@
 //! owns only translation metadata and variant directories; it never mutates the
 //! original uploaded document rows or source files.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, OptionalExtension};
@@ -17,6 +15,7 @@ use crate::document_uploads::{
     DerivedDocumentSection,
 };
 
+use super::hash::StableHasher;
 use super::quality::validate_translated_output;
 use super::render::render_translated_html;
 use super::source::TranslationSourceDocument;
@@ -149,7 +148,7 @@ pub(crate) fn persist_translated_document<R: Runtime>(
     let settings_json = serde_json::json!({
         "jobId": request.job_id,
         "qualityMode": request.quality_mode,
-        "repairMode": repair_mode_label(&request.repair_mode),
+        "repairMode": request.repair_mode.label(),
         "sourceFormat": request.source.format,
         "glossaryEntries": request.glossary.len(),
     })
@@ -320,40 +319,35 @@ fn ensure_translation_schema(db: &rusqlite::Connection) -> Result<(), String> {
 }
 
 fn translated_document_id(request: &PersistTranslationRequest, now: u128) -> String {
-    let mut hasher = DefaultHasher::new();
-    request.source.document_id.hash(&mut hasher);
-    request.source_language.hash(&mut hasher);
-    request.target_language.hash(&mut hasher);
-    request.model_id.hash(&mut hasher);
-    request.quality_mode.hash(&mut hasher);
-    repair_mode_label(&request.repair_mode).hash(&mut hasher);
+    let mut hasher = StableHasher::new();
+    hasher.write_str(&request.source.document_id);
+    hasher.write_str(&request.source_language);
+    hasher.write_str(&request.target_language);
+    hasher.write_str(&request.model_id);
+    hasher.write_str(&request.quality_mode);
+    hasher.write_str(request.repair_mode.label());
     hash_glossary_entries(&request.glossary, &mut hasher);
-    request.job_id.hash(&mut hasher);
-    now.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    hasher.write_str(&request.job_id);
+    hasher.write_str(&now.to_string());
+    hasher.finish_hex()
 }
 
+/// Stored provenance hash; must stay stable across app/Rust upgrades so the
+/// same glossary always records the same identity.
 fn translation_glossary_hash(glossary: &[TranslationGlossaryEntry]) -> Option<String> {
     if glossary.is_empty() {
         return None;
     }
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = StableHasher::new();
     hash_glossary_entries(glossary, &mut hasher);
-    Some(format!("{:016x}", hasher.finish()))
+    Some(hasher.finish_hex())
 }
 
-fn hash_glossary_entries(glossary: &[TranslationGlossaryEntry], hasher: &mut DefaultHasher) {
+fn hash_glossary_entries(glossary: &[TranslationGlossaryEntry], hasher: &mut StableHasher) {
     for entry in glossary {
-        entry.source.trim().hash(hasher);
-        entry.target.trim().hash(hasher);
-        entry.note.as_deref().unwrap_or("").trim().hash(hasher);
-    }
-}
-
-fn repair_mode_label(mode: &TranslationRepairMode) -> &'static str {
-    match mode {
-        TranslationRepairMode::Off => "off",
-        TranslationRepairMode::Chapter => "chapter",
+        hasher.write_str(entry.source.trim());
+        hasher.write_str(entry.target.trim());
+        hasher.write_str(entry.note.as_deref().unwrap_or("").trim());
     }
 }
 

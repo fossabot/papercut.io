@@ -103,6 +103,16 @@ impl Default for TranslationRepairMode {
     }
 }
 
+impl TranslationRepairMode {
+    /// Stable label used in cache identity and stored provenance metadata.
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Chapter => "chapter",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TranslationGlossaryEntry {

@@ -7,6 +7,7 @@
 
 #![allow(dead_code)]
 
+use super::hash::StableHasher;
 use super::segment::{segment_text_blocks, TranslationTextSegment};
 use super::types::TranslationStartRequest;
 
@@ -84,26 +85,19 @@ where
 /// This higher-level key intentionally captures settings that make translated
 /// output incompatible across jobs.
 pub(crate) fn build_translation_cache_key(request: &TranslationStartRequest) -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
-    hash_cache_part(&mut hash, &request.document_url);
-    hash_cache_part(&mut hash, &request.source_language);
-    hash_cache_part(&mut hash, &request.target_language);
-    hash_cache_part(&mut hash, &request.model_id);
-    hash_cache_part(&mut hash, &request.quality_mode);
-    hash_cache_part(&mut hash, repair_mode_cache_part(request));
+    let mut hasher = StableHasher::new();
+    hasher.write_str(&request.document_url);
+    hasher.write_str(&request.source_language);
+    hasher.write_str(&request.target_language);
+    hasher.write_str(&request.model_id);
+    hasher.write_str(&request.quality_mode);
+    hasher.write_str(request.repair_mode.label());
     for entry in &request.glossary {
-        hash_cache_part(&mut hash, entry.source.trim());
-        hash_cache_part(&mut hash, entry.target.trim());
-        hash_cache_part(&mut hash, entry.note.as_deref().unwrap_or("").trim());
+        hasher.write_str(entry.source.trim());
+        hasher.write_str(entry.target.trim());
+        hasher.write_str(entry.note.as_deref().unwrap_or("").trim());
     }
-    format!("{hash:016x}")
-}
-
-fn hash_cache_part(hash: &mut u64, value: &str) {
-    for byte in value.len().to_le_bytes().into_iter().chain(value.bytes()) {
-        *hash ^= u64::from(byte);
-        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
+    hasher.finish_hex()
 }
 
 fn validate_request_shape(request: &TranslationStartRequest) -> Result<(), String> {
@@ -173,13 +167,6 @@ fn normalize_glossary_key(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
-}
-
-fn repair_mode_cache_part(request: &TranslationStartRequest) -> &'static str {
-    match request.repair_mode {
-        crate::translation::types::TranslationRepairMode::Off => "off",
-        crate::translation::types::TranslationRepairMode::Chapter => "chapter",
-    }
 }
 
 #[cfg(test)]

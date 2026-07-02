@@ -34,7 +34,14 @@ struct ProjectedInlineMarker {
 /// cannot be parsed/mapped safely, we fall back to section-only HTML so a
 /// completed translation is still viewable, searchable, and durable.
 pub(crate) fn render_translated_html(title: &str, request: &PersistTranslationRequest) -> String {
-    render_translated_dom(title, request).unwrap_or_else(|| render_section_document(title, request))
+    render_translated_dom(title, request).unwrap_or_else(|| {
+        // Losing DOM preservation drops links/images/anchors down to plain
+        // sections; that trade-off should be visible when triaging output.
+        log::warn!(
+            "translation: DOM-preserving render failed for '{title}'; using section-only fallback document"
+        );
+        render_section_document(title, request)
+    })
 }
 
 /// Clone the safe reader HTML and replace readable blocks in source order.

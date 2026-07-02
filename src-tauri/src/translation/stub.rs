@@ -22,6 +22,7 @@ use super::inline_markup::{inline_phrase_probes_by_block, InlinePhraseProbe};
 use super::job::{plan_translation_job, TranslationBatchPlan, TranslationJobPlan};
 use super::model_store::{directory_size, manifest_for, resolve_translation_model_dir};
 use super::models::{find_planned_model, planned_models, TranslationModelDefinition};
+use super::quality::lowered_contains_word_bounded;
 use super::source::{load_translation_source_document, TranslationSourceDocument};
 use super::state::TranslationState;
 use super::storage::{
@@ -355,6 +356,12 @@ fn run_translation_batches<R: tauri::Runtime>(
         if probes.len() == source.blocks.len() {
             probes
         } else {
+            log::warn!(
+                "translation: skipping inline phrase probes for '{}': reader DOM has {} blocks, planner has {}",
+                source.title,
+                probes.len(),
+                source.blocks.len()
+            );
             Vec::new()
         }
     };
@@ -712,7 +719,7 @@ fn translate_inline_phrase_hints(
         .into_iter()
         .map(|(probe_id, owner_id, source_text)| (probe_id, (owner_id, source_text)))
         .collect::<BTreeMap<_, _>>();
-    let Ok(outputs) = engine.translate_batch(TranslationBatchInput {
+    let outputs = match engine.translate_batch(TranslationBatchInput {
         model_id: plan.request.model_id.clone(),
         source_language: plan.request.source_language.clone(),
         target_language: plan.request.target_language.clone(),
@@ -720,8 +727,14 @@ fn translate_inline_phrase_hints(
         repair_mode: plan.request.repair_mode.clone(),
         glossary: plan.request.glossary.clone(),
         segments: inputs,
-    }) else {
-        return (hints, false);
+    }) {
+        Ok(outputs) => outputs,
+        Err(err) => {
+            // Non-fatal by design: the job continues with proportional inline
+            // projection, but the degradation must be visible in logs.
+            log::warn!("translation: inline phrase probe batch failed: {err}");
+            return (hints, false);
+        }
     };
 
     let mut stored_new_translation = false;
@@ -827,9 +840,10 @@ fn batch_input(
 
 /// Select glossary entries relevant to one segment by exact source-term match.
 ///
-/// This keeps prompt/context payloads bounded today. Fuzzy glossary matching
-/// can come later if needed; exact matching uses standard string search and
-/// avoids a text-similarity dependency until benchmarks justify one.
+/// This keeps prompt/context payloads bounded today. Matching is word-bounded
+/// so short terms do not attach to unrelated segments through substrings
+/// ("cat" inside "category"); fuzzy matching can come later if miss rates
+/// justify a text-similarity dependency.
 fn glossary_for_segment(
     glossary: &[TranslationGlossaryEntry],
     segment_text: &str,
@@ -837,7 +851,9 @@ fn glossary_for_segment(
     let lower_segment = segment_text.to_lowercase();
     glossary
         .iter()
-        .filter(|entry| lower_segment.contains(&entry.source.to_lowercase()))
+        .filter(|entry| {
+            lowered_contains_word_bounded(&lower_segment, &entry.source.trim().to_lowercase())
+        })
         .cloned()
         .collect()
 }
