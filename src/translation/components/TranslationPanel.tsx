@@ -68,6 +68,7 @@ export function TranslationPanel({
 }: TranslationPanelProps) {
   const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
   const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
+  const [modelsOpen, setModelsOpen] = useState(false)
   const [modelId, setModelId] = useState('')
   const [sourceLanguage, setSourceLanguage] = useState('auto')
   const [targetLanguage, setTargetLanguage] = useState('en')
@@ -97,6 +98,24 @@ export function TranslationPanel({
   const activeSourceLanguage = sourceLanguages.includes(sourceLanguage) ? sourceLanguage : 'auto'
   const activeTargetLanguage = targetLanguages.includes(targetLanguage) ? targetLanguage : targetLanguages[0] ?? 'en'
   const activeQualityMode = qualityModes.includes(qualityMode) ? qualityMode : qualityModes[0] ?? 'balanced'
+  const installableModels = useMemo(
+    () => modelOptions.filter((model) => model.manifestState === 'pinned-file-manifest'),
+    [modelOptions],
+  )
+  const plannedModels = useMemo(
+    () => modelOptions.filter((model) => model.manifestState !== 'pinned-file-manifest'),
+    [modelOptions],
+  )
+  const modelNameById = useMemo(
+    () => new Map(modelOptions.map((model) => [model.id, model.name])),
+    [modelOptions],
+  )
+  const modelsSummary = formatModelsSummary(
+    installableModels,
+    plannedModels,
+    modelStatuses,
+    modelInstallState.progress,
+  )
 
   return (
     <section className="translation-panel" aria-label="Offline translation">
@@ -268,19 +287,33 @@ export function TranslationPanel({
         </div>
       )}
 
-      <section className="translation-section" aria-label="Candidate translation models">
-        <div className="translation-section-header">
-          <h3>Candidate Models</h3>
-          <span>{capabilities?.models.length ?? 0} planned</span>
-        </div>
-        {capabilities?.models.length ? (
-          <div className="translation-model-list">
-            {capabilities.models.map((model) => (
+      <div className="translation-section">
+        <button
+          type="button"
+          className={'translation-models-disclosure' + (modelsOpen ? ' translation-models-disclosure-open' : '')}
+          aria-expanded={modelsOpen}
+          aria-controls="translation-models-panel"
+          onClick={() => setModelsOpen((value) => !value)}
+        >
+          <span className="translation-models-disclosure-icon" aria-hidden="true">⚙</span>
+          <span className="translation-models-disclosure-main">
+            <span className="translation-models-disclosure-title">Translation Models</span>
+            <span className="translation-models-disclosure-summary">{modelsSummary}</span>
+          </span>
+          <span className="translation-models-disclosure-chevron" aria-hidden="true">{modelsOpen ? '▲' : '▼'}</span>
+        </button>
+
+        {modelsOpen && (
+          <div id="translation-models-panel" className="translation-model-list" aria-label="Translation models">
+            {installableModels.map((model) => (
               <article key={model.id} className="translation-model-item">
                 <div className="translation-model-item-header">
                   <div>
-                    <strong>{model.name}</strong>
-                    <span>{model.engine} · {model.tier} · {model.manifestState}</span>
+                    <strong title={model.notes}>{model.name}</strong>
+                    <span>
+                      {formatModelLanguagePair(model)}
+                      {modelStatuses[model.id] ? ' · ' + formatModelStatus(modelStatuses[model.id]) : ''}
+                    </span>
                   </div>
                   <TranslationModelInstallButton
                     model={model}
@@ -290,22 +323,25 @@ export function TranslationPanel({
                     onInstall={onInstallTranslationModel}
                   />
                 </div>
-                <p>{model.notes}</p>
-                <small>
-                  {model.sourceLanguages.map(formatLanguageLabel).join(', ')} → {model.targetLanguages.map(formatLanguageLabel).join(', ')}
-                </small>
-                {modelStatuses[model.id] && (
-                  <small>{formatModelStatus(modelStatuses[model.id])}</small>
-                )}
-                <small>{model.licenseNotes}</small>
-                <small>{model.sizeNotes}</small>
               </article>
             ))}
+            {plannedModels.length > 0 && (
+              <div className="translation-planned-models">
+                <span className="translation-kicker">Planned · not installable yet</span>
+                {plannedModels.map((model) => (
+                  <div key={model.id} className="translation-planned-model-row" title={model.notes}>
+                    <strong>{model.name}</strong>
+                    <span>{formatModelLanguagePair(model)} · {formatTierLabel(model.tier)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!modelOptions.length && (
+              <p className="translation-section-empty">No model metadata available in this runtime.</p>
+            )}
           </div>
-        ) : (
-          <p className="translation-section-empty">No model metadata available in this runtime.</p>
         )}
-      </section>
+      </div>
 
       <section className="translation-section" aria-label="Translated documents">
         <div className="translation-section-header">
@@ -323,7 +359,11 @@ export function TranslationPanel({
               <article key={doc.id} className="translation-document-item">
                 <div>
                   <strong>{doc.title}</strong>
-                  <span>{formatLanguageLabel(doc.sourceLanguage)} → {formatLanguageLabel(doc.targetLanguage)} · {doc.modelId} · {doc.status}</span>
+                  <span>
+                    {formatLanguageLabel(doc.sourceLanguage)} → {formatLanguageLabel(doc.targetLanguage)}
+                    {' · '}{modelNameById.get(doc.modelId) ?? doc.modelId}
+                    {' · '}{formatQualityLabel(doc.status)}
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -418,6 +458,49 @@ function TranslationModelInstallButton({
 function formatDocumentFormat(format?: string): string {
   if (!format) return 'Document'
   return format.toUpperCase()
+}
+
+function formatModelLanguagePair(model: TranslationModelInfo): string {
+  return (
+    model.sourceLanguages.map(formatLanguageLabel).join(', ') +
+    ' → ' +
+    model.targetLanguages.map(formatLanguageLabel).join(', ')
+  )
+}
+
+function formatTierLabel(tier: string): string {
+  switch (tier) {
+    case 'fast':
+      return 'Fast'
+    case 'quality':
+      return 'High quality'
+    case 'context':
+      return 'Context-rich'
+    default:
+      return formatQualityLabel(tier)
+  }
+}
+
+// One-line state summary for the collapsed models disclosure.
+function formatModelsSummary(
+  installableModels: TranslationModelInfo[],
+  plannedModels: TranslationModelInfo[],
+  modelStatuses: Record<string, TranslationModelStatus>,
+  installProgress: TranslationModelInstallProgress | null,
+): string {
+  if (!installableModels.length && !plannedModels.length) {
+    return 'No models available in this runtime'
+  }
+  const pieces: string[] = []
+  if (installProgress && installProgress.status !== 'installed') {
+    pieces.push('Installing ' + installProgress.percent + '%')
+  }
+  const installed = installableModels.filter((model) => modelStatuses[model.id]?.installed).length
+  const installable = installableModels.length - installed
+  if (installed) pieces.push(installed + ' installed')
+  if (installable) pieces.push(installable + ' installable')
+  if (plannedModels.length) pieces.push(plannedModels.length + ' planned')
+  return pieces.join(' · ')
 }
 
 // Language names beat raw ISO codes for recognition; fall back to the code

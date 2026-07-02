@@ -253,10 +253,95 @@
 
 .translation-section-header span,
 .translation-model-item span,
-.translation-model-item small,
 .translation-document-item span,
 .translation-section-empty {
   color: var(--text-muted);
+}
+
+.translation-models-disclosure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.translation-models-disclosure:hover,
+.translation-models-disclosure:focus-visible,
+.translation-models-disclosure-open {
+  border-color: var(--accent);
+  background: var(--surface-accent);
+  box-shadow: 0 8px 18px var(--shadow-soft);
+  outline: none;
+}
+
+.translation-models-disclosure-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  color: var(--accent-hover);
+  font-size: 1rem;
+}
+
+.translation-models-disclosure-main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.translation-models-disclosure-title {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.translation-models-disclosure-summary {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.translation-models-disclosure-chevron {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.translation-planned-models {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.translation-planned-model-row {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.translation-planned-model-row strong {
+  color: var(--text-body);
+  font-size: 0.88rem;
+}
+
+.translation-planned-model-row span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 .translation-model-list,
@@ -289,12 +374,6 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-}
-
-.translation-model-item p {
-  margin: 0;
-  color: var(--text-body);
-  line-height: 1.4;
 }
 
 .translation-model-badge,
