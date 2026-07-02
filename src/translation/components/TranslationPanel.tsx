@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Panel } from '../../components/Panel/Panel'
 import './TranslationPanel.css'
 import type {
@@ -67,9 +67,18 @@ export function TranslationPanel({
   onStartTranslationPreflight,
   refresh,
 }: TranslationPanelProps) {
-  const statusLabel = loading ? 'Checking' : capabilities?.available ? 'Available' : 'Planned'
+  const statusLabel = loading
+    ? 'Checking'
+    : capabilities?.available
+      ? 'Available'
+      : 'Unavailable in this build'
   const modelOptions = useMemo(() => capabilities?.models ?? [], [capabilities])
   const [confirmingDeleteId, setConfirmingDeleteId] = useState('')
+  const [docsOpen, setDocsOpen] = useState(false)
+  // Surface newly stored translations even if the list panel was collapsed.
+  useEffect(() => {
+    if (translatedDocuments.length > 0) setDocsOpen(true)
+  }, [translatedDocuments.length])
   // Local-only dismissal of finished status messages; a new message (different
   // key) reappears without needing hook state changes.
   const [dismissedStatusKeys, setDismissedStatusKeys] = useState<string[]>([])
@@ -161,7 +170,7 @@ export function TranslationPanel({
           {capabilities && !capabilities.available && (
             <div className="translation-alert">
               <strong>Translation backend unavailable.</strong>
-              <span>{capabilities.reason}</span>
+              <span title={capabilities.reason}>{firstSentence(capabilities.reason)}</span>
             </div>
           )}
 
@@ -336,40 +345,38 @@ export function TranslationPanel({
         meta={modelsSummary}
       >
         <div className="translation-model-list">
-            {installableModels.map((model) => (
-              <article key={model.id} className="translation-model-item">
-                <div className="translation-model-item-header">
-                  <div>
-                    <strong title={model.notes}>{model.name}</strong>
-                    <span>
-                      {formatModelLanguagePair(model)}
-                      {modelStatuses[model.id] ? ' · ' + formatModelStatus(modelStatuses[model.id]) : ''}
-                    </span>
-                  </div>
-                  <TranslationModelInstallButton
-                    model={model}
-                    progress={modelInstallState.progress?.modelId === model.id ? modelInstallState.progress : null}
-                    status={modelStatuses[model.id]}
-                    disabled={Boolean(modelInstallState.installingModelId)}
-                    onInstall={onInstallTranslationModel}
-                  />
+          {installableModels.map((model) => {
+            const size = formatModelSize(modelStatuses[model.id])
+            return (
+              <div key={model.id} className="translation-model-item">
+                <div>
+                  <strong title={model.notes}>{model.name}</strong>
+                  <span>{formatModelLanguagePair(model)}{size ? ' · ' + size : ''}</span>
                 </div>
-              </article>
-            ))}
-            {plannedModels.length > 0 && (
-              <div className="translation-planned-models">
-                <span className="translation-kicker">Planned · not installable yet</span>
-                {plannedModels.map((model) => (
-                  <div key={model.id} className="translation-planned-model-row" title={model.notes}>
-                    <strong>{model.name}</strong>
-                    <span>{formatModelLanguagePair(model)} · {formatTierLabel(model.tier)}</span>
-                  </div>
-                ))}
+                <TranslationModelInstallButton
+                  model={model}
+                  progress={modelInstallState.progress?.modelId === model.id ? modelInstallState.progress : null}
+                  status={modelStatuses[model.id]}
+                  disabled={Boolean(modelInstallState.installingModelId)}
+                  onInstall={onInstallTranslationModel}
+                />
               </div>
-            )}
-            {!modelOptions.length && (
-              <p className="translation-section-empty">No model metadata available in this runtime.</p>
-            )}
+            )
+          })}
+          {plannedModels.length > 0 && (
+            <div className="translation-planned-models">
+              <span className="translation-kicker">Planned</span>
+              {plannedModels.map((model) => (
+                <div key={model.id} className="translation-planned-model-row" title={model.notes}>
+                  <strong>{model.name}</strong>
+                  <span>{formatModelLanguagePair(model)} · {formatTierLabel(model.tier)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {!modelOptions.length && (
+            <p className="translation-section-empty">No model metadata available in this runtime.</p>
+          )}
         </div>
       </Panel>
 
@@ -378,7 +385,8 @@ export function TranslationPanel({
         ariaLabel="Translated documents"
         title="Translated Documents"
         meta={translatedDocuments.length + ' saved'}
-        defaultOpen
+        open={docsOpen}
+        onToggle={() => setDocsOpen((value) => !value)}
       >
         {deleteState && showDeleteStatus && (
           <div className={'translation-alert' + (deleteState.deleted ? '' : ' translation-alert-error')} role="status">
@@ -396,7 +404,7 @@ export function TranslationPanel({
         {translatedDocuments.length > 0 ? (
           <div className="translation-document-list">
             {translatedDocuments.map((doc) => (
-              <article key={doc.id} className="translation-document-item">
+              <div key={doc.id} className="translation-document-item">
                 <div>
                   <strong>{doc.title}</strong>
                   <span>
@@ -445,7 +453,7 @@ export function TranslationPanel({
                     Delete
                   </button>
                 )}
-              </article>
+              </div>
             ))}
           </div>
         ) : (
@@ -585,17 +593,17 @@ function formatQualityLabel(mode: string): string {
   return mode.charAt(0).toUpperCase() + mode.slice(1)
 }
 
-function formatModelStatus(status: TranslationModelStatus): string {
-  if (status.installed) {
-    return 'Installed · ' + formatBytes(status.installedBytes)
-  }
-  if (status.installing) {
-    return 'Download in progress · ' + formatBytes(status.archiveBytes)
-  }
-  if (status.archiveBytes > 0) {
-    return 'Download size · ' + formatBytes(status.archiveBytes)
-  }
-  return status.message
+// Size only: installed/installing state is already carried by the row's
+// badge or button, so repeating it in text would be redundant.
+function formatModelSize(status?: TranslationModelStatus): string {
+  if (!status) return ''
+  const bytes = status.installed ? status.installedBytes : status.archiveBytes
+  return bytes > 0 ? formatBytes(bytes) : ''
+}
+
+function firstSentence(text: string): string {
+  const index = text.indexOf('. ')
+  return index === -1 ? text : text.slice(0, index + 1)
 }
 
 function formatBytes(bytes: number): string {

@@ -259,20 +259,21 @@
 
 .translation-planned-models {
   display: grid;
-  gap: 0.45rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
 }
 
 .translation-planned-model-row {
-  display: grid;
-  gap: 0.1rem;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .translation-planned-model-row strong {
   color: var(--text-body);
-  font-size: 0.88rem;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .translation-planned-model-row span {
@@ -283,46 +284,53 @@
 .translation-model-list,
 .translation-document-list {
   display: grid;
-  gap: 0.5rem;
 }
 
-.translation-document-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
+/* Flat divider rows, matching Library/Audiobook list density, instead of
+   nested bordered cards. */
 .translation-model-item,
 .translation-document-item {
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
 }
 
-.translation-model-item {
-  display: grid;
+.translation-model-item:first-child,
+.translation-document-item:first-child {
+  padding-top: 0;
+}
+
+.translation-model-item:last-of-type,
+.translation-document-item:last-of-type {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.translation-model-item strong,
+.translation-document-item strong {
+  font-size: 0.9rem;
+  font-weight: 650;
 }
 
 .translation-model-item div,
 .translation-document-item div {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.15rem;
   min-width: 0;
 }
 
-.translation-model-item .translation-model-item-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+.translation-model-item span,
+.translation-document-item span {
+  font-size: 0.82rem;
 }
 
 .translation-model-badge,
 .translation-model-install-btn {
   flex: 0 0 auto;
-  padding: 0.35rem 0.55rem;
+  padding: 0.35rem 0.6rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
@@ -333,14 +341,18 @@
   white-space: nowrap;
 }
 
+/* Action, not status: filled accent so it cannot be mistaken for the
+   inert Installed/Planned badges. */
 .translation-model-install-btn {
-  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-inverse);
   cursor: pointer;
 }
 
 .translation-model-install-btn:hover:not(:disabled),
 .translation-model-install-btn:focus-visible {
-  border-color: var(--accent);
+  filter: brightness(1.08);
   outline: none;
 }
 
@@ -404,16 +416,11 @@
   .translation-document-item {
     align-items: stretch;
     flex-direction: column;
+    gap: 0.4rem;
   }
 
-  .translation-model-item .translation-model-item-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .translation-model-badge,
-  .translation-model-install-btn {
-    justify-self: start;
+  .translation-model-item {
+    flex-wrap: wrap;
   }
 
   .translation-document-item button {
