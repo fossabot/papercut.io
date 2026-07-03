@@ -53,40 +53,104 @@ a {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .brand img {
   image-rendering: pixelated;
 }
 
-.nav {
-  display: flex;
+.nav-menu {
+  position: relative;
+}
+
+.nav-menu summary {
+  display: inline-flex;
   align-items: center;
-  gap: 28px;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  background-clip: padding-box;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+  outline: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-menu summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.nav-menu[open] summary {
+  background: #f4f4ff;
+  color: var(--accent);
+}
+
+.nav-menu-icon,
+.nav-menu-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.nav-menu-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-menu-icon .nav-menu-icon-close,
+.nav-menu[open] .nav-menu-icon .nav-menu-icon-open {
+  display: none;
+}
+
+.nav-menu[open] .nav-menu-icon .nav-menu-icon-close {
+  display: block;
+}
+
+.nav {
+  position: absolute;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  gap: 6px;
+  min-width: 178px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 14px 36px rgb(16 24 40 / 0.12);
   color: var(--text);
   font-size: 13px;
 }
 
+.nav a {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 4px;
+}
+
 .nav a:hover {
+  background: #f4f4ff;
   color: var(--accent);
 }
 
-.nav-cta {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  background: var(--accent);
-  color: #fff !important;
-  font-weight: 600;
-  transition: background 0.15s;
-}
-
-.nav-cta:hover {
-  background: #4338ca !important;
-  color: #fff !important;
-}
 
 .intro {
   padding: 52px 72px 56px;
@@ -163,6 +227,10 @@ h2 {
 }
 
 .download-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
   padding: 9px 18px 7px;
   border-bottom: 1px solid var(--soft-line);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
@@ -174,8 +242,31 @@ h2 {
   background: #f9fafb;
 }
 
-.download-group-header + .download-group-header {
-  border-top: 1px solid var(--soft-line);
+.download-group {
+  border-bottom: 1px solid var(--soft-line);
+}
+
+.download-group:last-child {
+  border-bottom: 0;
+}
+
+.download-group summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.download-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.download-group summary::after {
+  content: "+";
+  color: var(--quiet);
+  font-size: 14px;
+}
+
+.download-group[open] summary::after {
+  content: "-";
 }
 
 .download-row {
@@ -188,7 +279,7 @@ h2 {
   border-bottom: 1px solid var(--soft-line);
 }
 
-.download-row:last-child {
+.download-group .download-row:last-child {
   border-bottom: 0;
 }
 
@@ -413,31 +504,33 @@ h2 {
   }
 
   .site-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 14px;
-    padding: 16px 20px;
+    gap: 12px;
+    min-height: 72px;
+    padding: 0 20px;
+  }
+
+  .nav-menu {
+    flex: 0 0 auto;
+  }
+
+  .nav-menu summary {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
   }
 
   .nav {
-    width: 100%;
-    justify-content: space-between;
-    gap: 6px;
+    right: 0;
+    width: min(220px, calc(100vw - 40px));
+    box-shadow: 0 14px 36px rgb(16 24 40 / 0.12);
   }
 
   .nav a {
-    display: inline-flex;
-    align-items: center;
     min-height: 44px;
     padding: 0 12px;
     font-size: 14px;
   }
 
-  .nav-cta {
-    padding-left: 18px;
-    padding-right: 18px;
-    min-height: 44px;
-  }
 
   .intro {
     padding: 42px 22px 46px;
