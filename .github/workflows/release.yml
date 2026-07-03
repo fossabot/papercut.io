@@ -209,14 +209,20 @@ jobs:
       - name: Verify macOS bundled runtime libraries
         run: |
           resources_dir="src-tauri/target/release/bundle/macos/Papercut.app/Contents/Resources"
-          for lib in libsherpa-onnx-c-api.dylib libonnxruntime.dylib; do
+          required_libs=(libsherpa-onnx-c-api.dylib libonnxruntime.dylib)
+          optional_libs=(libsherpa-onnx-cxx-api.dylib)
+          for lib in "${required_libs[@]}"; do
             if [ ! -f "$resources_dir/$lib" ]; then
               echo "Missing macOS runtime library: $resources_dir/$lib" >&2
               find "src-tauri/target/release/bundle/macos/Papercut.app/Contents" -maxdepth 3 -type f | sort >&2
               exit 1
             fi
-            file "$resources_dir/$lib"
-            codesign --verify --verbose=2 "$resources_dir/$lib"
+          done
+          for lib in "${required_libs[@]}" "${optional_libs[@]}"; do
+            if [ -f "$resources_dir/$lib" ]; then
+              file "$resources_dir/$lib"
+              codesign --verify --strict --verbose=2 "$resources_dir/$lib"
+            fi
           done
           otool -L "src-tauri/target/release/bundle/macos/Papercut.app/Contents/MacOS/app"
 

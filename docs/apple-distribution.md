@@ -9,7 +9,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - macOS release output now has proven CI plumbing for Developer ID signing, notarization, DMG stapling, and Gatekeeper verification.
 - README, TTS docs, and site install notes now distinguish official signed/notarized releases from unsigned local/PR development artifacts.
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
-- App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, optionally `libsherpa-onnx-cxx-api.dylib`. Signing must cover these too, and release CI now fails if the required dylibs are missing from the built `.app`.
+- App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
 - No `src-tauri/gen/apple` or iOS Xcode project is committed yet.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
@@ -224,8 +224,8 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 6. Detect the imported `Developer ID Application` identity and export it as `APPLE_SIGNING_IDENTITY`.
 7. Decode `.p8` into `$RUNNER_TEMP/private_keys/AuthKey_KEYID.p8` and export the absolute path as `APPLE_API_KEY_PATH`.
 8. Export Tauri notarization env vars.
-9. Run `npm run desktop`. The desktop helper pre-stages macOS dylibs before Tauri scans resources; Tauri signs and notarizes the `.app` bundle.
-10. Verify required dylibs exist in `Papercut.app/Contents/Resources` before notarizing/uploading the DMG.
+9. Run `npm run desktop`. The desktop helper pre-stages macOS dylibs before Tauri scans resources; the macOS dylib copy helper signs them with the Developer ID identity and secure timestamp; Tauri signs and notarizes the `.app` bundle.
+10. Verify required dylibs exist in `Papercut.app/Contents/Resources` and pass `codesign --verify --strict` before DMG notarization/upload.
 11. Submit each generated `.dmg` to `notarytool`, staple it, and validate the stapled ticket.
 12. Verify app signatures and Gatekeeper assessment.
 13. Verify DMG Gatekeeper assessment.

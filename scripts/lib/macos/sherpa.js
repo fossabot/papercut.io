@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { cp, mkdir, stat } from "node:fs/promises"
 import { join } from "node:path"
 import {
@@ -17,14 +18,36 @@ export async function copyMacosSherpaLibs({ platform = process.env.TAURI_ENV_PLA
   await assertMacosSharedLibsExist()
   await mkdir(SHERPA_MACOS_SHARED_OUT_DIR, { recursive: true })
 
+  const copied = []
   for (const lib of [...SHERPA_MACOS_REQUIRED_LIBS, ...SHERPA_MACOS_OPTIONAL_LIBS]) {
     const source = join(SHERPA_MACOS_SHARED_SOURCE_DIR, lib)
     if (existsSync(source)) {
-      await cp(source, join(SHERPA_MACOS_SHARED_OUT_DIR, lib), { force: true })
+      const target = join(SHERPA_MACOS_SHARED_OUT_DIR, lib)
+      await cp(source, target, { force: true })
+      copied.push(target)
     }
   }
 
+  signMacosDylibs(copied)
   console.log("[sherpa-macos-libs] bundled shared libraries from " + SHERPA_MACOS_SHARED_SOURCE_DIR)
+}
+
+function signMacosDylibs(paths) {
+  const identity = process.env.APPLE_SIGNING_IDENTITY
+  if (process.platform !== "darwin" || !identity || paths.length === 0) return
+
+  for (const path of paths) {
+    const result = spawnSync("codesign", ["--force", "--options", "runtime", "--timestamp", "--sign", identity, path], {
+      stdio: "inherit",
+    })
+
+    if (result.error) {
+      throw new Error("Failed to start codesign for " + path + ": " + result.error.message)
+    }
+    if (result.status !== 0) {
+      throw new Error("codesign failed for " + path + " with exit code " + result.status)
+    }
+  }
 }
 
 // Fail with build guidance instead of producing an installer missing runtime libs.
