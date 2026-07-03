@@ -206,6 +206,20 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
 
+      - name: Verify macOS bundled runtime libraries
+        run: |
+          resources_dir="src-tauri/target/release/bundle/macos/Papercut.app/Contents/Resources"
+          for lib in libsherpa-onnx-c-api.dylib libonnxruntime.dylib; do
+            if [ ! -f "$resources_dir/$lib" ]; then
+              echo "Missing macOS runtime library: $resources_dir/$lib" >&2
+              find "src-tauri/target/release/bundle/macos/Papercut.app/Contents" -maxdepth 3 -type f | sort >&2
+              exit 1
+            fi
+            file "$resources_dir/$lib"
+            codesign --verify --verbose=2 "$resources_dir/$lib"
+          done
+          otool -L "src-tauri/target/release/bundle/macos/Papercut.app/Contents/MacOS/app"
+
       - name: Notarize and staple macOS DMG
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
