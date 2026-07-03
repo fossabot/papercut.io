@@ -144,7 +144,7 @@ Secrets:
 
 - `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64`: base64 of `papercut-developer-id-application.p12`
 - `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`: `.p12` export password
-- `APPLE_SIGNING_IDENTITY`: exact identity, e.g. `Developer ID Application: Name (TEAMID)`
+- `APPLE_SIGNING_IDENTITY`: exact identity, e.g. `Developer ID Application: Name (TEAMID)`. The release workflow now detects this from the imported certificate and exports it for Tauri, so this secret is mainly useful as a human reference.
 - `APPLE_TEAM_ID`: Apple Team ID
 - `APPLE_API_ISSUER`: App Store Connect Issuer ID
 - `APPLE_API_KEY`: App Store Connect Key ID for Tauri notarization
@@ -212,13 +212,15 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 1. Decode `.p12`.
 2. Create temporary keychain.
 3. Import certificate.
-4. Allow `/usr/bin/codesign` access.
-5. Decode `.p8` into `private_keys/AuthKey_KEYID.p8`.
-6. Export Tauri notarization env vars.
-7. Run `npm run desktop`.
-8. Verify signatures.
-9. Verify notarization/stapling.
-10. Upload signed/notarized `.dmg`.
+4. Add the temporary keychain to the user keychain search list.
+5. Allow `/usr/bin/codesign` access.
+6. Detect the imported `Developer ID Application` identity and export it as `APPLE_SIGNING_IDENTITY`.
+7. Decode `.p8` into `private_keys/AuthKey_KEYID.p8`.
+8. Export Tauri notarization env vars.
+9. Run `npm run desktop`.
+10. Verify signatures.
+11. Verify notarization/stapling.
+12. Upload signed/notarized `.dmg`.
 
 Verification commands on macOS runner:
 

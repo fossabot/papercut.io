@@ -171,6 +171,7 @@ jobs:
             -macalg sha1
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
@@ -178,6 +179,13 @@ jobs:
           security import certificate-keychain.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security find-identity -v -p codesigning build.keychain
+          detected_identity="$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -n 1)"
+          if [ -z "$detected_identity" ]; then
+            echo "No Developer ID Application signing identity found in build.keychain" >&2
+            exit 1
+          fi
+          echo "::add-mask::$detected_identity"
+          echo "APPLE_SIGNING_IDENTITY=$detected_identity" >> "$GITHUB_ENV"
 
       - name: Prepare Apple notarization key
         env:
@@ -190,7 +198,7 @@ jobs:
       - name: Build signed and notarized Tauri app
         run: npm run desktop
         env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
