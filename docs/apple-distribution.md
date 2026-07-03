@@ -217,10 +217,11 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 6. Detect the imported `Developer ID Application` identity and export it as `APPLE_SIGNING_IDENTITY`.
 7. Decode `.p8` into `$RUNNER_TEMP/private_keys/AuthKey_KEYID.p8` and export the absolute path as `APPLE_API_KEY_PATH`.
 8. Export Tauri notarization env vars.
-9. Run `npm run desktop`.
-10. Verify signatures.
-11. Verify notarization/stapling.
-12. Upload signed/notarized `.dmg`.
+9. Run `npm run desktop`. Tauri signs and notarizes the `.app` bundle.
+10. Submit each generated `.dmg` to `notarytool`, staple it, and validate the stapled ticket.
+11. Verify app signatures and Gatekeeper assessment.
+12. Verify DMG Gatekeeper assessment.
+13. Upload signed/notarized `.dmg`.
 
 Verification commands on macOS runner:
 
@@ -445,6 +446,7 @@ First CI success only means Apple accepted upload. Still need:
 ## Critical Risks
 
 - No macOS notarization means users get Gatekeeper warnings. Signing alone is not enough for modern macOS distribution.
+- Tauri notarization covers the `.app`, but the outer `.dmg` still needs its own notarization/stapling before GitHub Release upload.
 - Missing hardened runtime or wrong entitlements can make notarization fail or app launch fail after signing.
 - Native dylibs in Resources must be signed/notarized as part of bundle.
 - No iOS project exists yet; CI cannot build iOS until `tauri ios init` output is committed.

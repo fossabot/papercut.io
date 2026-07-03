@@ -206,6 +206,29 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
 
+      - name: Notarize and staple macOS DMG
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
+        run: |
+          shopt -s nullglob
+          dmgs=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -eq 0 ]; then
+            echo "No macOS DMG found to notarize" >&2
+            exit 1
+          fi
+
+          for dmg in "${dmgs[@]}"; do
+            xcrun notarytool submit "$dmg" \
+              --key "$APPLE_API_KEY_PATH" \
+              --key-id "$APPLE_API_KEY" \
+              --issuer "$APPLE_API_ISSUER" \
+              --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+
       - name: Verify macOS signature and notarization
         run: |
           codesign --verify --deep --strict --verbose=2 "src-tauri/target/release/bundle/macos/Papercut.app"
