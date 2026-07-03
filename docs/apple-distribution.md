@@ -226,10 +226,10 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 8. Export Tauri notarization env vars.
 9. Run `npm run desktop`. The desktop helper pre-stages macOS dylibs before Tauri scans resources; Tauri signs and notarizes the `.app` bundle.
 10. Verify required dylibs exist in `Papercut.app/Contents/Resources` before notarizing/uploading the DMG.
-10. Submit each generated `.dmg` to `notarytool`, staple it, and validate the stapled ticket.
-11. Verify app signatures and Gatekeeper assessment.
-12. Verify DMG Gatekeeper assessment.
-13. Upload signed/notarized `.dmg`.
+11. Submit each generated `.dmg` to `notarytool`, staple it, and validate the stapled ticket.
+12. Verify app signatures and Gatekeeper assessment.
+13. Verify DMG Gatekeeper assessment.
+14. Upload signed/notarized `.dmg`.
 
 Verification commands on macOS runner:
 
