@@ -3,7 +3,7 @@
 **Homepage:** 👉 [https://trypapercut.app](https://trypapercut.app) 👈
 - (Backup) [Netlify Homepage URL](https://trypapercut.netlify.app) 
 
-[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
+[![Download for Android](https://img.shields.io/badge/Download-Android-3DDC84?logo=android&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for Linux](https://img.shields.io/badge/Download-Linux-FCC624?logo=linux&logoColor=black)](https://trypapercut.netlify.app/#downloads-title) [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?logo=windows11&logoColor=white)](https://trypapercut.netlify.app/#downloads-title) [![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white)](https://trypapercut.netlify.app/#downloads-title)
 
 
 Papercut is an offline reader for searching, reading, and listening to document collections. Built with Tauri, React, Vite, Pagefind, SQLite FTS, and native sherpa-onnx TTS.
@@ -74,6 +74,16 @@ sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-
 ```bash
 sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module libappindicator-gtk3 librsvg xdotool patchelf gst-plugins-base gst-plugins-good
 ```
+
+### System Dependencies (macOS)
+
+Tauri on macOS uses the system WebKit (WKWebView) bundled with the OS, so there are no WebKitGTK/GTK-style system packages to install. Only the Xcode Command Line Tools are required:
+
+```bash
+xcode-select --install
+```
+
+The Rust toolchain (above) and Node.js (above) cover the rest. Native sherpa-onnx TTS dylibs are downloaded automatically during the build and bundled into the `.app` via Tauri resources, so no manual library setup is needed.
 
 ### Android Prerequisites
 
@@ -175,6 +185,7 @@ The built binary is output to `src-tauri/target/release/app` (`app.exe` on Windo
 
 - **Linux:** `.deb`, `.rpm`, and `.AppImage`
 - **Windows:** `.msi` (WiX) under `bundle/msi/` and `.exe` (NSIS) under `bundle/nsis/` when building on Windows
+- **macOS:** `.dmg` (and `.app`) under `bundle/dmg/` and `bundle/macos/` when building on macOS
 
 `npm run desktop` uses the shared native TTS build to keep release compilation/linking memory lower. On Linux, the build copies the sherpa-onnx shared libraries into the Tauri resource directory before bundling, and the app binary includes an rpath to `/usr/lib/Papercut` so installed `.deb`, `.rpm`, and AppImage builds can find those libraries at launch. The AppImage also bundles the GStreamer media framework used by WebKitGTK for audiobook playback; local Linux builders therefore need the GStreamer base and good plugin packages listed above. If you specifically need a fully static native TTS build, use `npm run desktop:static`; that path can require substantially more RAM and may be killed by the OS on memory-constrained machines.
 
@@ -185,6 +196,8 @@ sudo apt install ./src-tauri/target/release/bundle/deb/Papercut_1.0.0_amd64.deb
 ```
 
 If you previously used `sudo dpkg -i ...` and the app did not launch, run `sudo apt -f install` once to finish installing missing dependencies, then reinstall the newly generated `.deb`.
+
+**macOS Gatekeeper:** Official release `.dmg` artifacts are built per-architecture and the release workflow signs, notarizes, and verifies them through the protected `apple-release` GitHub Environment. CI or local builds without Apple signing secrets are development artifacts and may still require right-click (or Control-click) > **Open** on first launch. Release artifact names are `Papercut_<version>_aarch64.dmg` for Apple Silicon and `Papercut_<version>_x64.dmg` for Intel. Pick the one matching your Mac. Native sherpa-onnx TTS dylibs are bundled inside the `.app` resources and resolved via an `@loader_path/../Resources` rpath, so no separate runtime library install is needed.
 
 **AppImage troubleshooting:** `npm run desktop` sets `NO_STRIP=1` because the `linuxdeploy` tool used to bundle the AppImage can fail when its bundled `strip` cannot handle the host ELF format. If AppImage packaging reports `Could not find dependency: libwebkit2gtk-4.1.so.0`, the build is running in an environment that cannot see host WebKitGTK libraries. If the build succeeds but `npm run verify:appimage-media` reports missing files, install the GStreamer base and good plugin packages above and rebuild. The desktop build wrapper handles Flatpak editor terminals by re-running the build on the host; outside Flatpak, install the Linux system dependencies above and rerun `npm run desktop`. Tauri's AppImage media bundling is fully supported on Ubuntu build systems, and Papercut builds and verifies its Linux release artifacts on Ubuntu 24.04 CI.
 
@@ -278,7 +291,7 @@ Arabic-dominant documents automatically suggest Piper Kareem. Users can override
 
 Arabic pronunciation remains a separate concern from HTML extraction. Piper uses eSpeak-ng phonemization, so undiacritized Arabic can still produce ambiguous or poor vowels. Shared native builds now include an optional Libtashkeel 1.5.0 preprocessing pipeline. Piper defaults to `libtashkeel-1.5.0`; users can select `none` to synthesize the original text. The 4,788,213-byte bundled diacritization model runs through the same packaged ONNX Runtime used by sherpa-onnx. Source chunks and DOM spans are never rewritten: only the synthesis copy is diacritized, so highlighting remains aligned to the original document. Libtashkeel improves contextual vowel restoration but is not an Arabic language oracle; names, case endings, dialect, and ambiguous prose still require listening tests.
 
-The HTML narration adapter now preserves prose placed directly inside readable wrappers such as legacy table cells, even when those wrappers also contain nested headings or paragraphs. The supplied Arabic Lenin document uses this pattern: its first paragraph is a direct `td` text node, while the next paragraph is inside `p`. The former extractor omitted the direct text before Piper received any chunk. Bracketed inline footnote reference links such as `[1]` and `[2*]` are skipped during narration extraction and DOM highlight indexing, while the actual footnote paragraphs remain readable later in the document. Native synthesis also expands standalone four-digit historical years on the synthesis copy only, so `1984` is spoken as "nineteen eighty four" without rewriting source chunks or highlight spans.
+The HTML narration adapter now preserves prose placed directly inside readable wrappers such as legacy table cells, even when those wrappers also contain nested headings or paragraphs. A generic Arabic HTML fixture covers this pattern: its first paragraph is a direct `td` text node, while the next paragraph is inside `p`. The former extractor omitted the direct text before Piper received any chunk. Bracketed inline footnote reference links such as `[1]` and `[2*]` are skipped during narration extraction and DOM highlight indexing, while the actual footnote paragraphs remain readable later in the document. Native synthesis also expands standalone four-digit historical years on the synthesis copy only, so `1984` is spoken as "nineteen eighty four" without rewriting source chunks or highlight spans.
 
 Compatibility is preserved: `native-save-v4-segmented` is unchanged, Kokoro keeps its exact model ID and cache key, and old preferences, manifests, records, and bundles without preprocessing metadata default to `none`. Imported audiobook bundles use their stored chunk metadata for playback/status instead of re-chunking restored HTML, so older completed WAV audiobooks remain playable. New bundle exports retain optional source spans for each chunk, letting re-imported HTML/EPUB generated-reader audiobooks restore highlighting without rediscovering positions from text. Older bundles still rebuild highlight spans lazily from restored HTML and graft them only when the rebuilt chunk ids/text exactly match the bundle chunks; playback is not blocked while that work runs. When legacy HTML repairs or text extraction changes make those rebuilt spans unavailable or wrong, playback can still use a cached live-reader text-match fallback for the current rendered DOM. The fallback tries exact text first, then tolerates Arabic Unicode differences such as tashkeel, tatweel, bidi controls, and common Arabic/Persian letter variants. This is intentionally a short-term compatibility path for imported bundles, not the full long-term locator model; future format adapters should still provide chapter/page-aware locators for very large EPUB/PDF-style readers. A diacritized Piper generation receives a separate audiobook ID, so it cannot silently reuse older undiacritized WAV chunks. Most books produce identical chunks. A book affected by the wrapper-text omission must be regenerated to include the newly retained prose; its corrected source signature and chunk sequence intentionally do not match the incomplete generation.
 

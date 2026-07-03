@@ -24,8 +24,12 @@ dist-ssr
 *.sw?
 
 public/*
+!public/fonts/
+!public/fonts/reader/
+!public/fonts/reader/**
 .cache/*
 
 # Downloaded local TTS assets are large and platform-specific.
 src-tauri/tts/runtime/*
 
+private_keys/
