@@ -232,6 +232,7 @@ npm run build
 ```
 
 Commit the changed version files together with the release changes.
+Create or update `RELEASE_NOTES/vX.Y.Z.md`, and prefer a new patch tag instead of replacing a published tag if release validation finds an installer/runtime packaging issue.
 
 ### Running the AppImage (Arch-based systems)
 
