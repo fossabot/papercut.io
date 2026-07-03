@@ -215,7 +215,7 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 4. Add the temporary keychain to the user keychain search list.
 5. Allow `/usr/bin/codesign` access.
 6. Detect the imported `Developer ID Application` identity and export it as `APPLE_SIGNING_IDENTITY`.
-7. Decode `.p8` into `private_keys/AuthKey_KEYID.p8`.
+7. Decode `.p8` into `$RUNNER_TEMP/private_keys/AuthKey_KEYID.p8` and export the absolute path as `APPLE_API_KEY_PATH`.
 8. Export Tauri notarization env vars.
 9. Run `npm run desktop`.
 10. Verify signatures.
@@ -440,6 +440,7 @@ First CI success only means Apple accepted upload. Still need:
 10. Rotate/revoke immediately if a `.p12`, private key, `.p8`, or GitHub secret leaks.
 11. Keep certificate passwords unique and unrelated to Apple ID password.
 12. Prefer App Store Connect API keys over Apple ID app-specific passwords.
+13. Use absolute paths for decoded CI secret files because Tauri/notarytool may run from `src-tauri` instead of the repository root.
 
 ## Critical Risks
 

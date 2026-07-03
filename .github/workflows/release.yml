@@ -192,8 +192,11 @@ jobs:
           APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
-          mkdir -p private_keys
-          echo "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -d > "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          key_path="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -d > "$key_path"
+          chmod 600 "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
       - name: Build signed and notarized Tauri app
         run: npm run desktop
@@ -201,7 +204,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
 
       - name: Verify macOS signature and notarization
         run: |
