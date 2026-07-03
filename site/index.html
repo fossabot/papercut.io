@@ -19,10 +19,21 @@
           <img src="assets/papercut-icon.png" alt="" width="36" height="36">
           <span>Papercut</span>
         </a>
-        <nav class="nav" aria-label="Main navigation">
-          <a href="#features-title">Features</a>
-          <a class="nav-cta" href="#downloads-title">Download</a>
-        </nav>
+        <details class="nav-menu">
+          <summary aria-label="Toggle navigation" aria-expanded="false"><span class="nav-menu-icon" aria-hidden="true">
+              <svg class="nav-menu-icon-open" viewBox="0 0 20 20" focusable="false">
+                <path d="M4 6h12M4 10h12M4 14h12" />
+              </svg>
+              <svg class="nav-menu-icon-close" viewBox="0 0 20 20" focusable="false">
+                <path d="M5 12l5-5 5 5" />
+              </svg>
+            </span></summary>
+          <nav class="nav" aria-label="Main navigation">
+            <a href="#features-title">Features</a>
+            <a href="#downloads-title">Download</a>
+            <a href="#install-notes-title">Install FAQ</a>
+          </nav>
+        </details>
       </header>
 
       <main>
@@ -48,165 +59,176 @@
             </div>
             <div class="feature-card">
               <h3>Bring your own documents</h3>
-              <p>Import your own HTML and EPUB files, organize them into folders, tune the reader with fonts and dark mode, and convert supported documents to audio. Works on Windows, Linux, and Android. PDF support coming soon.</p>
+              <p>Import your own HTML and EPUB files, organize them into folders, tune the reader with fonts and dark mode, and convert supported documents to audio. Works on Windows, macOS, Linux, and Android. PDF support coming soon.</p>
             </div>
           </div>
         </section>
 
         <section class="downloads" aria-labelledby="downloads-title">
-          <div class="section-label"><h2 id="downloads-title">Downloads</h2> <span class="version-badge">v1.2.0</span></div>
+          <div class="section-label"><h2 id="downloads-title">Downloads</h2> <span class="version-badge">v1.3.0</span></div>
           <div class="download-list">
-            <p class="download-list-intro">Pick your platform and get started.</p>
-            <div class="download-group-header">Android</div>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🤖</span>
-                  <span>Android</span>
-                  <span class="download-kind">(.apk)</span>
-                </strong>
-                <span>Android arm64-v8a APK with native audiobook support. Requires Android 8.0+.</span>
-                <code>Papercut_v1.2.0_android-arm64-v8a.apk · 237.5 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut_v1.2.0_android-arm64-v8a.apk">Download</a>
-            </article>
-            <div class="download-group-header">Windows</div>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">⊞</span>
-                  <span>Windows</span>
-                  <span class="download-kind">(.msi)</span> <span class="recommended-badge">Recommended</span>
-                </strong>
-                <span>Windows x64 installer package.</span>
-                <code>Papercut_1.2.0_x64_en-US.msi · 22.0 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut_1.2.0_x64_en-US.msi">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">⊞</span>
-                  <span>Windows</span>
-                  <span class="download-kind">(.exe)</span>
-                </strong>
-                <span>Windows x64 setup executable.</span>
-                <code>Papercut_1.2.0_x64-setup.exe · 11.7 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut_1.2.0_x64-setup.exe">Download</a>
-            </article>
-            <div class="download-group-header">Linux</div>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🐧</span>
-                  <span>Linux</span>
-                  <span class="download-kind">(AppImage)</span>
-                </strong>
-                <span>Portable Linux build for amd64 systems. Requires WebKitGTK and GStreamer.</span>
-                <code>Papercut_1.2.0_amd64.AppImage · 108.0 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut_1.2.0_amd64.AppImage">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🐧</span>
-                  <span>Linux</span>
-                  <span class="download-kind">(.deb)</span> <span class="recommended-badge">Recommended</span>
-                </strong>
-                <span>Installer for Debian-based amd64 distributions (Ubuntu, Mint, etc.).</span>
-                <code>Papercut_1.2.0_amd64.deb · 24.0 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut_1.2.0_amd64.deb">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🐧</span>
-                  <span>Linux</span>
-                  <span class="download-kind">(.rpm)</span>
-                </strong>
-                <span>Installer for RPM-based x86_64 distributions (Fedora, openSUSE, etc.).</span>
-                <code>Papercut-1.2.0-1.x86_64.rpm · 24.0 MB</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/Papercut-1.2.0-1.x86_64.rpm">Download</a>
-            </article>
-            <div class="download-group-header">macOS</div>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🍎</span>
-                  <span>macOS</span>
-                  <span class="download-kind">(.dmg)</span>
-                </strong>
-                <span>macOS disk image for Apple Silicon (M1/M2/M3 and later).</span>
-                <code>Papercut_1.1.0_aarch64.dmg</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.1.0_aarch64.dmg">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">🍎</span>
-                  <span>macOS</span>
-                  <span class="download-kind">(.dmg)</span>
-                </strong>
-                <span>macOS disk image for Intel-based Macs.</span>
-                <code>Papercut_1.1.0_x64.dmg</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.1.0_x64.dmg">Download</a>
-            </article>
-            <div class="download-group-header">Other downloads</div>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">#</span>
-                  <span>Checksums</span>
-                  <span class="download-kind">(SHA-256)</span>
-                </strong>
-                <span>SHA-256 hashes for release artifacts.</span>
-                <code>SHA256SUMS.txt · 709 Bytes</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/releases/download/v1.2.0/SHA256SUMS.txt">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">{ }</span>
-                  <span>Source Code</span>
-                  <span class="download-kind">(.zip)</span>
-                </strong>
-                <span>Source archive for the v1.2.0 release tag.</span>
-                <code>v1.2.0.zip</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/archive/refs/tags/v1.2.0.zip">Download</a>
-            </article>
-            <article class="download-row">
-              <div>
-                <strong class="download-title">
-                  <span class="download-icon" aria-hidden="true">{ }</span>
-                  <span>Source Code</span>
-                  <span class="download-kind">(.tar.gz)</span>
-                </strong>
-                <span>Compressed source archive for the v1.2.0 release tag.</span>
-                <code>v1.2.0.tar.gz</code>
-              </div>
-              <a href="https://github.com/muhannadnouri/papercut.io/archive/refs/tags/v1.2.0.tar.gz">Download</a>
-            </article>
+            <p class="download-list-intro">Pick your platform. Open a group to see installers.</p>
+
+            <details class="download-group">
+              <summary class="download-group-header">Android</summary>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🤖</span>
+                    <span>Android</span>
+                    <span class="download-kind">(.apk)</span>
+                  </strong>
+                  <span>Android arm64-v8a APK with native audiobook support. Requires Android 8.0+.</span>
+                  <code>Papercut_v1.3.0_android-arm64-v8a.apk</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_v1.3.0_android-arm64-v8a.apk">Download</a>
+              </article>
+            </details>
+
+            <details class="download-group">
+              <summary class="download-group-header">Linux</summary>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🐧</span>
+                    <span>Linux</span>
+                    <span class="download-kind">(AppImage)</span>
+                  </strong>
+                  <span>Portable Linux build for amd64 systems. Requires WebKitGTK and GStreamer.</span>
+                  <code>Papercut_1.3.0_amd64.AppImage</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_amd64.AppImage">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🐧</span>
+                    <span>Linux</span>
+                    <span class="download-kind">(.deb)</span> <span class="recommended-badge">Recommended</span>
+                  </strong>
+                  <span>Installer for Debian-based amd64 distributions (Ubuntu, Mint, etc.).</span>
+                  <code>Papercut_1.3.0_amd64.deb</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_amd64.deb">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🐧</span>
+                    <span>Linux</span>
+                    <span class="download-kind">(.rpm)</span>
+                  </strong>
+                  <span>Installer for RPM-based x86_64 distributions (Fedora, openSUSE, etc.).</span>
+                  <code>Papercut-1.3.0-1.x86_64.rpm</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut-1.3.0-1.x86_64.rpm">Download</a>
+              </article>
+            </details>
+
+            <details class="download-group">
+              <summary class="download-group-header">macOS</summary>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🍎</span>
+                    <span>macOS</span>
+                    <span class="download-kind">(.dmg)</span> <span class="recommended-badge">Apple Silicon</span>
+                  </strong>
+                  <span>Signed and notarized disk image for Apple Silicon (M1/M2/M3 and later).</span>
+                  <code>Papercut_1.3.0_aarch64.dmg</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_aarch64.dmg">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">🍎</span>
+                    <span>macOS</span>
+                    <span class="download-kind">(.dmg)</span> <span class="recommended-badge">Intel</span>
+                  </strong>
+                  <span>Signed and notarized disk image for Intel-based Macs.</span>
+                  <code>Papercut_1.3.0_x64.dmg</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_x64.dmg">Download</a>
+              </article>
+            </details>
+
+            <details class="download-group">
+              <summary class="download-group-header">Windows</summary>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">⊞</span>
+                    <span>Windows</span>
+                    <span class="download-kind">(.msi)</span> <span class="recommended-badge">Recommended</span>
+                  </strong>
+                  <span>Windows x64 installer package.</span>
+                  <code>Papercut_1.3.0_x64_en-US.msi</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_x64_en-US.msi">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">⊞</span>
+                    <span>Windows</span>
+                    <span class="download-kind">(.exe)</span>
+                  </strong>
+                  <span>Windows x64 setup executable.</span>
+                  <code>Papercut_1.3.0_x64-setup.exe</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/Papercut_1.3.0_x64-setup.exe">Download</a>
+              </article>
+            </details>
+
+            <details class="download-group">
+              <summary class="download-group-header">Other downloads</summary>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">#</span>
+                    <span>Checksums</span>
+                    <span class="download-kind">(SHA-256)</span>
+                  </strong>
+                  <span>SHA-256 hashes for release artifacts.</span>
+                  <code>SHA256SUMS.txt</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/releases/latest/download/SHA256SUMS.txt">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">{ }</span>
+                    <span>Source Code</span>
+                    <span class="download-kind">(.zip)</span>
+                  </strong>
+                  <span>Source archive for the v1.3.0 release tag.</span>
+                  <code>v1.3.0.zip</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/archive/refs/tags/v1.3.0.zip">Download</a>
+              </article>
+              <article class="download-row">
+                <div>
+                  <strong class="download-title">
+                    <span class="download-icon" aria-hidden="true">{ }</span>
+                    <span>Source Code</span>
+                    <span class="download-kind">(.tar.gz)</span>
+                  </strong>
+                  <span>Compressed source archive for the v1.3.0 release tag.</span>
+                  <code>v1.3.0.tar.gz</code>
+                </div>
+                <a href="https://github.com/muhannadnouri/papercut.io/archive/refs/tags/v1.3.0.tar.gz">Download</a>
+              </article>
+            </details>
           </div>
         </section>
 
         <section class="install-notes" aria-labelledby="install-notes-title">
-          <h2 id="install-notes-title" class="install-notes-heading">Install Notes</h2>
-          <p>Need help getting started? Here's what to expect after downloading. On every platform, TTS voice models are downloaded only when you choose to use audio.</p>
+          <h2 id="install-notes-title" class="install-notes-heading">Install FAQ</h2>
+          <p>Common install questions for each platform. On every platform, TTS voice models are downloaded only when you choose to use audio.</p>
           <details>
             <summary><strong>Android</strong></summary>
             <p>Enable <strong>Install unknown apps</strong> in Settings for your browser or file manager, then open the APK. Reading and search work offline. Network access is only used if you choose to download a TTS model; if you do not use TTS, network access is not needed.</p>
-          </details>
-          <details>
-            <summary><strong>Windows</strong></summary>
-            <p>The MSI installer handles setup automatically. If you prefer the portable EXE, run it directly. No admin rights needed.</p>
           </details>
           <details>
             <summary><strong>Linux</strong></summary>
@@ -219,6 +241,10 @@
             <p>Open the <code>.dmg</code> and drag <strong>Papercut</strong> to your Applications folder. Official release builds are Developer ID signed and notarized. If you are testing an unsigned CI or local development artifact, right-click (or Control-click) the app icon and choose <strong>Open</strong> on first launch.</p>
             <p>Pick the build that matches your Mac: <strong>Apple Silicon</strong> (<code>_aarch64.dmg</code>) for M-series chips, or <strong>Intel</strong> (<code>_x64.dmg</code>) for Intel-based Macs.</p>
           </details>
+          <details>
+            <summary><strong>Windows</strong></summary>
+            <p>The MSI installer handles setup automatically. If you prefer the portable EXE, run it directly. No admin rights needed.</p>
+          </details>
         </section>
 
         <section class="resources" aria-labelledby="more-info-title">
@@ -228,7 +254,7 @@
             <a href="https://github.com/muhannadnouri/papercut.io#readme">README</a>
             for setup help and platform details.
             See what's new in the
-            <a href="https://github.com/muhannadnouri/papercut.io/blob/main/RELEASE_NOTES/v1.2.0.md">release notes</a>
+            <a href="https://github.com/muhannadnouri/papercut.io/blob/main/RELEASE_NOTES/v1.3.0.md">release notes</a>
             or browse
             <a href="https://github.com/muhannadnouri/papercut.io/releases/latest">all releases</a>.
           </p>
@@ -251,5 +277,39 @@
         </footer>
       </main>
     </div>
+
+    <script>
+      (() => {
+        const menu = document.querySelector('.nav-menu')
+        if (!menu) return
+
+        const toggle = menu.querySelector('summary')
+        const closeMenu = () => {
+          menu.removeAttribute('open')
+          toggle?.setAttribute('aria-expanded', 'false')
+        }
+
+        menu.addEventListener('toggle', () => {
+          toggle?.setAttribute('aria-expanded', menu.open ? 'true' : 'false')
+        })
+
+        document.addEventListener('pointerdown', (event) => {
+          if (menu.open && !menu.contains(event.target)) {
+            closeMenu()
+          }
+        })
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && menu.open) {
+            closeMenu()
+            toggle?.focus()
+          }
+        })
+
+        menu.querySelectorAll('a').forEach((link) => {
+          link.addEventListener('click', closeMenu)
+        })
+      })()
+    </script>
   </body>
 </html>

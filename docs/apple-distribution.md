@@ -6,7 +6,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 
 - Branch: `feature/macos-build`.
 - Desktop CI already builds Linux, Windows, macOS Intel, and macOS Apple Silicon in `.github/workflows/ci.yml` and `.github/workflows/release.yml`.
-- macOS release output now has CI plumbing for signing/notarization, but it still needs one GitHub release/workflow run to prove the `.dmg` is signed, notarized, and stapled.
+- macOS release output now has proven CI plumbing for Developer ID signing, notarization, DMG stapling, and Gatekeeper verification.
 - README, TTS docs, and site install notes now distinguish official signed/notarized releases from unsigned local/PR development artifacts.
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, optionally `libsherpa-onnx-cxx-api.dylib`. Signing must cover these too.
@@ -14,6 +14,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - No `src-tauri/gen/apple` or iOS Xcode project is committed yet.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
+- Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. The next user-facing release after `v1.2.0` is `v1.3.0`.
 
 ## Sources
 
