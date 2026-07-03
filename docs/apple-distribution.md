@@ -162,6 +162,18 @@ base64 -i papercut-developer-id-application.p12 | tr -d '\n' > developer-id.p12.
 base64 -i AuthKey_KEYID.p8 | tr -d '\n' > authkey.p8.base64
 ```
 
+Before rerunning a release, verify the `.p12` password locally with the exact password stored in `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD`:
+
+```bash
+openssl pkcs12 \
+  -in papercut-developer-id-application.p12 \
+  -info \
+  -noout \
+  -passin pass:'YOUR_P12_EXPORT_PASSWORD'
+```
+
+If this prints `MAC verification failed`, the password is not the `.p12` export password for that file. Re-export the `.p12` or update the GitHub secret. If local verification passes but CI fails, regenerate `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64` from the same verified `.p12` and paste it into GitHub again without quotes or extra spaces.
+
 ## macOS: Repo Work After Apple Work
 
 Do this only after secrets exist. These repo changes are now started in this branch.
