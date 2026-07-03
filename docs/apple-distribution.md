@@ -99,7 +99,10 @@ openssl pkcs12 -export \
   -inkey developer-id-application.key \
   -in developer-id-application.pem \
   -out papercut-developer-id-application.p12 \
-  -name "Developer ID Application: YOUR_NAME_OR_ORG (TEAMID)"
+  -name "Developer ID Application: YOUR_NAME_OR_ORG (TEAMID)" \
+  -keypbe PBE-SHA1-3DES \
+  -certpbe PBE-SHA1-3DES \
+  -macalg sha1
 ```
 
 Use a strong unique export password. Store it in password manager.
@@ -172,7 +175,11 @@ openssl pkcs12 \
   -passin pass:'YOUR_P12_EXPORT_PASSWORD'
 ```
 
-If this prints `MAC verification failed`, the password is not the `.p12` export password for that file. Re-export the `.p12` or update the GitHub secret. If local verification passes but CI fails, regenerate `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64` from the same verified `.p12` and paste it into GitHub again without quotes or extra spaces.
+If this prints `MAC verification failed`, the password is not the `.p12` export password for that file. Re-export the `.p12` or update the GitHub secret.
+
+If OpenSSL verification passes but macOS `security import` fails with `MAC verification failed during PKCS12 import`, the `.p12` is probably using OpenSSL 3's modern PBES2/AES encryption, which OpenSSL can read but macOS Keychain import may reject. Re-export with the `PBE-SHA1-3DES` / `sha1` compatibility flags shown above, then regenerate `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64`. The release workflow also converts the decoded `.p12` into this Keychain-compatible form before import.
+
+If local verification passes but CI still fails before `security import`, regenerate `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64` from the same verified `.p12` and paste it into GitHub again without quotes or extra spaces.
 
 ## macOS: Repo Work After Apple Work
 
