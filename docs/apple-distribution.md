@@ -7,7 +7,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - Branch: `feature/macos-build`.
 - Desktop CI already builds Linux, Windows, macOS Intel, and macOS Apple Silicon in `.github/workflows/ci.yml` and `.github/workflows/release.yml`.
 - macOS release output now has CI plumbing for signing/notarization, but it still needs one GitHub release/workflow run to prove the `.dmg` is signed, notarized, and stapled.
-- README currently documents unsigned macOS builds and tells users to bypass Gatekeeper.
+- README, TTS docs, and site install notes now distinguish official signed/notarized releases from unsigned local/PR development artifacts.
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, optionally `libsherpa-onnx-cxx-api.dylib`. Signing must cover these too.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
@@ -209,9 +209,9 @@ spctl --assess --type execute --verbose=4 "src-tauri/target/release/bundle/macos
 spctl --assess --type open --context context:primary-signature --verbose=4 src-tauri/target/release/bundle/dmg/*.dmg
 ```
 
-### 4. Remove README unsigned warning
+### 4. Keep public install docs current
 
-After CI produces signed, notarized, stapled DMGs, replace unsigned Gatekeeper bypass docs with normal install instructions.
+README, `docs/kokoro-tts.md`, and `site/index.html` now describe signed/notarized release DMGs and reserve right-click Open guidance for unsigned development artifacts. After the first signed release succeeds, update any version-specific download filenames/sizes on the site.
 
 ## iOS: Apple Work Before Repo Changes
 
