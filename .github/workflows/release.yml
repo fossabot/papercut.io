@@ -34,14 +34,6 @@ jobs:
           - os: windows-2022
             platform: windows
             cache_suffix: ""
-          - os: macos-15-intel
-            platform: macos
-            arch: x64
-            cache_suffix: "-x64"
-          - os: macos-15
-            platform: macos
-            arch: arm64
-            cache_suffix: "-arm64"
 
     runs-on: ${{ matrix.os }}
 
@@ -120,8 +112,86 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-macos:
+    environment: apple-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x64
+            cache_suffix: "-x64"
+          - os: macos-15
+            arch: arm64
+            cache_suffix: "-arm64"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v5
+        with:
+          path: src-tauri/target
+          key: release-${{ runner.os }}${{ matrix.cache_suffix }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: release-${{ runner.os }}${{ matrix.cache_suffix }}-cargo-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Import Apple Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 -d > certificate.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security find-identity -v -p codesigning build.keychain
+
+      - name: Prepare Apple notarization key
+        env:
+          APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          mkdir -p private_keys
+          echo "$APPLE_API_PRIVATE_KEY_BASE64" | base64 -d > "private_keys/AuthKey_${APPLE_API_KEY}.p8"
+
+      - name: Build signed and notarized Tauri app
+        run: npm run desktop
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+
+      - name: Verify macOS signature and notarization
+        run: |
+          codesign --verify --deep --strict --verbose=2 "src-tauri/target/release/bundle/macos/Papercut.app"
+          spctl --assess --type execute --verbose=4 "src-tauri/target/release/bundle/macos/Papercut.app"
+          spctl --assess --type open --context context:primary-signature --verbose=4 src-tauri/target/release/bundle/dmg/*.dmg
+
       - name: Upload macOS bundles
-        if: matrix.platform == 'macos'
         uses: actions/upload-artifact@v7
         with:
           name: papercut-macos-${{ matrix.arch }}-bundles
@@ -192,6 +262,7 @@ jobs:
   publish-release:
     needs:
       - build-desktop
+      - build-macos
       - build-android
     runs-on: ubuntu-24.04
     permissions:
