@@ -278,7 +278,7 @@ To sideload on an Android device, enable **Install unknown apps** in Settings an
 
 ### iOS IPA build
 
-iOS builds require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
+iOS builds use the Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
 
 First initialize the Tauri Apple project on macOS and commit the generated files:
 
@@ -444,6 +444,7 @@ papercut.io/
 │   ├── src/native_tts/            # Native sherpa-onnx TTS and audiobook bundles
 │   ├── tts/model-manifest.json    # Pinned native TTS model catalog
 │   ├── tauri.conf.json            # Base Tauri config
+│   ├── tauri.ios.conf.json        # iOS Bundle ID / App Store config
 │   └── tauri.linux.conf.json      # Linux shared-library bundle config
 ├── scripts/                       # Desktop/Android build orchestration
 │   └── lib/                       # Shared and platform-specific script helpers

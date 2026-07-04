@@ -243,20 +243,19 @@ README, `docs/kokoro-tts.md`, and `site/index.html` now describe signed/notarize
 
 ### 1. Decide final iOS Bundle ID
 
-Current Tauri identifier is:
+Desktop identifier remains:
 
 ```text
 io.papercut.desktop
 ```
 
-This can work if Apple accepts it, but name is awkward for iOS. Decide before creating App ID/App Store record.
+The iOS Bundle ID is now isolated in `src-tauri/tauri.ios.conf.json` so desktop/macOS/Android identity stays stable:
 
-Options:
+```text
+io.papercut.app
+```
 
-- Keep `io.papercut.desktop` for fastest path.
-- Use cleaner ID like `app.trypapercut.papercut`, but this may require Tauri config work and may affect desktop app identity if not isolated.
-
-Best path: keep desktop identifier stable, then add iOS-specific config only if Tauri supports clean platform override in current version. Otherwise use current identifier for first iOS build.
+Use `io.papercut.app` for the Apple Developer App ID, App Store Connect app record, provisioning profile, and generated Xcode project.
 
 ### 2. Create App Store Connect app record
 
@@ -265,7 +264,7 @@ In App Store Connect:
 1. Apps > add new app.
 2. Platform: iOS.
 3. Name: `Papercut`.
-4. Bundle ID: chosen Bundle ID.
+4. Bundle ID: `io.papercut.app`.
 5. SKU: stable internal value, e.g. `papercut-ios`.
 6. User Access: as needed.
 
@@ -274,7 +273,7 @@ In App Store Connect:
 In Apple Developer:
 
 1. Identifiers > App IDs > new app.
-2. Bundle ID exactly matches Tauri identifier.
+2. Bundle ID exactly matches the iOS Tauri identifier: `io.papercut.app`.
 3. Enable only capabilities needed.
 4. For iOS background audiobook playback, enable Background Modes in Xcode project later and include audio mode.
 

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { exitFromResult, runSync } from "./lib/process.js"
 import { SRC_TAURI_DIR } from "./lib/paths.js"
@@ -8,6 +8,10 @@ const initProject = process.argv.includes("--init")
 const nativeTts = process.argv.includes("--native-tts")
 const extraArgs = process.argv.slice(2).filter((arg) => arg !== "--init" && arg !== "--native-tts")
 const appleProjectDir = join(SRC_TAURI_DIR, "gen", "apple")
+const iosConfigPath = join(SRC_TAURI_DIR, "tauri.ios.conf.json")
+const expectedIosBundleId = "io.papercut.app"
+
+verifyIosBundleId()
 
 if (process.platform !== "darwin") {
   fail("iOS builds require macOS with full Xcode. Use a GitHub macos-15 runner or MacInCloud; Linux cannot run tauri ios build.")
@@ -29,6 +33,17 @@ if (initProject) {
     : ["ios", "build", "--export-method", "app-store-connect"]
 
   runTauriIos(args, "[ios-build] Failed to build iOS IPA: ")
+}
+
+function verifyIosBundleId() {
+  if (!existsSync(iosConfigPath)) {
+    fail("Missing iOS Tauri config: " + iosConfigPath)
+  }
+
+  const config = JSON.parse(readFileSync(iosConfigPath, "utf8"))
+  if (config.identifier !== expectedIosBundleId) {
+    fail("Expected iOS Bundle ID " + expectedIosBundleId + " in " + iosConfigPath + ", got " + config.identifier)
+  }
 }
 
 function runTauriIos(args, errorPrefix) {

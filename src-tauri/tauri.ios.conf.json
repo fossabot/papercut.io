@@ -1,0 +1,8 @@
+{
+  "identifier": "io.papercut.app",
+  "bundle": {
+    "iOS": {
+      "minimumSystemVersion": "14.0"
+    }
+  }
+}
