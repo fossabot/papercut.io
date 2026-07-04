@@ -11,7 +11,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, versioned ONNX Runtime dylibs such as `libonnxruntime.1.24.4.dylib`, and optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
-- `src-tauri/gen/apple` has been generated from the GitHub `macos-15` runner artifact and is ready to commit after review. The generated iOS target uses Bundle ID `io.papercut.app`, includes the Papercut iOS app icons, enables background audio mode, and declares standard/non-exempt encryption as false for the HTTPS-only model-download path.
+- `src-tauri/gen/apple` has been generated from the GitHub `macos-15` runner artifact and is ready to commit after review. The generated iOS target uses App Store display name `Papercut Offline`, Bundle ID `io.papercut.app`, the Papercut iOS app icons, background audio mode, and standard/non-exempt encryption set to false for the HTTPS-only model-download path.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
 - Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.3` supersedes the earlier macOS patch attempts because it bundles the complete dylib dependency closure and signs bundled dylibs for notarization.
@@ -263,7 +263,7 @@ In App Store Connect:
 
 1. Apps > add new app.
 2. Platform: iOS.
-3. Name: `Papercut`.
+3. Name: `Papercut Offline`.
 4. Bundle ID: `io.papercut.app`.
 5. SKU: stable internal value, e.g. `papercut-ios`.
 6. User Access: as needed.
@@ -304,7 +304,7 @@ openssl genrsa -out apple-distribution.key 2048
 openssl req -new \
   -key apple-distribution.key \
   -out apple-distribution.certSigningRequest \
-  -subj "/emailAddress=YOUR_APPLE_ID_EMAIL/CN=Papercut Apple Distribution/C=CA"
+  -subj "/emailAddress=YOUR_APPLE_ID_EMAIL/CN=Papercut Offline Apple Distribution/C=CA"
 ```
 
 In Apple Developer Certificates, create `Apple Distribution` certificate with that CSR.
@@ -329,16 +329,16 @@ In Apple Developer:
 
 1. Profiles > add.
 2. Distribution type: `App Store Connect`.
-3. Select the Papercut App ID.
+3. Select the `io.papercut.app` App ID for `Papercut Offline`.
 4. Select Apple Distribution certificate.
-5. Name it `Papercut iOS App Store`.
+5. Name it `Papercut Offline iOS App Store`.
 6. Download `.mobileprovision`.
 
 ### 7. Create App Store Connect API key for upload
 
 You can reuse the same `.p8` key if role is enough, but cleaner path is separate key:
 
-- `Papercut CI Upload`
+- `Papercut Offline CI Upload`
 - Access: `Developer` if upload works; `Admin` if using automatic signing or if Apple tooling requires it.
 
 Save:
@@ -365,9 +365,9 @@ In protected `apple-release` environment:
 
 ### 1. Commit generated Tauri iOS project
 
-`src-tauri/gen/apple` has now been generated through the temporary GitHub Actions `Init iOS Project` workflow and extracted into the repo. Review and commit these files because Tauri expects the generated Apple project to exist in source control before `npm run ios:ipa` can build on CI.
+`src-tauri/gen/apple` has now been generated and extracted into the repo. Review and commit these files because Tauri expects the generated Apple project to exist in source control before `npm run ios:ipa` can build on CI.
 
-The temporary workflow exists only to bootstrap or regenerate the Apple project without owning a MacBook. If it is needed again before it is on the default branch, push `feature/ios-release`; the branch-scoped `push` trigger runs it automatically and uploads a fresh `src-tauri-gen-apple` artifact. GitHub only exposes the manual `workflow_dispatch` button after the workflow file exists on the default branch.
+If the Apple project ever needs regeneration, use MacInCloud or temporarily restore a macOS GitHub Actions bootstrap workflow, run `npm run ios:init`, and replace `src-tauri/gen/apple` with the newly generated output.
 
 Equivalent macOS command for MacInCloud/local regeneration:
 
@@ -424,7 +424,7 @@ New release job on `macos-15`:
 Expected output per Tauri docs:
 
 ```text
-src-tauri/gen/apple/build/arm64/Papercut.ipa
+src-tauri/gen/apple/build/arm64/Papercut Offline.ipa
 ```
 
 ### 5. TestFlight gate

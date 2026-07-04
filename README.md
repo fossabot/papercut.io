@@ -278,9 +278,9 @@ To sideload on an Android device, enable **Install unknown apps** in Settings an
 
 ### iOS IPA build
 
-iOS builds use the Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
+iOS builds use the App Store display name `Papercut Offline` and Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
 
-`src-tauri/gen/apple` contains the generated Tauri Apple project and should stay committed. Without a MacBook, regenerate it by pushing `feature/ios-release` to run the temporary GitHub Actions workflow `Init iOS Project`, downloading the `src-tauri-gen-apple` artifact, and replacing `src-tauri/gen/apple`. The manual `Run workflow` button only appears after this workflow file exists on the default branch. The equivalent macOS command is:
+`src-tauri/gen/apple` contains the generated Tauri Apple project and should stay committed. Without a MacBook, regenerate it from MacInCloud or by temporarily restoring a macOS GitHub Actions bootstrap workflow, then replace `src-tauri/gen/apple`. The equivalent macOS command is:
 
 ```bash
 npm ci

@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Papercut
+      PRODUCT_NAME: Papercut Offline
       PRODUCT_BUNDLE_IDENTIFIER: io.papercut.app
 targetTemplates:
   app:
