@@ -365,7 +365,19 @@ In protected `apple-release` environment:
 
 ### 1. Initialize Tauri iOS project
 
-Needs macOS runner or Mac environment. You do not need to own a MacBook; use MacInCloud or a temporary GitHub Actions `macos-15` job. Linux cannot run this because Tauri iOS uses Xcode.
+Needs macOS runner or Mac environment. You do not need to own a MacBook; use MacInCloud or the manual GitHub Actions workflow `Init iOS Project`. Linux cannot run this because Tauri iOS uses Xcode.
+
+GitHub runner path without merging to `main`:
+
+1. Push `feature/ios-release`.
+2. The temporary `Init iOS Project` workflow runs automatically from the branch because it also has a branch-scoped `push` trigger.
+3. Download the `src-tauri-gen-apple` artifact.
+4. Place the artifact contents at `src-tauri/gen/apple`.
+5. Inspect and commit generated Apple project files.
+
+Manual `workflow_dispatch` caveat: GitHub only exposes manual runs when the workflow file exists on the default branch. Use the branch push trigger for this temporary setup, or merge the workflow file to `main` if you want the Actions UI `Run workflow` button.
+
+Equivalent macOS command:
 
 ```bash
 npm ci
