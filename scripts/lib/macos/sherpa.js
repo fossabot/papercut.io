@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { spawnSync } from "node:child_process"
-import { cp, mkdir, stat } from "node:fs/promises"
+import { cp, mkdir, readdir, stat } from "node:fs/promises"
 import { join } from "node:path"
 import {
   SHERPA_MACOS_OPTIONAL_LIBS,
@@ -19,17 +19,27 @@ export async function copyMacosSherpaLibs({ platform = process.env.TAURI_ENV_PLA
   await mkdir(SHERPA_MACOS_SHARED_OUT_DIR, { recursive: true })
 
   const copied = []
-  for (const lib of [...SHERPA_MACOS_REQUIRED_LIBS, ...SHERPA_MACOS_OPTIONAL_LIBS]) {
+  for (const lib of await macosDylibsToBundle()) {
     const source = join(SHERPA_MACOS_SHARED_SOURCE_DIR, lib)
-    if (existsSync(source)) {
-      const target = join(SHERPA_MACOS_SHARED_OUT_DIR, lib)
-      await cp(source, target, { force: true })
-      copied.push(target)
-    }
+    const target = join(SHERPA_MACOS_SHARED_OUT_DIR, lib)
+    await cp(source, target, { force: true, dereference: true })
+    copied.push(target)
   }
 
   signMacosDylibs(copied)
   console.log("[sherpa-macos-libs] bundled shared libraries from " + SHERPA_MACOS_SHARED_SOURCE_DIR)
+}
+
+async function macosDylibsToBundle() {
+  const entries = await readdir(SHERPA_MACOS_SHARED_SOURCE_DIR, { withFileTypes: true })
+  const dylibs = entries
+    .filter((entry) => entry.isFile() || entry.isSymbolicLink())
+    .map((entry) => entry.name)
+    .filter((name) => name.endsWith(".dylib"))
+    .sort()
+
+  return Array.from(new Set([...SHERPA_MACOS_REQUIRED_LIBS, ...SHERPA_MACOS_OPTIONAL_LIBS, ...dylibs]))
+    .filter((lib) => existsSync(join(SHERPA_MACOS_SHARED_SOURCE_DIR, lib)))
 }
 
 function signMacosDylibs(paths) {

@@ -9,18 +9,18 @@ This file records what Papercut still needs before macOS releases stop showing G
 - macOS release output now has proven CI plumbing for Developer ID signing, notarization, DMG stapling, and Gatekeeper verification.
 - README, TTS docs, and site install notes now distinguish official signed/notarized releases from unsigned local/PR development artifacts.
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
-- App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
+- App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, versioned ONNX Runtime dylibs such as `libonnxruntime.1.24.4.dylib`, and optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
 - No `src-tauri/gen/apple` or iOS Xcode project is committed yet.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
-- Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.2` supersedes it for macOS because it fixes missing bundled dylibs and signs them for notarization.
+- Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.3` supersedes the earlier macOS patch attempts because it bundles the complete dylib dependency closure and signs bundled dylibs for notarization.
 
-## v1.3.2 Patch Release Guidance
+## v1.3.3 Patch Release Guidance
 
-Use `branch-release-v1.3.2` for the macOS dylib packaging patch release. Do not reuse the v1.3.0 or v1.3.1 tags if they were already published or downloaded; ship v1.3.2 so users and GitHub Release assets have a clean immutable version.
+Use `branch-release-v1.3.3` for the macOS dylib packaging patch release. Do not reuse the v1.3.0, v1.3.1, or v1.3.2 tags if they were already published or downloaded; ship v1.3.3 so users and GitHub Release assets have a clean immutable version.
 
-Before publishing v1.3.2, confirm both macOS release jobs pass the `Verify macOS bundled runtime libraries` step. That step must find `libsherpa-onnx-c-api.dylib` and `libonnxruntime.dylib` in `Papercut.app/Contents/Resources` before DMG notarization/upload. After release upload, smoke-test the Apple Silicon DMG on MacInCloud by dragging `Papercut.app` out of the mounted DMG and launching it from Terminal.
+Before publishing v1.3.3, confirm both macOS release jobs pass the `Verify macOS bundled runtime libraries` step. That step runs `scripts/verify-macos-bundle-libs.js`, checks required dylibs, checks the versioned `libonnxruntime.*.dylib` dependency, walks `otool -L` dependencies for the app and every bundled dylib, and verifies dylib signatures in the protected release job before DMG notarization/upload. After release upload, smoke-test the Apple Silicon DMG on MacInCloud by dragging `Papercut.app` out of the mounted DMG and launching it from Terminal.
 
 ## Sources
 
@@ -225,7 +225,7 @@ Release workflow now does this in the protected `build-macos` job for each macOS
 7. Decode `.p8` into `$RUNNER_TEMP/private_keys/AuthKey_KEYID.p8` and export the absolute path as `APPLE_API_KEY_PATH`.
 8. Export Tauri notarization env vars.
 9. Run `npm run desktop`. The desktop helper pre-stages macOS dylibs before Tauri scans resources; the macOS dylib copy helper signs them with the Developer ID identity and secure timestamp; Tauri signs and notarizes the `.app` bundle.
-10. Verify required dylibs exist in `Papercut.app/Contents/Resources` and pass `codesign --verify --strict` before DMG notarization/upload.
+10. Run `scripts/verify-macos-bundle-libs.js --require-signatures` to verify required dylibs, transitive `otool -L` dependencies, and `codesign --verify --strict` before DMG notarization/upload.
 11. Submit each generated `.dmg` to `notarytool`, staple it, and validate the stapled ticket.
 12. Verify app signatures and Gatekeeper assessment.
 13. Verify DMG Gatekeeper assessment.
