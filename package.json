@@ -22,7 +22,10 @@
     "prepare:jdk": "node scripts/prepare-local-jdk.js",
     "prepare:jdk:force": "node scripts/prepare-local-jdk.js --force",
     "prepare:sherpa-android-libs": "node scripts/prepare-sherpa-android-libs.js",
-    "prepare:sherpa-android-libs:force": "node scripts/prepare-sherpa-android-libs.js --force"
+    "prepare:sherpa-android-libs:force": "node scripts/prepare-sherpa-android-libs.js --force",
+    "ios:init": "node scripts/build-ios.js --init",
+    "ios:ipa": "node scripts/build-ios.js",
+    "ios:ipa:native-tts": "node scripts/build-ios.js --native-tts"
   },
   "dependencies": {
     "react": "^19.2.0",

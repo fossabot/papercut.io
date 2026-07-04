@@ -33,3 +33,12 @@ public/*
 src-tauri/tts/runtime/*
 
 private_keys/
+
+# Apple signing/provisioning secrets.
+*.cer
+*.certSigningRequest
+*.key
+*.p12
+*.p8
+*.mobileprovision
+*.provisionprofile

@@ -11,7 +11,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, versioned ONNX Runtime dylibs such as `libonnxruntime.1.24.4.dylib`, and optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
-- No `src-tauri/gen/apple` or iOS Xcode project is committed yet.
+- No `src-tauri/gen/apple` or iOS Xcode project is committed yet. The repo now has guarded `ios:init` and `ios:ipa` wrappers, but CI cannot build iOS until the generated Apple project is created on macOS and committed.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
 - Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.3` supersedes the earlier macOS patch attempts because it bundles the complete dylib dependency closure and signs bundled dylibs for notarization.
@@ -44,14 +44,10 @@ For macOS outside App Store, use:
 4. Apple notarization.
 5. Stapled notarization ticket on `.app` / `.dmg`.
 
-For iOS, use:
+For iOS, use two phases:
 
-1. Tauri iOS project committed under `src-tauri/gen/apple`.
-2. App Store Connect app record.
-3. Apple Distribution certificate.
-4. App Store Connect provisioning profile, or Xcode automatic signing via App Store Connect API.
-5. GitHub Actions macOS runner to build `.ipa`.
-6. Upload to TestFlight/App Store with App Store Connect API key.
+1. Signed/TestFlight shell first: Tauri iOS project committed under `src-tauri/gen/apple`, App Store Connect app record, Apple Distribution certificate, App Store Connect provisioning profile, GitHub Actions `macos-15` runner, and App Store Connect API upload. This proves signing, provisioning, upload, TestFlight processing, and basic app launch without native TTS risk.
+2. Native TTS second: add sherpa-onnx iOS static-library support, keep model downloads on demand, enable conservative iOS thread defaults, and validate real-device generation/playback before App Review. Use static linking or an upstream-style XCFramework path instead of macOS-style dylib resource copying.
 
 ## macOS: Apple Work Before Repo Changes
 
@@ -370,14 +366,14 @@ In protected `apple-release` environment:
 
 ### 1. Initialize Tauri iOS project
 
-Needs macOS runner or Mac environment:
+Needs macOS runner or Mac environment. You do not need to own a MacBook; use MacInCloud or a temporary GitHub Actions `macos-15` job. Linux cannot run this because Tauri iOS uses Xcode.
 
 ```bash
 npm ci
-npm run tauri -- ios init
+npm run ios:init
 ```
 
-Commit generated `src-tauri/gen/apple` files that Tauri expects in source control.
+Commit generated `src-tauri/gen/apple` files that Tauri expects in source control. Do not commit certificates, provisioning profiles, private keys, or generated build output.
 
 ### 2. Configure iOS app capabilities
 
@@ -395,13 +391,17 @@ Because Papercut uses `reqwest`/TLS for model downloads, export compliance must 
 
 ### 3. Add iOS build script
 
-Add npm script, likely:
+Added guarded npm scripts:
 
-```json
-"ios:ipa": "tauri ios build --export-method app-store-connect --features native-tts-shared"
+```bash
+npm run ios:init
+npm run ios:ipa
+npm run ios:ipa:native-tts
 ```
 
-Native TTS on iOS still needs separate validation. The docs mention frontend recognizes iOS and native audio plugin uses AVPlayer, but this repo currently documents supported native TTS/import builds as desktop and Android. Expect iOS native TTS/library issues until proven on a real device/TestFlight.
+`npm run ios:ipa` runs `tauri ios build --export-method app-store-connect` on macOS after `src-tauri/gen/apple` exists. `npm run ios:ipa:native-tts` intentionally fails for now so CI cannot accidentally publish an unverified native TTS iOS build.
+
+Native TTS on iOS still needs separate validation. The frontend recognizes iOS and the native audio plugin uses AVPlayer/Now Playing controls, but this repo currently documents supported native TTS/import builds as desktop and Android. Expect iOS native TTS/library issues until sherpa iOS static libraries are wired and proven on a real device/TestFlight.
 
 ### 4. Add CI job
 
@@ -414,7 +414,7 @@ New release job on `macos-15`:
 5. Decode API key into `private_keys/AuthKey_KEYID.p8`.
 6. Import Apple Distribution `.p12` into temporary keychain.
 7. Install provisioning profile.
-8. Run `npm run tauri -- ios build --export-method app-store-connect`.
+8. Run `npm run ios:ipa`.
 9. Upload `.ipa` as artifact.
 10. Upload `.ipa` to App Store Connect/TestFlight with `xcrun altool` or newer Apple upload tool.
 
@@ -457,8 +457,8 @@ First CI success only means Apple accepted upload. Still need:
 - Tauri notarization covers the `.app`, but the outer `.dmg` still needs its own notarization/stapling before GitHub Release upload.
 - Missing hardened runtime or wrong entitlements can make notarization fail or app launch fail after signing.
 - Native dylibs in Resources must be signed/notarized as part of bundle.
-- No iOS project exists yet; CI cannot build iOS until `tauri ios init` output is committed.
-- iOS native TTS is not proven in this branch. Build may work before runtime audio/model download path is App Store ready.
+- No iOS project exists yet; CI cannot build iOS until `npm run ios:init` output is committed from a macOS runner or MacInCloud instance.
+- iOS native TTS is not proven in this branch. The first iOS release path should build/upload a signed TestFlight app without native TTS, then add sherpa iOS static libraries and real-device generation/playback validation in a later stage.
 - Current App ID `io.papercut.desktop` may be accepted but is a poor long-term iOS identifier.
 - Apple private keys are high-value secrets. Losing the private key used for CSR means the downloaded certificate cannot be used.
 
