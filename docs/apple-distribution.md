@@ -14,13 +14,13 @@ This file records what Papercut still needs before macOS releases stop showing G
 - No `src-tauri/gen/apple` or iOS Xcode project is committed yet.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
-- Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.1` supersedes it for macOS because it fixes missing bundled dylibs.
+- Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.2` supersedes it for macOS because it fixes missing bundled dylibs and signs them for notarization.
 
-## v1.3.1 Patch Release Guidance
+## v1.3.2 Patch Release Guidance
 
-Use `branch-release-v1.3.1` for the macOS dylib packaging patch release. Do not reuse the v1.3.0 tag if it was already published or downloaded; ship v1.3.1 so users and GitHub Release assets have a clean immutable version.
+Use `branch-release-v1.3.2` for the macOS dylib packaging patch release. Do not reuse the v1.3.0 or v1.3.1 tags if they were already published or downloaded; ship v1.3.2 so users and GitHub Release assets have a clean immutable version.
 
-Before publishing v1.3.1, confirm both macOS release jobs pass the `Verify macOS bundled runtime libraries` step. That step must find `libsherpa-onnx-c-api.dylib` and `libonnxruntime.dylib` in `Papercut.app/Contents/Resources` before DMG notarization/upload. After release upload, smoke-test the Apple Silicon DMG on MacInCloud by dragging `Papercut.app` out of the mounted DMG and launching it from Terminal.
+Before publishing v1.3.2, confirm both macOS release jobs pass the `Verify macOS bundled runtime libraries` step. That step must find `libsherpa-onnx-c-api.dylib` and `libonnxruntime.dylib` in `Papercut.app/Contents/Resources` before DMG notarization/upload. After release upload, smoke-test the Apple Silicon DMG on MacInCloud by dragging `Papercut.app` out of the mounted DMG and launching it from Terminal.
 
 ## Sources
 
