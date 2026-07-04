@@ -336,7 +336,7 @@ In Apple Developer:
 
 ### 7. Create App Store Connect API key for upload
 
-You can reuse the same `.p8` key if role is enough, but cleaner path is separate key:
+You can reuse the existing `papercut.io` App Store Connect API key if its role can upload builds. A separate key is optional if you want cleaner rotation/auditing:
 
 - `Papercut Offline CI Upload`
 - Access: `Developer` if upload works; `Admin` if using automatic signing or if Apple tooling requires it.
@@ -355,8 +355,7 @@ In protected `apple-release` environment:
 - `IOS_CERTIFICATE_PASSWORD`: `.p12` password
 - `IOS_MOBILE_PROVISION`: base64 of `.mobileprovision`
 - `APPLE_API_ISSUER`: App Store Connect Issuer ID
-- `APPLE_API_KEY_ID`: App Store Connect Key ID for `altool`
-- `APPLE_API_KEY`: same key ID if Tauri expects this variable
+- `APPLE_API_KEY`: App Store Connect Key ID for notarization and iOS upload
 - `APPLE_API_PRIVATE_KEY_BASE64`: base64 of `AuthKey_KEYID.p8`
 - `APPLE_TEAM_ID`: Team ID
 - `APPLE_KEYCHAIN_PASSWORD`: random CI-only temporary keychain password
@@ -406,20 +405,27 @@ npm run ios:ipa:native-tts
 
 Native TTS on iOS still needs separate validation. The frontend recognizes iOS and the native audio plugin uses AVPlayer/Now Playing controls, but this repo currently documents supported native TTS/import builds as desktop and Android. Expect iOS native TTS/library issues until sherpa iOS static libraries are wired and proven on a real device/TestFlight.
 
-### 4. Add CI job
+### 4. PR-safe iOS CI check
 
-New release job on `macos-15`:
+Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs `xcodebuild` against the generated `app_iOS` scheme with code signing disabled.
+
+This catches broken iOS project files, Rust/Tauri iOS compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
+
+### 5. Add release CI job
+
+The release workflow now has a `build-ios` job on `macos-15`:
 
 1. Checkout.
 2. Setup Node/Rust.
 3. Install Rust iOS target if needed.
 4. `npm ci`.
-5. Decode API key into `private_keys/AuthKey_KEYID.p8`.
-6. Import Apple Distribution `.p12` into temporary keychain.
-7. Install provisioning profile.
-8. Run `npm run ios:ipa`.
-9. Upload `.ipa` as artifact.
-10. Upload `.ipa` to App Store Connect/TestFlight with `xcrun altool` or newer Apple upload tool.
+5. Import Apple Distribution `.p12` into a temporary keychain.
+6. Install the provisioning profile and verify it targets `io.papercut.app`.
+7. Decode the existing `APPLE_API_PRIVATE_KEY_BASE64` into `~/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY.p8` for `altool`.
+8. Patch generated Xcode signing settings/ExportOptions at runtime.
+9. Run `npm run ios:ipa`.
+10. Upload `.ipa` as a CI artifact named `ios-app-store-ipa`, which is intentionally excluded from GitHub Release assets.
+11. Upload `.ipa` to App Store Connect/TestFlight with `xcrun altool` using `APPLE_API_KEY` and `APPLE_API_ISSUER`.
 
 Expected output per Tauri docs:
 
@@ -427,7 +433,7 @@ Expected output per Tauri docs:
 src-tauri/gen/apple/build/arm64/Papercut Offline.ipa
 ```
 
-### 5. TestFlight gate
+### 6. TestFlight gate
 
 First CI success only means Apple accepted upload. Still need:
 

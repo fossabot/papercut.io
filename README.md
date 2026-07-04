@@ -287,7 +287,7 @@ npm ci
 npm run ios:init
 ```
 
-After `src-tauri/gen/apple` is committed and Apple signing/provisioning secrets exist in the protected `apple-release` GitHub Environment, build the App Store Connect IPA on macOS:
+PR CI builds the generated iOS Xcode target unsigned on `macos-15` to catch project and compile regressions without Apple secrets. After `src-tauri/gen/apple` is committed and Apple signing/provisioning secrets exist in the protected `apple-release` GitHub Environment, the release workflow builds, verifies, uploads the iOS IPA artifact for CI inspection, and submits it to App Store Connect/TestFlight. To build the IPA manually on macOS:
 
 ```bash
 npm run ios:ipa

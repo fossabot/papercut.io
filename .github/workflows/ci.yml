@@ -181,3 +181,59 @@ jobs:
           name: papercut-android-native-tts-apk
           path: src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
           retention-days: 7
+
+  build-ios:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust with iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v5
+        with:
+          path: src-tauri/target
+          key: ios-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ios-cargo-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend + Pagefind index
+        run: npm run build
+
+      - name: Verify generated iOS project files
+        run: |
+          test -d src-tauri/gen/apple
+          test -f src-tauri/gen/apple/app.xcodeproj/project.pbxproj
+          test -f src-tauri/gen/apple/app.xcodeproj/xcshareddata/xcschemes/app_iOS.xcscheme
+          test -f src-tauri/gen/apple/app_iOS/Info.plist
+          test -f src-tauri/gen/apple/app_iOS/app_iOS.entitlements
+
+      - name: Build unsigned iOS Xcode target
+        run: |
+          xcodebuild \
+            -project src-tauri/gen/apple/app.xcodeproj \
+            -scheme app_iOS \
+            -configuration debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
