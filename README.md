@@ -280,7 +280,7 @@ To sideload on an Android device, enable **Install unknown apps** in Settings an
 
 iOS builds use the Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
 
-First initialize the Tauri Apple project on macOS and commit the generated files. Without a MacBook, push `feature/ios-release` to run the temporary GitHub Actions workflow `Init iOS Project` on that branch, download the `src-tauri-gen-apple` artifact, and place its contents at `src-tauri/gen/apple`. The manual `Run workflow` button only appears after this workflow file exists on the default branch. The equivalent macOS command is:
+`src-tauri/gen/apple` contains the generated Tauri Apple project and should stay committed. Without a MacBook, regenerate it by pushing `feature/ios-release` to run the temporary GitHub Actions workflow `Init iOS Project`, downloading the `src-tauri-gen-apple` artifact, and replacing `src-tauri/gen/apple`. The manual `Run workflow` button only appears after this workflow file exists on the default branch. The equivalent macOS command is:
 
 ```bash
 npm ci
@@ -293,7 +293,7 @@ After `src-tauri/gen/apple` is committed and Apple signing/provisioning secrets 
 npm run ios:ipa
 ```
 
-The first iOS target is a signed/TestFlight app without native TTS. `npm run ios:ipa:native-tts` intentionally fails until sherpa-onnx iOS static-library support is wired and verified. Native background playback uses `tauri-plugin-native-audio` on iOS, but the generated Apple target still must enable Background Modes > Audio before TestFlight playback testing.
+The first iOS target is a signed/TestFlight app without native TTS. `npm run ios:ipa:native-tts` intentionally fails until sherpa-onnx iOS static-library support is wired and verified. Native background playback uses `tauri-plugin-native-audio` on iOS, and the generated Apple target now declares Background Modes > Audio.
 
 ### Android build troubleshooting
 

@@ -11,7 +11,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, versioned ONNX Runtime dylibs such as `libonnxruntime.1.24.4.dylib`, and optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
-- No `src-tauri/gen/apple` or iOS Xcode project is committed yet. The repo now has guarded `ios:init` and `ios:ipa` wrappers, but CI cannot build iOS until the generated Apple project is created on macOS and committed.
+- `src-tauri/gen/apple` has been generated from the GitHub `macos-15` runner artifact and is ready to commit after review. The generated iOS target uses Bundle ID `io.papercut.app`, includes the Papercut iOS app icons, enables background audio mode, and declares standard/non-exempt encryption as false for the HTTPS-only model-download path.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
 - Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.3` supersedes the earlier macOS patch attempts because it bundles the complete dylib dependency closure and signs bundled dylibs for notarization.
@@ -275,7 +275,7 @@ In Apple Developer:
 1. Identifiers > App IDs > new app.
 2. Bundle ID exactly matches the iOS Tauri identifier: `io.papercut.app`.
 3. Enable only capabilities needed.
-4. For iOS background audiobook playback, enable Background Modes in Xcode project later and include audio mode.
+4. For iOS background audiobook playback, keep Background Modes enabled with the `audio` mode in the generated Xcode project.
 
 Do not enable CloudKit, Push, Sign in with Apple, App Groups, etc. unless product needs them.
 
@@ -363,28 +363,20 @@ In protected `apple-release` environment:
 
 ## iOS: Repo Work After Apple Work
 
-### 1. Initialize Tauri iOS project
+### 1. Commit generated Tauri iOS project
 
-Needs macOS runner or Mac environment. You do not need to own a MacBook; use MacInCloud or the manual GitHub Actions workflow `Init iOS Project`. Linux cannot run this because Tauri iOS uses Xcode.
+`src-tauri/gen/apple` has now been generated through the temporary GitHub Actions `Init iOS Project` workflow and extracted into the repo. Review and commit these files because Tauri expects the generated Apple project to exist in source control before `npm run ios:ipa` can build on CI.
 
-GitHub runner path without merging to `main`:
+The temporary workflow exists only to bootstrap or regenerate the Apple project without owning a MacBook. If it is needed again before it is on the default branch, push `feature/ios-release`; the branch-scoped `push` trigger runs it automatically and uploads a fresh `src-tauri-gen-apple` artifact. GitHub only exposes the manual `workflow_dispatch` button after the workflow file exists on the default branch.
 
-1. Push `feature/ios-release`.
-2. The temporary `Init iOS Project` workflow runs automatically from the branch because it also has a branch-scoped `push` trigger.
-3. Download the `src-tauri-gen-apple` artifact.
-4. Place the artifact contents at `src-tauri/gen/apple`.
-5. Inspect and commit generated Apple project files.
-
-Manual `workflow_dispatch` caveat: GitHub only exposes manual runs when the workflow file exists on the default branch. Use the branch push trigger for this temporary setup, or merge the workflow file to `main` if you want the Actions UI `Run workflow` button.
-
-Equivalent macOS command:
+Equivalent macOS command for MacInCloud/local regeneration:
 
 ```bash
 npm ci
 npm run ios:init
 ```
 
-Commit generated `src-tauri/gen/apple` files that Tauri expects in source control. Do not commit certificates, provisioning profiles, private keys, or generated build output.
+Do not commit certificates, provisioning profiles, private keys, decoded API keys, or generated build output.
 
 ### 2. Configure iOS app capabilities
 
@@ -394,11 +386,11 @@ Required likely:
 
 - Bundle identifier matches App Store Connect.
 - Development Team set to Apple Team ID.
-- Background Modes > Audio enabled if mobile audiobook playback must continue while locked/backgrounded.
+- Background Modes > Audio remains enabled through `UIBackgroundModes: audio` in the generated iOS project.
 - App icons complete.
 - `Info.plist` includes encryption export setting if needed.
 
-Because Papercut uses `reqwest`/TLS for model downloads, export compliance must be answered carefully in App Store Connect. If only standard HTTPS/TLS and no custom crypto, usually mark non-exempt encryption as false or answer Apple's standard encryption questions accordingly. Confirm before submission.
+Because Papercut uses standard HTTPS/TLS for model downloads and does not implement custom cryptography, the generated iOS plist sets `ITSAppUsesNonExemptEncryption` to false. Still confirm the App Store Connect export-compliance answers before submission.
 
 ### 3. Add iOS build script
 
@@ -468,7 +460,7 @@ First CI success only means Apple accepted upload. Still need:
 - Tauri notarization covers the `.app`, but the outer `.dmg` still needs its own notarization/stapling before GitHub Release upload.
 - Missing hardened runtime or wrong entitlements can make notarization fail or app launch fail after signing.
 - Native dylibs in Resources must be signed/notarized as part of bundle.
-- No iOS project exists yet; CI cannot build iOS until `npm run ios:init` output is committed from a macOS runner or MacInCloud instance.
+- iOS CI cannot build a signed IPA until the generated `src-tauri/gen/apple` files are committed and the Apple Distribution certificate/provisioning profile secrets exist in the protected `apple-release` environment.
 - iOS native TTS is not proven in this branch. The first iOS release path should build/upload a signed TestFlight app without native TTS, then add sherpa iOS static libraries and real-device generation/playback validation in a later stage.
 - Current App ID `io.papercut.desktop` may be accepted but is a poor long-term iOS identifier.
 - Apple private keys are high-value secrets. Losing the private key used for CSR means the downloaded certificate cannot be used.
