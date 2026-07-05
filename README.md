@@ -278,7 +278,7 @@ To sideload on an Android device, enable **Install unknown apps** in Settings an
 
 ### iOS IPA build
 
-iOS builds use the App Store display name `Papercut Offline` and Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-15` runner or MacInCloud for the Apple project initialization and release build.
+iOS builds use the App Store display name `Papercut Offline` and Bundle ID `io.papercut.app` from `src-tauri/tauri.ios.conf.json`. They require macOS with full Xcode, but they do not require owning a MacBook. Use a GitHub-hosted `macos-26` runner or MacInCloud for the Apple project initialization and release build. App Store uploads require Xcode with the iOS 26 SDK or newer.
 
 `src-tauri/gen/apple` contains the generated Tauri Apple project and should stay committed. Without a MacBook, regenerate it from MacInCloud or by temporarily restoring a macOS GitHub Actions bootstrap workflow, then replace `src-tauri/gen/apple`. The equivalent macOS command is:
 
@@ -287,7 +287,7 @@ npm ci
 npm run ios:init
 ```
 
-PR CI runs Tauri's unsigned iOS simulator build on `macos-15` to catch project and compile regressions without Apple secrets. After `src-tauri/gen/apple` is committed and Apple signing/provisioning secrets exist in the protected `apple-release` GitHub Environment, the release workflow builds, verifies, uploads the iOS IPA artifact for CI inspection, and submits it to App Store Connect/TestFlight. To build the IPA manually on macOS:
+PR CI runs Tauri's unsigned iOS simulator build on `macos-26` to catch project and compile regressions without Apple secrets. After `src-tauri/gen/apple` is committed and Apple signing/provisioning secrets exist in the protected `apple-release` GitHub Environment, the release workflow builds, verifies, uploads the iOS IPA artifact for CI inspection, and submits it to App Store Connect/TestFlight. To build the IPA manually on macOS:
 
 ```bash
 npm run ios:ipa

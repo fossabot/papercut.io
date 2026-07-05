@@ -11,7 +11,7 @@ This file records what Papercut still needs before macOS releases stop showing G
 - `src-tauri/tauri.macos.conf.json` stages native TTS dylibs and enables hardened runtime with `src-tauri/Entitlements.plist`.
 - App bundle includes native dylibs in `Contents/Resources`: `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib`, versioned ONNX Runtime dylibs such as `libonnxruntime.1.24.4.dylib`, and optionally `libsherpa-onnx-cxx-api.dylib`. The macOS copy helper signs these dylibs with the Developer ID identity and secure timestamp when `APPLE_SIGNING_IDENTITY` is present, and release CI now fails if required dylibs are missing or unsigned.
 - Android CI currently creates a debug APK. That is unrelated to Apple work, but it is not a production Android release signing path.
-- `src-tauri/gen/apple` has been generated from the GitHub `macos-15` runner artifact and is ready to commit after review. The generated iOS target uses App Store display name `Papercut Offline`, Bundle ID `io.papercut.app`, the Papercut iOS app icons, background audio mode, and standard/non-exempt encryption set to false for the HTTPS-only model-download path.
+- `src-tauri/gen/apple` has been generated and committed. Current iOS CI/release builds run it on GitHub `macos-26` runners so App Store uploads use the iOS 26 SDK or newer. The generated iOS target uses App Store display name `Papercut Offline`, Bundle ID `io.papercut.app`, the Papercut iOS app icons, background audio mode, and standard/non-exempt encryption set to false for the HTTPS-only model-download path.
 - No certificate, key, provisioning profile, `.p12`, `.p8`, `.cer`, `.csr`, or keystore files are committed.
 - Working tree had unrelated user changes when this audit was written. Do not mix Apple distribution work with those changes.
 - Tags `v1.2.1` through `v1.2.6` were macOS release-pipeline validation tags, not product releases. `v1.3.0` was the first macOS release target, and `v1.3.3` supersedes the earlier macOS patch attempts because it bundles the complete dylib dependency closure and signs bundled dylibs for notarization.
@@ -407,13 +407,13 @@ Native TTS on iOS must be validated through TestFlight on a real iPhone or iPad.
 
 ### 4. PR-safe iOS CI check
 
-Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs `npm run ios:ci -- --native-tts`, which calls `tauri ios build --target aarch64-sim --features native-tts-static` without Apple signing secrets.
+Regular PR CI now includes a `build-ios` job on `macos-26`, with an explicit iOS SDK 26+ guard before building. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs `npm run ios:ci -- --native-tts`, which calls `tauri ios build --target aarch64-sim --features native-tts-static` without Apple signing secrets.
 
 This catches broken iOS project files, Rust/Tauri iOS simulator compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
 
 ### 5. Add release CI job
 
-The release workflow now has a `build-ios` job on `macos-15`:
+The release workflow now has a `build-ios` job on `macos-26`, with an explicit iOS SDK 26+ guard before App Store upload:
 
 1. Checkout.
 2. Setup Node/Rust.
