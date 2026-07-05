@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { SHERPA_IOS_DEVICE_SLICE, SHERPA_IOS_SIMULATOR_SLICE } from "./lib/ios/constants.js"
+import { ensureIosSherpaLibs, iosSherpaLibDir } from "./lib/ios/sherpa.js"
 import { exitFromResult, runSync } from "./lib/process.js"
 import { SRC_TAURI_DIR } from "./lib/paths.js"
 import { tauriCommand } from "./lib/tauri.js"
@@ -18,9 +20,6 @@ if (process.platform !== "darwin") {
   fail("iOS builds require macOS with full Xcode. Use a GitHub macos-15 runner or MacInCloud; Linux cannot run tauri ios build.")
 }
 
-if (nativeTts) {
-  fail("iOS native TTS is not wired yet. First ship the signed/TestFlight iOS build, then add sherpa iOS static-library support.")
-}
 
 if (ciCheck && initProject) {
   fail("Use either --ci-check or --init, not both.")
@@ -33,13 +32,23 @@ if (initProject) {
     fail("Missing " + appleProjectDir + ". Run npm run ios:init on macOS, commit src-tauri/gen/apple, then rerun npm run ios:ipa.")
   }
 
-  const args = ciCheck
-    ? ["ios", "build", "--target", "aarch64-sim", ...extraArgs]
-    : extraArgs.length > 0
-      ? ["ios", "build", ...extraArgs]
-      : ["ios", "build", "--export-method", "app-store-connect"]
+  const env = { ...process.env }
+  const featureArgs = []
+  if (nativeTts) {
+    const slice = ciCheck ? SHERPA_IOS_SIMULATOR_SLICE : SHERPA_IOS_DEVICE_SLICE
+    await ensureIosSherpaLibs()
+    env.SHERPA_ONNX_LIB_DIR = iosSherpaLibDir(slice)
+    featureArgs.push("--features", "native-tts-static")
+    console.log("[ios-build] native TTS enabled with SHERPA_ONNX_LIB_DIR=" + env.SHERPA_ONNX_LIB_DIR)
+  }
 
-  runTauriIos(args, "[ios-build] Failed to build iOS IPA: ")
+  const args = ciCheck
+    ? ["ios", "build", "--target", "aarch64-sim", ...featureArgs, ...extraArgs]
+    : extraArgs.length > 0
+      ? ["ios", "build", ...featureArgs, ...extraArgs]
+      : ["ios", "build", "--export-method", "app-store-connect", ...featureArgs]
+
+  runTauriIos(args, "[ios-build] Failed to build iOS IPA: ", env)
 }
 
 function verifyIosBundleId() {
@@ -53,9 +62,9 @@ function verifyIosBundleId() {
   }
 }
 
-function runTauriIos(args, errorPrefix) {
+function runTauriIos(args, errorPrefix, env = process.env) {
   const { command, args: tauriArgs } = tauriCommand(args)
-  const result = runSync(command, tauriArgs)
+  const result = runSync(command, tauriArgs, { env })
   exitFromResult(result, errorPrefix)
 }
 

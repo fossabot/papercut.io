@@ -291,9 +291,10 @@ PR CI runs Tauri's unsigned iOS simulator build on `macos-15` to catch project a
 
 ```bash
 npm run ios:ipa
+npm run ios:ipa:native-tts
 ```
 
-The first iOS target is a signed/TestFlight app without native TTS. `npm run ios:ipa:native-tts` intentionally fails until sherpa-onnx iOS static-library support is wired and verified. Native background playback uses `tauri-plugin-native-audio` on iOS, and the generated Apple target now declares Background Modes > Audio.
+The iOS native TTS build uses the official sherpa-onnx iOS static XCFramework archive, verifies its SHA-256, creates Cargo-compatible static-library aliases under `src-tauri/tts/runtime/sherpa-onnx-ios/`, and builds the App Store Connect IPA with `native-tts-static`. Native background playback uses `tauri-plugin-native-audio` on iOS, and the generated Apple target declares Background Modes > Audio.
 
 ### Android build troubleshooting
 
@@ -301,14 +302,14 @@ If Cargo prints `Blocking waiting for file lock on artifact directory`, another 
 
 ### Offline native multilingual text-to-speech
 
-Papercut uses one native sherpa-onnx TTS architecture on desktop and arm64 Android. React selects a catalog model and voice; Rust downloads, verifies, loads, and caches that model through a generic engine interface. Browser preview can display the UI but cannot synthesize audio. iOS native TTS is planned after the signed/TestFlight iOS shell is working, because sherpa-onnx needs an iOS static-library path instead of the desktop shared-library bundle path.
+Papercut uses one native sherpa-onnx TTS architecture on desktop, arm64 Android, and iOS. React selects a catalog model and voice; Rust downloads, verifies, loads, and caches that model through a generic engine interface. Browser preview can display the UI but cannot synthesize audio. iOS uses the official sherpa-onnx static XCFramework archive rather than desktop dylib bundling.
 
 Supported catalog models:
 
 - **Kokoro English v1.0**: existing default, 27 voices, 349,418,188-byte archive.
 - **Piper Kareem Medium (`ar-JO`)**: Arabic option using sherpa VITS, one voice, 67,177,830-byte archive. SHA-256: `9ebbcea30e0fbd588f7b2cb45ee897d6aeb1bf5791cbc037a7b5a3f641e3dbce`.
 
-Models are not packaged in installers, APKs, or the first iOS shell builds. The selected model is downloaded on demand from the pinned official sherpa-onnx TTS-model release, verified before extraction, and stored in Tauri app data. Desktop and Android share model archives; only native sherpa libraries differ by platform. iOS model downloads will use the same verified on-demand approach once native iOS TTS is enabled.
+Models are not packaged in installers, APKs, or IPAs. The selected model is downloaded on demand from the pinned official sherpa-onnx TTS-model release, verified before extraction, and stored in Tauri app data. Desktop, Android, and iOS share model archives; only native sherpa libraries differ by platform.
 
 Arabic-dominant documents automatically suggest Piper Kareem. Users can override the model selector. Arabic sentence and clause punctuation is recognized during chunking, and every synthesis request has a hard character bound to reduce native crashes on long unpunctuated text. Piper is practical and much smaller, but it should not be described as Kokoro-equivalent quality; voice naturalness must be evaluated on target Arabic material and devices. The upstream model repository is MIT-licensed, while its dataset provenance/license is not clearly stated, so redistribution should receive a license review. On-demand download reduces app distribution risk but does not replace that review.
 

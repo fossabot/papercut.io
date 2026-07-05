@@ -232,5 +232,5 @@ jobs:
           test -f src-tauri/gen/apple/app_iOS/Info.plist
           test -f src-tauri/gen/apple/app_iOS/app_iOS.entitlements
 
-      - name: Build unsigned iOS simulator app
-        run: npm run ios:ci
+      - name: Build unsigned iOS simulator app with native TTS
+        run: npm run ios:ci -- --native-tts
