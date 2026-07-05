@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { cp, mkdir, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { SHERPA_IOS_DEVICE_SLICE } from "./lib/ios/constants.js"
@@ -5,6 +6,8 @@ import { ensureIosSherpaLibs, iosSherpaLibDir } from "./lib/ios/sherpa.js"
 import { runSync } from "./lib/process.js"
 import { ROOT, SRC_TAURI_DIR } from "./lib/paths.js"
 
+const iosConfigPath = join(SRC_TAURI_DIR, "tauri.ios.conf.json")
+const iosDeploymentTarget = readIosDeploymentTarget()
 const appleProjectDir = join(SRC_TAURI_DIR, "gen", "apple")
 const assetsDir = join(appleProjectDir, "assets")
 const distDir = join(ROOT, "dist")
@@ -59,9 +62,11 @@ async function ensureAssets() {
 }
 
 // Build the Rust static library directly so xcodebuild can link without the Tauri CLI helper server.
+// The deployment target must match Xcode, otherwise Swift package builds can default too low.
 async function buildRustDeviceLib() {
   const env = {
     ...process.env,
+    IPHONEOS_DEPLOYMENT_TARGET: iosDeploymentTarget,
     SHERPA_ONNX_LIB_DIR: iosSherpaLibDir(SHERPA_IOS_DEVICE_SLICE),
   }
   runOrFail("cargo", [
@@ -86,6 +91,15 @@ async function stageRustDeviceLib() {
   }
   await mkdir(dirname(xcodeLibPath), { recursive: true })
   await cp(cargoLibPath, xcodeLibPath, { force: true })
+}
+
+function readIosDeploymentTarget() {
+  const config = JSON.parse(readFileSync(iosConfigPath, "utf8"))
+  const target = config.bundle?.iOS?.minimumSystemVersion
+  if (!target) {
+    fail("Missing bundle.iOS.minimumSystemVersion in " + iosConfigPath)
+  }
+  return target
 }
 
 async function isDir(path) {
