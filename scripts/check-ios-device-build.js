@@ -11,7 +11,7 @@ const iosDeploymentTarget = readIosDeploymentTarget()
 const appleProjectDir = join(SRC_TAURI_DIR, "gen", "apple")
 const assetsDir = join(appleProjectDir, "assets")
 const distDir = join(ROOT, "dist")
-const cargoLibPath = join(SRC_TAURI_DIR, "target", "aarch64-apple-ios", "release", "libapp.a")
+const cargoLibPath = join(SRC_TAURI_DIR, "target", "aarch64-apple-ios", "release", "libapp_lib.a")
 const xcodeLibPath = join(appleProjectDir, "Externals", "arm64", "release", "libapp.a")
 
 if (process.platform !== "darwin") {
@@ -84,7 +84,7 @@ async function buildRustDeviceLib() {
   ], { env }, "[ios-device-check] Failed Rust iOS device build: ")
 }
 
-// Xcode links libapp.a from gen/apple/Externals, matching Tauri's generated script output.
+// Cargo names the staticlib from [lib] (`app_lib`), while Xcode expects Tauri's staged libapp.a.
 async function stageRustDeviceLib() {
   if (!await isFile(cargoLibPath)) {
     fail("Missing Rust iOS static library after cargo build: " + cargoLibPath)
