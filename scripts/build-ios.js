@@ -9,11 +9,12 @@ import { tauriCommand } from "./lib/tauri.js"
 const initProject = process.argv.includes("--init")
 const nativeTts = process.argv.includes("--native-tts")
 const ciCheck = process.argv.includes("--ci-check")
+const ciDeviceCheck = process.argv.includes("--ci-device-check")
 const rawArgs = process.argv.slice(2)
-const extraArgs = rawArgs.filter((arg) => arg !== "--init" && arg !== "--native-tts" && arg !== "--ci-check")
+const extraArgs = rawArgs.filter((arg) => arg !== "--init" && arg !== "--native-tts" && arg !== "--ci-check" && arg !== "--ci-device-check")
 const requestedTarget = optionValue(extraArgs, "--target")
-const effectiveTarget = ciCheck ? "aarch64-sim" : requestedTarget
-const forwardedExtraArgs = ciCheck ? withoutOption(extraArgs, "--target") : extraArgs
+const effectiveTarget = ciCheck ? "aarch64-sim" : ciDeviceCheck ? "aarch64" : requestedTarget
+const forwardedExtraArgs = ciCheck || ciDeviceCheck ? withoutOption(extraArgs, "--target") : extraArgs
 const appleProjectDir = join(SRC_TAURI_DIR, "gen", "apple")
 const iosConfigPath = join(SRC_TAURI_DIR, "tauri.ios.conf.json")
 const expectedIosBundleId = "io.papercut.app"
@@ -21,15 +22,23 @@ const expectedIosBundleId = "io.papercut.app"
 verifyIosBundleId()
 
 if (process.platform !== "darwin") {
-  fail("iOS builds require macOS with full Xcode. Use a GitHub macos-15 runner or MacInCloud; Linux cannot run tauri ios build.")
+  fail("iOS builds require macOS with full Xcode. Use a GitHub macos-26 runner or MacInCloud; Linux cannot run tauri ios build.")
 }
 
-if (ciCheck && initProject) {
-  fail("Use either --ci-check or --init, not both.")
+if ((ciCheck || ciDeviceCheck) && initProject) {
+  fail("Use either --ci-check/--ci-device-check or --init, not both.")
+}
+
+if (ciCheck && ciDeviceCheck) {
+  fail("Use either --ci-check or --ci-device-check, not both.")
 }
 
 if (ciCheck && requestedTarget && requestedTarget !== "aarch64-sim") {
   fail("--ci-check only supports --target aarch64-sim, got " + requestedTarget)
+}
+
+if (ciDeviceCheck && requestedTarget && requestedTarget !== "aarch64") {
+  fail("--ci-device-check only supports --target aarch64, got " + requestedTarget)
 }
 
 if (initProject) {
@@ -51,9 +60,11 @@ if (initProject) {
 
   const args = ciCheck
     ? ["ios", "build", "--target", "aarch64-sim", ...featureArgs, ...forwardedExtraArgs]
-    : extraArgs.length > 0
-      ? ["ios", "build", ...featureArgs, ...forwardedExtraArgs]
-      : ["ios", "build", "--export-method", "app-store-connect", ...featureArgs]
+    : ciDeviceCheck
+      ? ["ios", "build", "--target", "aarch64", ...featureArgs, ...forwardedExtraArgs]
+      : extraArgs.length > 0
+        ? ["ios", "build", ...featureArgs, ...forwardedExtraArgs]
+        : ["ios", "build", "--export-method", "app-store-connect", ...featureArgs]
 
   runTauriIos(args, "[ios-build] Failed to build iOS IPA: ", env)
 }
