@@ -413,6 +413,12 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" src-tauri/gen/apple/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:io.papercut.app string $IOS_PROVISIONING_PROFILE_SPECIFIER" src-tauri/gen/apple/ExportOptions.plist
 
+          ios_build_number=$(( ${GITHUB_RUN_NUMBER:?} * 100 + ${GITHUB_RUN_ATTEMPT:?} ))
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $ios_build_number" src-tauri/gen/apple/app_iOS/Info.plist
+          perl -0pi -e 's/CFBundleVersion: "[^"]+"/CFBundleVersion: "'"$ios_build_number"'"/' src-tauri/gen/apple/project.yml
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" src-tauri/gen/apple/app_iOS/Info.plist | grep -Fx "$ios_build_number"
+          grep -Fq "CFBundleVersion: \"$ios_build_number\"" src-tauri/gen/apple/project.yml
+
           pbxproj_path="src-tauri/gen/apple/app.xcodeproj/project.pbxproj"
           replacements="$(grep -c 'CODE_SIGN_IDENTITY = "iPhone Developer";' "$pbxproj_path")"
           if [ "$replacements" -lt 2 ]; then
@@ -425,8 +431,8 @@ jobs:
           grep -Fq "DEVELOPMENT_TEAM = \"$APPLE_TEAM_ID\";" "$pbxproj_path"
           grep -Fq "PROVISIONING_PROFILE_SPECIFIER = \"$IOS_PROVISIONING_PROFILE_SPECIFIER\";" "$pbxproj_path"
 
-      - name: Build signed iOS IPA
-        run: npm run ios:ipa
+      - name: Build signed iOS IPA with native TTS
+        run: npm run ios:ipa:native-tts
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
