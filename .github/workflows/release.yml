@@ -413,7 +413,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" src-tauri/gen/apple/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:io.papercut.app string $IOS_PROVISIONING_PROFILE_SPECIFIER" src-tauri/gen/apple/ExportOptions.plist
 
-          ios_build_number="${GITHUB_RUN_NUMBER:?}"
+          ios_build_number=$(( ${GITHUB_RUN_NUMBER:?} * 100 + ${GITHUB_RUN_ATTEMPT:?} ))
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $ios_build_number" src-tauri/gen/apple/app_iOS/Info.plist
           perl -0pi -e 's/CFBundleVersion: "[^"]+"/CFBundleVersion: "'"$ios_build_number"'"/' src-tauri/gen/apple/project.yml
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" src-tauri/gen/apple/app_iOS/Info.plist | grep -Fx "$ios_build_number"
