@@ -407,9 +407,9 @@ Native TTS on iOS still needs separate validation. The frontend recognizes iOS a
 
 ### 4. PR-safe iOS CI check
 
-Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs a release `xcodebuild` against the generated `app_iOS` scheme with code signing disabled.
+Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs `npm run ios:ci`, which calls `tauri ios build --target aarch64-sim` without Apple signing secrets.
 
-This catches broken iOS project files, Rust/Tauri iOS release compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
+This catches broken iOS project files, Rust/Tauri iOS simulator compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
 
 ### 5. Add release CI job
 
@@ -454,11 +454,12 @@ First CI success only means Apple accepted upload. Still need:
 6. Use GitHub Environments with required approvals for Apple release jobs.
 7. Restrict release workflow trigger and environment deployment rules to protected tags like `v*.*.*`. Be careful with `workflow_dispatch`: the input ref is checked out and its build scripts run with signing secrets, so only approve runs for trusted protected tags.
 8. Do not print secrets or decoded file contents in CI logs.
-9. Create temporary keychains in CI and delete them at job end.
-10. Rotate/revoke immediately if a `.p12`, private key, `.p8`, or GitHub secret leaks.
-11. Keep certificate passwords unique and unrelated to Apple ID password.
-12. Prefer App Store Connect API keys over Apple ID app-specific passwords.
-13. Use absolute paths for decoded CI secret files because Tauri/notarytool may run from `src-tauri` instead of the repository root.
+9. Apple signing jobs intentionally avoid npm and Rust build caches so a cache entry cannot influence a signed or uploaded release artifact.
+10. Create temporary keychains in CI and delete them at job end.
+11. Rotate/revoke immediately if a `.p12`, private key, `.p8`, or GitHub secret leaks.
+12. Keep certificate passwords unique and unrelated to Apple ID password.
+13. Prefer App Store Connect API keys over Apple ID app-specific passwords.
+14. Use absolute paths for decoded CI secret files because Tauri/notarytool may run from `src-tauri` instead of the repository root.
 
 ## Critical Risks
 

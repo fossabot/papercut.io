@@ -25,7 +25,8 @@
     "prepare:sherpa-android-libs:force": "node scripts/prepare-sherpa-android-libs.js --force",
     "ios:init": "node scripts/build-ios.js --init",
     "ios:ipa": "node scripts/build-ios.js",
-    "ios:ipa:native-tts": "node scripts/build-ios.js --native-tts"
+    "ios:ipa:native-tts": "node scripts/build-ios.js --native-tts",
+    "ios:ci": "node scripts/build-ios.js --ci-check"
   },
   "dependencies": {
     "react": "^19.2.0",

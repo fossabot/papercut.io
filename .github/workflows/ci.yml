@@ -211,6 +211,13 @@ jobs:
           key: ios-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: ios-cargo-
 
+      - name: Install CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
+
       - name: Install dependencies
         run: npm ci
 
@@ -225,15 +232,5 @@ jobs:
           test -f src-tauri/gen/apple/app_iOS/Info.plist
           test -f src-tauri/gen/apple/app_iOS/app_iOS.entitlements
 
-      - name: Build unsigned iOS release Xcode target
-        run: |
-          xcodebuild \
-            -project src-tauri/gen/apple/app.xcodeproj \
-            -scheme app_iOS \
-            -configuration release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
+      - name: Build unsigned iOS simulator app
+        run: npm run ios:ci

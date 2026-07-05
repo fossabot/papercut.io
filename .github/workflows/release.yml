@@ -137,17 +137,9 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: actions/cache@v5
-        with:
-          path: src-tauri/target
-          key: release-${{ runner.os }}${{ matrix.cache_suffix }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: release-${{ runner.os }}${{ matrix.cache_suffix }}-cargo-
 
       - name: Install dependencies
         run: npm ci
@@ -323,19 +315,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
 
       - name: Setup Rust with iOS targets
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
-
-      - name: Cache Rust build artifacts
-        uses: actions/cache@v5
-        with:
-          path: src-tauri/target
-          key: release-ios-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: release-ios-cargo-
 
       - name: Install CocoaPods
         run: |
@@ -429,8 +413,17 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" src-tauri/gen/apple/ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:io.papercut.app string $IOS_PROVISIONING_PROFILE_SPECIFIER" src-tauri/gen/apple/ExportOptions.plist
 
-          perl -0pi -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tDEVELOPMENT_TEAM = "'"$APPLE_TEAM_ID"'";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'"$IOS_PROVISIONING_PROFILE_SPECIFIER"'";/g' src-tauri/gen/apple/app.xcodeproj/project.pbxproj
-          grep -n "CODE_SIGN_IDENTITY\|CODE_SIGN_STYLE\|DEVELOPMENT_TEAM\|PROVISIONING_PROFILE_SPECIFIER" src-tauri/gen/apple/app.xcodeproj/project.pbxproj
+          pbxproj_path="src-tauri/gen/apple/app.xcodeproj/project.pbxproj"
+          replacements="$(grep -c 'CODE_SIGN_IDENTITY = "iPhone Developer";' "$pbxproj_path")"
+          if [ "$replacements" -lt 2 ]; then
+            echo "Expected both app_iOS signing configurations to use iPhone Developer before CI patching, found $replacements" >&2
+            exit 1
+          fi
+          perl -0pi -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tDEVELOPMENT_TEAM = "'"$APPLE_TEAM_ID"'";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'"$IOS_PROVISIONING_PROFILE_SPECIFIER"'";/g' "$pbxproj_path"
+          grep -Fq 'CODE_SIGN_IDENTITY = "Apple Distribution";' "$pbxproj_path"
+          grep -Fq 'CODE_SIGN_STYLE = Manual;' "$pbxproj_path"
+          grep -Fq "DEVELOPMENT_TEAM = \"$APPLE_TEAM_ID\";" "$pbxproj_path"
+          grep -Fq "PROVISIONING_PROFILE_SPECIFIER = \"$IOS_PROVISIONING_PROFILE_SPECIFIER\";" "$pbxproj_path"
 
       - name: Build signed iOS IPA
         run: npm run ios:ipa
