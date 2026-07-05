@@ -407,9 +407,9 @@ Native TTS on iOS still needs separate validation. The frontend recognizes iOS a
 
 ### 4. PR-safe iOS CI check
 
-Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs `xcodebuild` against the generated `app_iOS` scheme with code signing disabled.
+Regular PR CI now includes a `build-ios` job on `macos-15`. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, and runs a release `xcodebuild` against the generated `app_iOS` scheme with code signing disabled.
 
-This catches broken iOS project files, Rust/Tauri iOS compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
+This catches broken iOS project files, Rust/Tauri iOS release compile failures, missing frontend assets, and Xcode integration issues before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
 
 ### 5. Add release CI job
 

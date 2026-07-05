@@ -225,12 +225,12 @@ jobs:
           test -f src-tauri/gen/apple/app_iOS/Info.plist
           test -f src-tauri/gen/apple/app_iOS/app_iOS.entitlements
 
-      - name: Build unsigned iOS Xcode target
+      - name: Build unsigned iOS release Xcode target
         run: |
           xcodebuild \
             -project src-tauri/gen/apple/app.xcodeproj \
             -scheme app_iOS \
-            -configuration debug \
+            -configuration release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
