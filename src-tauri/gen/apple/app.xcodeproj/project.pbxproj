@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A11F1E8C62D34F1BA0000001 /* SwiftRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F1E8C62D34F1BA0000002 /* SwiftRuntimeBridge.swift */; };
 		299814393FFBF154FAD94CA8 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F3673D372C5ABDD1AD6E7067 /* QuartzCore.framework */; };
 		3036F7131E55779ABF15BD58 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 02B7F8347F94B067E6B27396 /* LaunchScreen.storyboard */; };
 		31585529C029A01BE249A285 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E81BD6B453D87B7F7B1597B /* CoreGraphics.framework */; };
@@ -22,6 +23,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A11F1E8C62D34F1BA0000002 /* SwiftRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftRuntimeBridge.swift; sourceTree = "<group>"; };
 		007E478DB8BC37A788C4730F /* app_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = app_iOS.entitlements; sourceTree = "<group>"; };
 		02B7F8347F94B067E6B27396 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		0475A775B1905AD2D51FEB14 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
@@ -273,6 +275,7 @@
 			isa = PBXGroup;
 			children = (
 				682535EEFE1DA20BE07B123C /* main.mm */,
+				A11F1E8C62D34F1BA0000002 /* SwiftRuntimeBridge.swift */,
 				329C38BE5E8B40354375D0D0 /* bindings */,
 			);
 			path = app;
@@ -364,7 +367,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "case \"${PLATFORM_NAME:-}\" in\n  iphonesimulator) SHERPA_ONNX_IOS_SLICE=ios-arm64-simulator ;;\n  iphoneos) SHERPA_ONNX_IOS_SLICE=ios-arm64 ;;\n  *) SHERPA_ONNX_IOS_SLICE=ios-arm64 ;;\nesac\nexport SHERPA_ONNX_LIB_DIR=\"$(cd \"${SRCROOT:?}/../..\" && pwd)/tts/runtime/sherpa-onnx-ios/cargo-libs/$SHERPA_ONNX_IOS_SLICE\"\nnpm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+			shellScript = "if [ \"${PAPERCUT_SKIP_TAURI_IOS_XCODE_SCRIPT:-}\" = \"1\" ]; then\n  echo \"Skipping Tauri iOS xcode-script; libapp.a was prepared by CI\"\n  exit 0\nfi\ncase \"${PLATFORM_NAME:-}\" in\n  iphonesimulator) SHERPA_ONNX_IOS_SLICE=ios-arm64-simulator ;;\n  iphoneos) SHERPA_ONNX_IOS_SLICE=ios-arm64 ;;\n  *) SHERPA_ONNX_IOS_SLICE=ios-arm64 ;;\nesac\nexport SHERPA_ONNX_LIB_DIR=\"$(cd \"${SRCROOT:?}/../..\" && pwd)/tts/runtime/sherpa-onnx-ios/cargo-libs/$SHERPA_ONNX_IOS_SLICE\"\nnpm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -374,6 +377,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				53CDD0ACFBE8BDF1550B2E53 /* main.mm in Sources */,
+				A11F1E8C62D34F1BA0000001 /* SwiftRuntimeBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

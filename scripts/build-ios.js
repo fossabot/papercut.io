@@ -21,7 +21,7 @@ const expectedIosBundleId = "io.papercut.app"
 verifyIosBundleId()
 
 if (process.platform !== "darwin") {
-  fail("iOS builds require macOS with full Xcode. Use a GitHub macos-15 runner or MacInCloud; Linux cannot run tauri ios build.")
+  fail("iOS builds require macOS with full Xcode. Use a GitHub macos-26 runner or MacInCloud; Linux cannot run tauri ios build.")
 }
 
 if (ciCheck && initProject) {

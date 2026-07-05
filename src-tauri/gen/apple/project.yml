@@ -84,6 +84,10 @@ targets:
       - sdk: WebKit.framework
     preBuildScripts:
       - script: |
+          if [ "${PAPERCUT_SKIP_TAURI_IOS_XCODE_SCRIPT:-}" = "1" ]; then
+            echo "Skipping Tauri iOS xcode-script; libapp.a was prepared by CI"
+            exit 0
+          fi
           case "${PLATFORM_NAME:-}" in
             iphonesimulator) SHERPA_ONNX_IOS_SLICE=ios-arm64-simulator ;;
             iphoneos) SHERPA_ONNX_IOS_SLICE=ios-arm64 ;;

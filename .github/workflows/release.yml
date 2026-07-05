@@ -311,13 +311,29 @@ jobs:
       - name: Verify Xcode and iOS SDK version
         run: |
           xcodebuild -version
+          xcrun --find swiftc
+          xcrun --find swift
+          swiftc -version
           sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
+          sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+          swift_lib_dir="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift"
           sdk_major="${sdk_version%%.*}"
           if [ "$sdk_major" -lt 26 ]; then
             echo "iOS builds require iOS 26 SDK or newer; App Store uploads reject older SDKs; found $sdk_version" >&2
             exit 1
           fi
-          echo "Using iOS SDK $sdk_version"
+          if [ ! -d "$swift_lib_dir" ]; then
+            echo "Missing Xcode Swift library directory: $swift_lib_dir" >&2
+            exit 1
+          fi
+          echo "Using iOS SDK $sdk_version at $sdk_path"
+          echo "Using Swift libraries at $swift_lib_dir"
+          swift_compat_libs="$(find "$swift_lib_dir" -maxdepth 3 \( -name 'libswiftCompatibility56*' -o -name 'libswiftCompatibilityConcurrency*' -o -name 'libswiftCompatibilityPacks*' \) -print)"
+          if [ -z "$swift_compat_libs" ]; then
+            echo "Missing Swift compatibility libraries under $swift_lib_dir" >&2
+            exit 1
+          fi
+          printf '%s\n' "$swift_compat_libs"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

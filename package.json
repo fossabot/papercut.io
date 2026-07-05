@@ -28,7 +28,8 @@
     "ios:ipa:native-tts": "node scripts/build-ios.js --native-tts",
     "ios:ci": "node scripts/build-ios.js --ci-check",
     "prepare:sherpa-ios-libs": "node scripts/prepare-sherpa-ios-libs.js",
-    "prepare:sherpa-ios-libs:force": "node scripts/prepare-sherpa-ios-libs.js --force"
+    "prepare:sherpa-ios-libs:force": "node scripts/prepare-sherpa-ios-libs.js --force",
+    "ios:ci:device": "node scripts/check-ios-device-build.js"
   },
   "dependencies": {
     "react": "^19.2.0",
