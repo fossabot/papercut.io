@@ -401,7 +401,7 @@ npm run ios:ipa
 npm run ios:ipa:native-tts
 ```
 
-`npm run ios:ipa` runs `tauri ios build --export-method app-store-connect` on macOS after `src-tauri/gen/apple` exists. `npm run ios:ipa:native-tts` first prepares the official sherpa-onnx iOS static XCFramework archive, verifies SHA-256, creates Cargo-compatible static-library aliases, sets `SHERPA_ONNX_LIB_DIR`, and builds with `native-tts-static`.
+`npm run ios:ipa` runs `tauri ios build --export-method app-store-connect` on macOS after `src-tauri/gen/apple` exists. `npm run ios:ipa:native-tts` first prepares the official sherpa-onnx iOS static XCFramework archive, verifies SHA-256, prepares thin Cargo link archives, sets `SHERPA_ONNX_LIB_DIR`, and builds with `native-tts-static`. Device builds use `ios-arm64`; simulator CI uses an arm64-thinned copy of the upstream universal simulator archive because Rust cannot link the fat archive directly.
 
 Native TTS on iOS must be validated through TestFlight on a real iPhone or iPad. The frontend recognizes iOS and the native audio plugin uses AVPlayer/Now Playing controls, but long audiobook generation should still be treated as foreground/resumable work; background audio support is for playback, not a guarantee that synthesis continues while iOS suspends the app.
 

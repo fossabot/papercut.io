@@ -19,13 +19,5 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=app=-Wl,-rpath,@loader_path/../Resources");
     }
 
-    if target_os == "ios" && std::env::var_os("CARGO_FEATURE_NATIVE_TTS_STATIC").is_some() {
-        // The upstream iOS sherpa package is static XCFramework-style code.
-        // sherpa-onnx-sys emits the archive names; this app crate supplies the
-        // Apple system libraries needed by the static C++ objects.
-        println!("cargo:rustc-link-lib=dylib=c++");
-        println!("cargo:rustc-link-lib=framework=Foundation");
-    }
-
     tauri_build::build()
 }

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { SHERPA_IOS_DEVICE_SLICE, SHERPA_IOS_SIMULATOR_SLICE } from "./lib/ios/constants.js"
+import { SHERPA_IOS_DEVICE_SLICE, SHERPA_IOS_SIMULATOR_ARM64_SLICE } from "./lib/ios/constants.js"
 import { ensureIosSherpaLibs, iosSherpaLibDir } from "./lib/ios/sherpa.js"
 import { exitFromResult, runSync } from "./lib/process.js"
 import { SRC_TAURI_DIR } from "./lib/paths.js"
@@ -35,8 +35,8 @@ if (initProject) {
   const env = { ...process.env }
   const featureArgs = []
   if (nativeTts) {
-    const slice = ciCheck ? SHERPA_IOS_SIMULATOR_SLICE : SHERPA_IOS_DEVICE_SLICE
-    await ensureIosSherpaLibs()
+    const slice = ciCheck ? SHERPA_IOS_SIMULATOR_ARM64_SLICE : SHERPA_IOS_DEVICE_SLICE
+    await ensureIosSherpaLibs({ includeSimulator: ciCheck })
     env.SHERPA_ONNX_LIB_DIR = iosSherpaLibDir(slice)
     featureArgs.push("--features", "native-tts-static")
     console.log("[ios-build] native TTS enabled with SHERPA_ONNX_LIB_DIR=" + env.SHERPA_ONNX_LIB_DIR)
@@ -51,6 +51,7 @@ if (initProject) {
   runTauriIos(args, "[ios-build] Failed to build iOS IPA: ", env)
 }
 
+// Keep CI/release pointed at the App Store Connect bundle id, not the desktop id.
 function verifyIosBundleId() {
   if (!existsSync(iosConfigPath)) {
     fail("Missing iOS Tauri config: " + iosConfigPath)
@@ -62,6 +63,7 @@ function verifyIosBundleId() {
   }
 }
 
+// Pass SHERPA_ONNX_LIB_DIR into Tauri so the Xcode Rust phase inherits the same slice.
 function runTauriIos(args, errorPrefix, env = process.env) {
   const { command, args: tauriArgs } = tauriCommand(args)
   const result = runSync(command, tauriArgs, { env })

@@ -51,3 +51,6 @@ roxmltree = "0.20"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 percent-encoding = "2.3"
 kuchikiki = "=0.8.8-speedreader"
+
+[patch.crates-io]
+sherpa-onnx-sys = { path = "vendor/sherpa-onnx-sys" }

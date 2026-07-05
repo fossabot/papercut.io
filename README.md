@@ -294,7 +294,7 @@ npm run ios:ipa
 npm run ios:ipa:native-tts
 ```
 
-The iOS native TTS build uses the official sherpa-onnx iOS static XCFramework archive, verifies its SHA-256, creates Cargo-compatible static-library aliases under `src-tauri/tts/runtime/sherpa-onnx-ios/`, and builds the App Store Connect IPA with `native-tts-static`. Native background playback uses `tauri-plugin-native-audio` on iOS, and the generated Apple target declares Background Modes > Audio.
+The iOS native TTS build uses the official sherpa-onnx iOS static XCFramework archive, verifies its SHA-256, prepares thin Cargo link archives under `src-tauri/tts/runtime/sherpa-onnx-ios/cargo-libs/`, and builds the App Store Connect IPA with `native-tts-static`. Device builds link the upstream `ios-arm64` aggregate archives directly; simulator CI thins the upstream universal simulator archives to arm64 before Rust sees them. Native background playback uses `tauri-plugin-native-audio` on iOS, and the generated Apple target declares Background Modes > Audio.
 
 ### Android build troubleshooting
 
