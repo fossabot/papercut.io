@@ -328,7 +328,12 @@ jobs:
           fi
           echo "Using iOS SDK $sdk_version at $sdk_path"
           echo "Using Swift libraries at $swift_lib_dir"
-          find "$swift_lib_dir" -maxdepth 3 \( -name 'libswiftCompatibility56*' -o -name 'libswiftCompatibilityConcurrency*' -o -name 'libswiftCompatibilityPacks*' \) -print || true
+          swift_compat_libs="$(find "$swift_lib_dir" -maxdepth 3 \( -name 'libswiftCompatibility56*' -o -name 'libswiftCompatibilityConcurrency*' -o -name 'libswiftCompatibilityPacks*' \) -print)"
+          if [ -z "$swift_compat_libs" ]; then
+            echo "Missing Swift compatibility libraries under $swift_lib_dir" >&2
+            exit 1
+          fi
+          printf '%s\n' "$swift_compat_libs"
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

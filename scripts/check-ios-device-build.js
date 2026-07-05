@@ -1,12 +1,15 @@
 import { cp, mkdir, stat } from "node:fs/promises"
-import { join } from "node:path"
-import { ensureIosSherpaLibs } from "./lib/ios/sherpa.js"
-import { exitFromResult, runSync } from "./lib/process.js"
+import { dirname, join } from "node:path"
+import { SHERPA_IOS_DEVICE_SLICE } from "./lib/ios/constants.js"
+import { ensureIosSherpaLibs, iosSherpaLibDir } from "./lib/ios/sherpa.js"
+import { runSync } from "./lib/process.js"
 import { ROOT, SRC_TAURI_DIR } from "./lib/paths.js"
 
 const appleProjectDir = join(SRC_TAURI_DIR, "gen", "apple")
 const assetsDir = join(appleProjectDir, "assets")
 const distDir = join(ROOT, "dist")
+const cargoLibPath = join(SRC_TAURI_DIR, "target", "aarch64-apple-ios", "release", "libapp.a")
+const xcodeLibPath = join(appleProjectDir, "Externals", "arm64", "release", "libapp.a")
 
 if (process.platform !== "darwin") {
   fail("iOS device checks require macOS with full Xcode. Use a GitHub macos-26 runner or MacInCloud.")
@@ -14,6 +17,8 @@ if (process.platform !== "darwin") {
 
 await ensureIosSherpaLibs({ includeSimulator: false })
 await ensureAssets()
+await buildRustDeviceLib()
+await stageRustDeviceLib()
 
 const args = [
   "-project",
@@ -33,9 +38,15 @@ const args = [
   "build",
 ]
 
-const result = runSync("xcodebuild", args, { cwd: appleProjectDir })
-exitFromResult(result, "[ios-device-check] Failed unsigned iOS device build: ")
+runOrFail("xcodebuild", args, {
+  cwd: appleProjectDir,
+  env: {
+    ...process.env,
+    PAPERCUT_SKIP_TAURI_IOS_XCODE_SCRIPT: "1",
+  },
+}, "[ios-device-check] Failed unsigned iOS device build: ")
 
+// Tauri-generated iOS projects read frontend files from gen/apple/assets.
 async function ensureAssets() {
   if (await isDir(assetsDir)) {
     return
@@ -47,11 +58,60 @@ async function ensureAssets() {
   await cp(distDir, assetsDir, { recursive: true })
 }
 
+// Build the Rust static library directly so xcodebuild can link without the Tauri CLI helper server.
+async function buildRustDeviceLib() {
+  const env = {
+    ...process.env,
+    SHERPA_ONNX_LIB_DIR: iosSherpaLibDir(SHERPA_IOS_DEVICE_SLICE),
+  }
+  runOrFail("cargo", [
+    "build",
+    "--package",
+    "app",
+    "--manifest-path",
+    join(SRC_TAURI_DIR, "Cargo.toml"),
+    "--target",
+    "aarch64-apple-ios",
+    "--features",
+    "native-tts-static tauri/custom-protocol",
+    "--lib",
+    "--release",
+  ], { env }, "[ios-device-check] Failed Rust iOS device build: ")
+}
+
+// Xcode links libapp.a from gen/apple/Externals, matching Tauri's generated script output.
+async function stageRustDeviceLib() {
+  if (!await isFile(cargoLibPath)) {
+    fail("Missing Rust iOS static library after cargo build: " + cargoLibPath)
+  }
+  await mkdir(dirname(xcodeLibPath), { recursive: true })
+  await cp(cargoLibPath, xcodeLibPath, { force: true })
+}
+
 async function isDir(path) {
   try {
     return (await stat(path)).isDirectory()
   } catch {
     return false
+  }
+}
+
+async function isFile(path) {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
+
+function runOrFail(command, args, options, errorPrefix) {
+  const result = runSync(command, args, options)
+  if (result.error) {
+    console.error(errorPrefix + result.error.message)
+    process.exit(1)
+  }
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1)
   }
 }
 
