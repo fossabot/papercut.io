@@ -407,7 +407,7 @@ Native TTS on iOS must be validated through TestFlight on a real iPhone or iPad.
 
 ### 4. PR-safe iOS CI check
 
-Regular PR CI now includes a `build-ios` job on `macos-26`, with an explicit iOS SDK 26+ guard before building. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, runs `npm run ios:ci -- --native-tts` for the arm64 simulator, and runs `npm run ios:ci:device -- --native-tts` after disabling Xcode code signing for a release-class generic iPhoneOS device link check.
+Regular PR CI now includes a `build-ios` job on `macos-26`, with an explicit iOS SDK 26+ guard before building. This job does not use Apple secrets and does not upload to App Store Connect. It verifies the generated Apple project files, builds the frontend, installs iOS Rust targets, runs `npm run ios:ci -- --native-tts` for the arm64 simulator, and runs `npm run ios:ci:device`, which prepares iOS native TTS libs and runs an unsigned `xcodebuild build` for a release-class generic iPhoneOS device link check without archive/export.
 
 This catches broken iOS project files, Rust/Tauri iOS simulator compile failures, iPhoneOS device link failures, missing frontend assets, Swift toolchain/Xcode integration issues, and stale SDK runners before release. It does not replace the protected signed release job, because App Store provisioning and upload require secrets from the `apple-release` environment.
 
